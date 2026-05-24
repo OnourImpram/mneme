@@ -29,6 +29,13 @@ from mneme_core.compression.pipeline import (
 from mneme_core.compression.staging import StagingConfig, capture_event
 from mneme_core.vault.config import VaultConfig
 
+# A negative active window pushes the staging cutoff into the future so
+# _load_events_from_staging never skips a just-seeded file. A literal
+# 0.0 was flaky on Windows: a freshly written file's st_mtime can read a
+# hair ahead of the time.time() cutoff, so the strict `mtime > cutoff`
+# check dropped the event and the pipeline wrongly reported "empty".
+_TEST_LOAD_ALL_WINDOW_S = -3600.0
+
 
 class FakeProvider:
     """Deterministic LLM stand-in for pipeline tests."""
@@ -100,10 +107,9 @@ def vault(tmp_path: Path) -> VaultConfig:
 def config(vault: VaultConfig) -> PipelineConfig:
     enabled_cfg = CompressionConfig(enabled=True, cost_cap_usd_monthly=10.0)
     cfg = pipeline_config_from_vault(vault, enabled_cfg)
-    # Phase J Codex fix: production cutoff skips files <60s old to avoid
-    # the load-then-archive race with PostToolUse. Tests seed events
-    # synchronously, so disable the cutoff for deterministic runs.
-    return dataclasses.replace(cfg, staging_active_window_s=0.0)
+    # Production skips files <60s old to avoid the load-then-archive race
+    # with PostToolUse. Tests seed synchronously and must load at once.
+    return dataclasses.replace(cfg, staging_active_window_s=_TEST_LOAD_ALL_WINDOW_S)
 
 
 def _seed_staging(vault: VaultConfig, count: int = 1) -> None:
@@ -253,7 +259,7 @@ class TestCostCap:
             pipeline_config_from_vault(
                 vault, CompressionConfig(enabled=True, cost_cap_usd_monthly=10.0)
             ),
-            staging_active_window_s=0.0,
+            staging_active_window_s=_TEST_LOAD_ALL_WINDOW_S,
         )
         report = run_compression(cfg, FakeProvider(text=_make_observation("2026-06-15")))
         assert report.status == "cost_cap_exceeded"
