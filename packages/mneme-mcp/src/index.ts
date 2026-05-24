@@ -196,6 +196,17 @@ const TOOLS: ToolDef[] = [
 ];
 
 async function main(): Promise<void> {
+	// When the MCP client disconnects, a final write to the now-closed
+	// stdio pipe raises EPIPE. Node escalates an EventEmitter "error" with
+	// no listener into a process-crashing throw, so treat a broken stdout
+	// pipe as a normal shutdown rather than a fatal error.
+	process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+		if (err.code === "EPIPE") {
+			process.exit(0);
+		}
+		throw err;
+	});
+
 	const vault = VaultConfig.resolve();
 
 	const server = new Server(
