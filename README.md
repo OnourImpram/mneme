@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="mneme — vault-native memory for Claude Code" width="100%">
+  <img src="assets/banner.jpg" alt="mneme — vault-native memory for Claude Code" width="100%">
 </p>
 
 # mneme
