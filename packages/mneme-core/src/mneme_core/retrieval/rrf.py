@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 DEFAULT_RRF_K: int = 60
 
@@ -176,7 +176,7 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
     ``rrf_score`` and the deduplicated list of source backends that
     produced it.
     """
-    scores: dict[int | str, dict[str, object]] = {}
+    scores: dict[int | str, dict[str, Any]] = {}
     for ranking in rankings:
         for rank_idx, hit in enumerate(ranking, start=1):
             key = hit.id if hit.id is not None else hit.path

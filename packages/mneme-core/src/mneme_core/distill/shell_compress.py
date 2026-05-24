@@ -105,7 +105,7 @@ def _dedupe_adjacent(lines: list[str]) -> list[str]:
 
 
 def _fold_run(
-    lines: list[str], predicate: "re.Pattern[str]", threshold: int, label: str
+    lines: list[str], predicate: re.Pattern[str], threshold: int, label: str
 ) -> list[str]:
     out: list[str] = []
     buffer: list[str] = []

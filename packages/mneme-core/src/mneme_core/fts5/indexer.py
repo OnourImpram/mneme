@@ -24,7 +24,7 @@ import sqlite3
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
@@ -281,7 +281,7 @@ def index_vault(
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
         rel_path = str(md_path.relative_to(config.vault_root)).replace("\\", "/")
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         conn.execute(
             """INSERT INTO documents

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,11 +63,11 @@ def _slug(name: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _pattern_path(vault: Any, name: str) -> Path:
-    return vault.patterns_dir / f"{_slug(name)}.md"
+    return Path(vault.patterns_dir / f"{_slug(name)}.md")
 
 
 def to_markdown(pattern: Pattern) -> str:

@@ -22,6 +22,7 @@ import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -56,8 +57,8 @@ def _resolve(explicit: Path | None) -> VaultConfig:
     return VaultConfig.resolve()
 
 
-def _read_telemetry(vault: VaultConfig) -> list[dict]:
-    out: list[dict] = []
+def _read_telemetry(vault: VaultConfig) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     if not vault.telemetry_dir.exists():
         return out
     for jsonl in vault.telemetry_dir.rglob("*.jsonl"):

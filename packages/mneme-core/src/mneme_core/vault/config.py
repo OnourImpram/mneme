@@ -127,7 +127,7 @@ class VaultConfig:
         return self.root / "trajectories"
 
     @classmethod
-    def resolve(cls, explicit: Path | None = None) -> "VaultConfig":
+    def resolve(cls, explicit: Path | None = None) -> VaultConfig:
         """Resolve the vault root via the documented priority order."""
         candidate = _resolve_path(explicit)
         if candidate is None:
@@ -140,7 +140,7 @@ class VaultConfig:
         return cls(root=candidate.resolve())
 
     @classmethod
-    def from_path(cls, path: Path) -> "VaultConfig":
+    def from_path(cls, path: Path) -> VaultConfig:
         """Construct directly from an explicit path. Skips resolution order."""
         return cls(root=path.expanduser().resolve())
 

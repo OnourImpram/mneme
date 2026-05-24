@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -34,7 +34,7 @@ class TestKnownTypes:
             "session_summary",
             "user_prompt",
         }
-        assert KNOWN_TYPES == canonical
+        assert canonical == KNOWN_TYPES
 
     def test_is_known_type_true_for_canonical(self) -> None:
         for canonical in KNOWN_TYPES:
@@ -83,7 +83,7 @@ class TestParse:
         assert fm is not None
         assert fm.id == "test-id"
         assert fm.type == "session"
-        assert fm.created == datetime(2026, 5, 19, 10, 0, tzinfo=timezone.utc)
+        assert fm.created == datetime(2026, 5, 19, 10, 0, tzinfo=UTC)
         assert fm.schema_version == 1
         assert body == "body content"
 
@@ -145,7 +145,7 @@ class TestSerialize:
         fm = Frontmatter(
             id="t",
             type="session",
-            created=datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+            created=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
             tags=["a", "b"],
             session_id="s1",
         )
@@ -163,7 +163,7 @@ class TestSerialize:
         fm = Frontmatter(
             id="t",
             type="session",
-            created=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created=datetime(2026, 1, 1, tzinfo=UTC),
             extra={"title": "Foo Bar"},
         )
         text = serialize(fm, "kıyaslama body içerik")
@@ -174,7 +174,7 @@ class TestSerialize:
         fm = Frontmatter(
             id="t",
             type="session",
-            created=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created=datetime(2026, 1, 1, tzinfo=UTC),
             extra={"custom": "value", "n": 7},
         )
         text = serialize(fm, "body")

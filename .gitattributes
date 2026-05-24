@@ -1,0 +1,15 @@
+# Normalize line endings to LF on checkout across every platform. The
+# biome formatter expects LF, so without this a Windows runner with
+# core.autocrlf=true converts the LF blobs to CRLF on checkout and the
+# format check fails on Windows while passing on Linux and macOS.
+* text=auto eol=lf
+
+# Binary types git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary

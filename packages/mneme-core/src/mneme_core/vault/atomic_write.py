@@ -23,6 +23,7 @@ Failure modes handled:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import tempfile
 from pathlib import Path
@@ -41,10 +42,8 @@ def _fsync_dir(directory: Path) -> None:
     except OSError:
         pass
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.close(dir_fd)
-        except OSError:
-            pass
 
 
 def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
@@ -69,8 +68,6 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
         Path(tmp_name).replace(path)
         _fsync_dir(path.parent)
     except BaseException:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
         raise

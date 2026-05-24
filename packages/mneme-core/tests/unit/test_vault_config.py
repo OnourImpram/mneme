@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -104,5 +105,5 @@ class TestDerivedPaths:
 class TestImmutability:
     def test_frozen_dataclass(self, tmp_path: Path) -> None:
         cfg = VaultConfig(root=tmp_path)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.root = tmp_path / "other"  # type: ignore[misc]

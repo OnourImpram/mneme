@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +56,7 @@ class Trajectory:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _safe_id(session_id: str) -> str:
@@ -66,7 +66,7 @@ def _safe_id(session_id: str) -> str:
 
 def _trajectory_path(vault: Any, session_id: str, *, on_date: date | None = None) -> Path:
     d = on_date or _now().date()
-    return vault.trajectories_dir / d.isoformat() / f"{_safe_id(session_id)}.md"
+    return Path(vault.trajectories_dir / d.isoformat() / f"{_safe_id(session_id)}.md")
 
 
 def _frontmatter_text(traj: Trajectory) -> str:

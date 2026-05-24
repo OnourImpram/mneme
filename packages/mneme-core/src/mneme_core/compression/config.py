@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from .llm import DEFAULT_MODEL
 
@@ -46,7 +47,7 @@ class CompressionConfig:
     schema_version: int = SCHEMA_VERSION
 
     @classmethod
-    def default(cls) -> "CompressionConfig":
+    def default(cls) -> CompressionConfig:
         return cls()
 
 
@@ -61,7 +62,7 @@ def read_config(path: Path) -> CompressionConfig:
     if not isinstance(raw, dict):
         return CompressionConfig.default()
     defaults = asdict(CompressionConfig.default())
-    merged: dict[str, object] = {**defaults, **raw}
+    merged: dict[str, Any] = {**defaults, **raw}
     try:
         return CompressionConfig(
             enabled=bool(merged.get("enabled", False)),

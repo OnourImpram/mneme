@@ -34,7 +34,7 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,7 @@ def append_cost(
 ) -> None:
     """Atomically append one cost record. Never raises on disk error."""
     record: dict[str, Any] = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "kind": kind,
         "model": model,
         "tokens_in": int(tokens_in),
@@ -124,13 +124,11 @@ def month_to_date_spend(
     records = _iter_records(ledger_path)
     if not records:
         return 0.0
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cur_month = now.strftime("%Y-%m")
-    matching_kinds: set[str] | None
-    if kind is None:
-        matching_kinds = None
-    else:
-        matching_kinds = {kind, kind + RESERVATION_KIND_SUFFIX}
+    matching_kinds: set[str] | None = (
+        None if kind is None else {kind, kind + RESERVATION_KIND_SUFFIX}
+    )
     total = 0.0
     for rec in records:
         rec_kind = rec.get("kind")
@@ -156,13 +154,11 @@ def rolling_30d_spend(
     records = _iter_records(ledger_path)
     if not records:
         return 0.0
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cutoff = now - timedelta(days=30)
-    matching_kinds: set[str] | None
-    if kind is None:
-        matching_kinds = None
-    else:
-        matching_kinds = {kind, kind + RESERVATION_KIND_SUFFIX}
+    matching_kinds: set[str] | None = (
+        None if kind is None else {kind, kind + RESERVATION_KIND_SUFFIX}
+    )
     total = 0.0
     for rec in records:
         if matching_kinds is not None and rec.get("kind") not in matching_kinds:
@@ -237,7 +233,7 @@ def reserve_cost(
     nothing was reserved.
     """
     reservation_id = str(uuid.uuid4())
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
         spend = month_to_date_spend(ledger_path, kind=kind, now=now)
         if spend + float(estimated_cost_usd) >= cap_usd_monthly:
@@ -275,7 +271,7 @@ def settle_reservation(
     concurrent reserve / settle / rollback. Missing reservation is
     not an error; the actual cost is still appended.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     settled: dict[str, Any] = {
         "ts": now.isoformat(),
         "kind": kind,
@@ -372,7 +368,7 @@ def check_cap(
     try:
         pause_flag_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "paused_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "paused_at": (now or datetime.now(UTC)).isoformat(),
             "cap_usd_monthly": cap_usd_monthly,
             "spend_usd": round(spend, 6),
             "reason": "cost_cap_exceeded",

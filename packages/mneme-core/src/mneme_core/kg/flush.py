@@ -12,7 +12,7 @@ constraint forbids that.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .episode_stage import KgConfig, is_active
 
@@ -28,7 +28,7 @@ def mark_community_refresh(config: KgConfig, *, reason: str = "stop_hook") -> bo
             return False
         config.community_refresh_flag.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "requested_at": datetime.now(timezone.utc).isoformat(),
+            "requested_at": datetime.now(UTC).isoformat(),
             "reason": reason,
         }
         config.community_refresh_flag.write_text(

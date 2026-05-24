@@ -71,7 +71,7 @@ class Frontmatter:
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Frontmatter":
+    def from_dict(cls, data: dict[str, Any]) -> Frontmatter:
         required = {"id", "type", "created"}
         missing = required - data.keys()
         if missing:

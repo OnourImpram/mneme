@@ -19,7 +19,6 @@ from mneme_core.fts5.indexer import (
     SCHEMA_VERSION,
     BenchmarkResult,
     IndexerConfig,
-    IndexStats,
     benchmark_queries,
     connect,
     ensure_schema,

@@ -48,7 +48,9 @@ class TestInterpolation:
 
 class TestCustomPolicy:
     def test_custom_range_honored(self) -> None:
-        policy = TopKPolicy(min_k=1, max_k=20, low_usage_threshold=1_000, high_usage_threshold=10_000)
+        policy = TopKPolicy(
+            min_k=1, max_k=20, low_usage_threshold=1_000, high_usage_threshold=10_000
+        )
         assert adaptive_topk(500, policy) == 20
         assert adaptive_topk(10_000, policy) == 1
         assert 1 < adaptive_topk(5_500, policy) < 20

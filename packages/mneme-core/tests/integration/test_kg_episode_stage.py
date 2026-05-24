@@ -78,9 +78,9 @@ class TestWhitelist:
         assert stage_event({"tool": "Write", "path": "x.md"}, config) is True
 
     def test_default_capture_set_matches_post_tool_use_matcher(self) -> None:
-        assert DEFAULT_CAPTURE_TOOLS == frozenset(
+        assert frozenset(
             {"Edit", "Write", "Bash", "Task", "MultiEdit"}
-        )
+        ) == DEFAULT_CAPTURE_TOOLS
 
 
 class TestFailureSoft:

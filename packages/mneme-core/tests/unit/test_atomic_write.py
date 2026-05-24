@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -85,15 +86,13 @@ class TestDirectoryFsync:
     def test_write_survives_dir_fsync_failure(self, tmp_path: Path) -> None:
         """A simulated dir-fsync OSError must not corrupt the rename outcome."""
         target = tmp_path / "out.md"
-        with patch.object(
-            aw_module, "_fsync_dir", side_effect=OSError("simulated")
+        # Best-effort dir fsync: the rename has already committed
+        # before the helper runs, so the file is on disk regardless
+        # of whether the helper raised.
+        with (
+            patch.object(aw_module, "_fsync_dir", side_effect=OSError("simulated")),
+            contextlib.suppress(OSError),
         ):
-            try:
-                atomic_write_text(target, "y")
-            except OSError:
-                # Best-effort dir fsync: the rename has already
-                # committed before the helper runs, so the file is on
-                # disk regardless of whether the helper raised.
-                pass
+            atomic_write_text(target, "y")
         assert target.is_file()
         assert target.read_text(encoding="utf-8") == "y"

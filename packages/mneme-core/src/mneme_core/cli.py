@@ -547,7 +547,10 @@ def index() -> None:  # pragma: no cover - dispatcher
     type=click.Choice(["en", "tr"]),
     default="en",
     show_default=True,
-    help="Token normalizer locale. 'tr' enables the Turkish casefold for KIYASLAMA-style edge cases.",
+    help=(
+        "Token normalizer locale. 'tr' enables the Turkish casefold "
+        "for KIYASLAMA-style edge cases."
+    ),
 )
 def index_rebuild(vault_root: Path | None, locale: str) -> None:
     from mneme_core.fts5 import indexer as fts5_indexer
@@ -614,7 +617,8 @@ def index_stats(vault_root: Path | None) -> None:
             "SELECT MIN(indexed_at), MAX(indexed_at) FROM documents"
         ).fetchone()
         by_type_rows = conn.execute(
-            "SELECT frontmatter_type, COUNT(*) FROM documents GROUP BY frontmatter_type ORDER BY 2 DESC"
+            "SELECT frontmatter_type, COUNT(*) FROM documents "
+            "GROUP BY frontmatter_type ORDER BY 2 DESC"
         ).fetchall()
     finally:
         conn.close()

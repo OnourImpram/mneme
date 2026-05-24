@@ -20,6 +20,7 @@ and left in place across runs (it is empty and harmless).
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 from collections.abc import Iterator
@@ -97,11 +98,9 @@ def _release(fp: IO[bytes]) -> None:
             import msvcrt
 
             fp.seek(0)
-            try:
+            # Kernel reclaims the lock on close, so a failed unlock is benign.
+            with contextlib.suppress(OSError):
                 msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                # Kernel reclaims the lock on close.
-                pass
         else:
             import fcntl
 

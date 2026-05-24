@@ -27,8 +27,9 @@ would breach the cap are skipped and counted in ``skipped_by_cost_cap``.
 
 from __future__ import annotations
 
+import contextlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,14 +125,17 @@ def drain_dry_run(config: KgConfig) -> dict[str, Any]:
         "unique_events_by_hash": len(seen_hashes),
         "host": config.host,
     }
-    _log(config, {"ts": datetime.now(timezone.utc).isoformat(), **result})
+    _log(config, {"ts": datetime.now(UTC).isoformat(), **result})
     return result
 
 
 def _load_credentials(config: KgConfig) -> dict[str, str]:
     if not config.credentials_path.is_file():
         raise RuntimeError(f"Credentials not found at {config.credentials_path}")
-    return json.loads(config.credentials_path.read_text(encoding="utf-8"))
+    data: dict[str, str] = json.loads(
+        config.credentials_path.read_text(encoding="utf-8")
+    )
+    return data
 
 
 def _record_episode_cost(
@@ -176,10 +180,8 @@ def _release_reservation(config: KgConfig, reservation_id: str | None) -> None:
     """Roll back a reservation after a provider failure. Best-effort."""
     if reservation_id is None:
         return
-    try:
+    with contextlib.suppress(OSError, TimeoutError):
         rollback_reservation(config.cost_ledger, reservation_id, kind=KG_LEDGER_KIND)
-    except (OSError, TimeoutError):
-        pass
 
 
 def drain_live(
@@ -236,11 +238,11 @@ def drain_live(
                     skipped_by_cap += 1
                     continue
             text = _episode_text(e)
-            ts = e.get("ts") or datetime.now(timezone.utc).isoformat()
+            ts = e.get("ts") or datetime.now(UTC).isoformat()
             try:
                 ref_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
             except ValueError:
-                ref_time = datetime.now(timezone.utc)
+                ref_time = datetime.now(UTC)
             try:
                 import asyncio  # noqa: WPS433 - keep CLI startup cheap
 
@@ -269,7 +271,7 @@ def drain_live(
         "skipped_by_cost_cap": skipped_by_cap,
         "host": config.host,
     }
-    _log(config, {"ts": datetime.now(timezone.utc).isoformat(), **result})
+    _log(config, {"ts": datetime.now(UTC).isoformat(), **result})
     return result
 
 
@@ -301,7 +303,7 @@ def community_refresh(config: KgConfig) -> dict[str, Any]:
 
     result = {
         "status": "ok",
-        "refreshed_at": datetime.now(timezone.utc).isoformat(),
+        "refreshed_at": datetime.now(UTC).isoformat(),
     }
     _log(config, result)
     return result

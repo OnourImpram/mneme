@@ -13,6 +13,7 @@ POSIX so accidental ``ls -la`` does not surface the password.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import stat
@@ -34,7 +35,7 @@ class Neo4jCredentials:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict[str, str]) -> "Neo4jCredentials":
+    def from_dict(cls, raw: dict[str, str]) -> Neo4jCredentials:
         return cls(
             bolt_url=str(raw["bolt_url"]),
             user=str(raw["user"]),
@@ -54,7 +55,5 @@ def write_credentials(path: Path, creds: Neo4jCredentials) -> None:
         encoding="utf-8",
     )
     if os.name != "nt":
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass

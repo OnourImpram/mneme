@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -16,12 +17,10 @@ from mneme_core.compression.config import CompressionConfig
 from mneme_core.compression.llm import (
     CompressionResult,
     LlmCallSpec,
-    LlmProvider,
     LlmProviderError,
 )
 from mneme_core.compression.pipeline import (
     PipelineConfig,
-    RunReport,
     _extract_content_hashes,
     load_prompt,
     pipeline_config_from_vault,
@@ -238,9 +237,9 @@ class TestCostCap:
     ) -> None:
         # Pre-stamp the ledger with month-to-date spend above the cap.
         vault.kg_cost_ledger.parent.mkdir(parents=True, exist_ok=True)
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        cur = datetime.now(timezone.utc).strftime("%Y-%m")
+        cur = datetime.now(UTC).strftime("%Y-%m")
         rec = {
             "ts": f"{cur}-01T00:00:00+00:00",
             "cost_usd": 50.0,

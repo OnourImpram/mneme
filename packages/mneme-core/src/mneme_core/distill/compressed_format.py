@@ -22,10 +22,10 @@ the right markdown shape for the chosen level.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class InjectionFormat(str, Enum):
+class InjectionFormat(StrEnum):
     FULL = "full"
     KEYPOINTS = "keypoints"
     REF = "ref"
@@ -65,9 +65,10 @@ def select_format(
     * Re-injection at high pressure: ``ref``.
     """
     pressure = max(0.0, min(1.0, float(context_pressure)))
+    high_pressure = pressure >= HIGH_PRESSURE_THRESHOLD
     if has_been_injected:
-        return InjectionFormat.REF if pressure >= HIGH_PRESSURE_THRESHOLD else InjectionFormat.KEYPOINTS
-    return InjectionFormat.KEYPOINTS if pressure >= HIGH_PRESSURE_THRESHOLD else InjectionFormat.FULL
+        return InjectionFormat.REF if high_pressure else InjectionFormat.KEYPOINTS
+    return InjectionFormat.KEYPOINTS if high_pressure else InjectionFormat.FULL
 
 
 def render_injection(

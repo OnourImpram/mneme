@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -84,7 +84,7 @@ class TestMonthToDateSpend:
         assert month_to_date_spend(ledger_path) == 0.0
 
     def test_sums_only_current_month(self, ledger_path: Path) -> None:
-        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, tzinfo=UTC)
         cur = now.strftime("%Y-%m")
         records = [
             {"ts": "2025-12-30T12:00:00+00:00", "cost_usd": 99.0, "kind": "compression"},
@@ -101,7 +101,7 @@ class TestMonthToDateSpend:
         assert month_to_date_spend(ledger_path, kind=None, now=now) == pytest.approx(4.0)
 
     def test_falls_back_to_usd_field(self, ledger_path: Path) -> None:
-        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, tzinfo=UTC)
         cur = now.strftime("%Y-%m")
         # The Phase E kg ledger stamps "usd", not "cost_usd". Both should sum.
         record = {"ts": f"{cur}-05T00:00:00+00:00", "usd": 0.123, "kind": "compression"}
@@ -112,7 +112,7 @@ class TestMonthToDateSpend:
 
 class TestRolling30d:
     def test_drops_old_records(self, ledger_path: Path) -> None:
-        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, tzinfo=UTC)
         with ledger_path.open("w", encoding="utf-8") as fp:
             fp.write(json.dumps(
                 {"ts": "2026-05-01T00:00:00+00:00", "cost_usd": 100.0, "kind": "compression"}
@@ -143,7 +143,7 @@ class TestCheckCap:
     def test_over_cap_writes_flag(
         self, ledger_path: Path, pause_flag: Path
     ) -> None:
-        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 15, tzinfo=UTC)
         cur = now.strftime("%Y-%m")
         with ledger_path.open("w", encoding="utf-8") as fp:
             fp.write(json.dumps(

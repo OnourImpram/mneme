@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from mneme_core.distill.shell_compress import (
     ShellCompressOpts,
     compress_shell_output,

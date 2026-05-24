@@ -60,6 +60,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4.7",
     "mypy>=1.10",
+    "types-PyYAML>=6.0",
     "testcontainers>=4.0"
 ]
 
@@ -91,6 +92,14 @@ select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM"]
 strict = true
 python_version = "3.11"
 files = ["src/mneme_core"]
+
+[[tool.mypy.overrides]]
+# Optional-profile dependencies. lite/standard installs (and the CI
+# type-check env, which installs only [dev]) do not have these; the code
+# lazy-imports them behind runtime feature gates, so missing stubs here
+# are expected rather than a type error.
+module = ["graphiti_core.*", "neo4j.*", "anthropic.*", "onnxruntime.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -35,7 +35,7 @@ import socket
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +51,6 @@ from .ledger import (
 from .llm import (
     DEFAULT_PRICING_PER_MTOK,
     AnthropicProvider,
-    CompressionResult,
     LlmCallSpec,
     LlmProvider,
     LlmProviderError,
@@ -78,7 +77,7 @@ def _today_iso() -> str:
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -354,7 +353,7 @@ def run_compression(
         return RunReport(
             status="dry-run",
             events_loaded=len(events),
-            files_processed=len({p for p in source_files}),
+            files_processed=len(set(source_files)),
         )
 
     # Codex Pass 2 reservation pattern: reserve an estimated max-cost
@@ -504,7 +503,7 @@ def run_compression(
     return RunReport(
         status="ok",
         events_loaded=len(events),
-        files_processed=len({p for p in source_files}),
+        files_processed=len(set(source_files)),
         tokens_in=result.tokens_in,
         tokens_out=result.tokens_out,
         cost_usd=round(cost, 6),
