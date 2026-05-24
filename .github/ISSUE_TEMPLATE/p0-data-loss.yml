@@ -1,0 +1,54 @@
+name: P0 data loss or corruption
+description: Vault content lost, overwritten, or corrupted. 24-hour response SLA.
+title: "[P0] Data loss or corruption: "
+labels: ["P0", "data-loss", "urgent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **P0 issues get a 24-hour response and 48-hour hotfix SLA.**
+        Open one of these only when vault content has been lost, overwritten, or corrupted.
+        For routine bugs use the regular bug template.
+        For security issues use the private security advisory link instead.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What was lost or corrupted? Approximate file count, size, or date range.
+    validations:
+      required: true
+  - type: textarea
+    id: trigger
+    attributes:
+      label: What triggered it?
+      description: Last operation before noticing the loss. Hook run, migration, manual edit, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Current state
+      description: Is the vault recoverable from backup or git history? Are indexes still valid?
+    validations:
+      required: true
+  - type: input
+    id: mneme-version
+    attributes:
+      label: mneme version
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs and any backups available
+      description: Redact private content before posting.
+      render: shell
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have a backup of the affected vault state (or accept the data loss).
+          required: true
+        - label: I redacted any private content from the logs.
+          required: true

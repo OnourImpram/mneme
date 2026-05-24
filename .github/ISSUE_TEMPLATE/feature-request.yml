@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a new capability or improvement.
+title: "[Feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Features that touch the public API or change existing
+        behavior should be discussed before implementation. Substantial proposals may
+        need an ADR entry in `docs/ARCHITECTURE.md`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Start with the use case, not the implementation. Who hits this and how often?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would the feature work from the user's point of view?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What did you try? What workarounds exist today?
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope guess
+      options:
+        - Documentation only
+        - Single package small change
+        - Single package larger change
+        - Cross-package change
+        - Architectural decision (needs ADR)
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and discussions and this is not a duplicate.
+          required: true
+        - label: I read the v1.0 honest limitations section of the README and this is not deliberately deferred.
+          required: true

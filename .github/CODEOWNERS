@@ -1,0 +1,14 @@
+# mneme CODEOWNERS
+#
+# Lines are matched in order; the LAST matching pattern wins per file.
+# The default rule keeps every change under the BDFL's review until
+# co-maintainers are added per docs/GOVERNANCE.md.
+
+*                               @TheGoatPsy
+
+# Security-sensitive files require explicit review.
+SECURITY.md                     @TheGoatPsy
+.github/workflows/              @TheGoatPsy
+
+# Release infrastructure must not change without owner sign-off.
+tools/version_bump.py           @TheGoatPsy

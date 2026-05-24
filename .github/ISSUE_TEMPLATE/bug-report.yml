@@ -1,0 +1,81 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. The more concrete the repro, the faster the fix.
+        For security vulnerabilities, do NOT open a public issue. Use the private security advisory link instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: One paragraph. What did you do, what did you expect, what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro steps
+      description: A minimal sequence the maintainer can copy-paste to reproduce.
+      placeholder: |
+        1. ...
+        2. ...
+        3. Observed: ...
+    validations:
+      required: true
+  - type: input
+    id: mneme-version
+    attributes:
+      label: mneme version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Install profile
+      options:
+        - lite
+        - standard
+        - full
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: "Windows 11, macOS 14.5, Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      placeholder: "22.5.0"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Hook output, MCP stderr, `mneme doctor` JSON. Redact any private content before posting.
+      render: shell
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I redacted any private content from the logs.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

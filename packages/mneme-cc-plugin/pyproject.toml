@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mneme-cc-plugin"
+version = "1.0.0"
+description = "Claude Code plugin for mneme: hooks, slash commands, skills, and the install CLI."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Onour Impram", email = "onuribram@outlook.com" }]
+requires-python = ">=3.11"
+keywords = ["claude-code", "mcp", "memory", "vault", "fts5"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "mneme-core>=1.0.0a0,<2",
+  "click>=8.1,<9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "ruff>=0.4.7",
+  "mypy>=1.10",
+]
+
+[project.scripts]
+mneme = "mneme_cc_plugin.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/TheGoatPsy/mneme"
+Repository = "https://github.com/TheGoatPsy/mneme"
+Issues = "https://github.com/TheGoatPsy/mneme/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mneme_cc_plugin"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"plugin.json" = "share/mneme-cc-plugin/plugin.json"
+"hooks" = "share/mneme-cc-plugin/hooks"
+"commands" = "share/mneme-cc-plugin/commands"
+"skills" = "share/mneme-cc-plugin/skills"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing"

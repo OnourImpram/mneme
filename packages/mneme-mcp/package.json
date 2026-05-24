@@ -1,0 +1,64 @@
+{
+  "name": "mneme-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for mneme: 6 tools for vault-native memory in Claude Code and MCP-compatible clients.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mneme-mcp": "dist/index.js",
+    "mneme-migrate": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check src/",
+    "format": "biome format --write src/",
+    "clean": "rimraf dist .tsbuildinfo"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "memory",
+    "vault",
+    "fts5",
+    "rrf"
+  ],
+  "author": "Onour Impram (TheGoatPsy)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheGoatPsy/mneme.git",
+    "directory": "packages/mneme-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/TheGoatPsy/mneme/issues"
+  },
+  "homepage": "https://github.com/TheGoatPsy/mneme#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-sqlite3": "^12.4.0",
+    "neo4j-driver": "^5.28.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/node": "^20.14.2",
+    "rimraf": "^5.0.7",
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

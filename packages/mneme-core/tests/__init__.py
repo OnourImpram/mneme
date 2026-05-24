@@ -1,0 +1,1 @@
+"""mneme-core test suite."""

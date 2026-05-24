@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "purpose": "Phase J Day 2 query template. Operator copies this file, replaces every placeholder query string with a real workflow question, and points tools/parity_check.py at the result.",
+    "schema": "Compatible with tools.parity.harness.load_queries_from_json.",
+    "buckets": [
+      "single_fact",
+      "multi_doc_synthesis",
+      "temporal",
+      "turkish",
+      "privacy_redaction",
+      "cross_tool_mcp"
+    ],
+    "instructions": [
+      "1. Copy this file to ~/mneme-vault-dogfood/_bench/queries.json",
+      "2. For each query, replace the `text` placeholder with a real question from your last 4-6 weeks of Claude Code usage.",
+      "3. Leave `bucket` and `expected_difficulty` unchanged so the Day 7 exit gate can group results.",
+      "4. Set `placeholder` to false once you have replaced the text.",
+      "5. The file must contain exactly 20 entries when you are done (4+4+4+4+2+2).",
+      "6. Run: py -3 tools/parity_check.py --queries ~/mneme-vault-dogfood/_bench/queries.json --mneme-vault ~/mneme-vault-dogfood --ground-truth-adapter your_module:YourAdapter --json"
+    ]
+  },
+  "queries": [
+    {"id": "sf-01", "bucket": "single_fact", "expected_difficulty": "easy", "placeholder": true, "text": "REPLACE: a question whose answer lives in exactly one vault file (e.g. 'when did we decide to use RRF k=60?')"},
+    {"id": "sf-02", "bucket": "single_fact", "expected_difficulty": "easy", "placeholder": true, "text": "REPLACE: another single-file fact retrieval question"},
+    {"id": "sf-03", "bucket": "single_fact", "expected_difficulty": "easy", "placeholder": true, "text": "REPLACE: a name + date question"},
+    {"id": "sf-04", "bucket": "single_fact", "expected_difficulty": "easy", "placeholder": true, "text": "REPLACE: a config or constant lookup question"},
+
+    {"id": "md-01", "bucket": "multi_doc_synthesis", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a question whose answer requires combining 2-3 vault files (e.g. 'what is the relationship between X and Y across our sessions?')"},
+    {"id": "md-02", "bucket": "multi_doc_synthesis", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a decision-lineage question that crosses multiple sessions"},
+    {"id": "md-03", "bucket": "multi_doc_synthesis", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a question that requires linking observation with later session_summary"},
+    {"id": "md-04", "bucket": "multi_doc_synthesis", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a question that spans both a topic note and the originating session"},
+
+    {"id": "tm-01", "bucket": "temporal", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a 'what was decided about X between dates A and B' question"},
+    {"id": "tm-02", "bucket": "temporal", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a 'what changed about Y since date Z' question"},
+    {"id": "tm-03", "bucket": "temporal", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a 'sequence the events that led to outcome W' question"},
+    {"id": "tm-04", "bucket": "temporal", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: a 'last conversation about V' question"},
+
+    {"id": "tr-01", "bucket": "turkish", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: kıyaslama gibi büyük harf İ/i edge case'i içeren Türkçe sorgu"},
+    {"id": "tr-02", "bucket": "turkish", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: Türkçe diakritik (ğ ç ş ı ö ü) içeren bir tam metin sorgusu"},
+    {"id": "tr-03", "bucket": "turkish", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: Türkçe-İngilizce karışık (kod adı + Türkçe açıklama) bir sorgu"},
+    {"id": "tr-04", "bucket": "turkish", "expected_difficulty": "medium", "placeholder": true, "text": "REPLACE: alanınıza özgü Türkçe terimler içeren bir sorgu"},
+
+    {"id": "pr-01", "bucket": "privacy_redaction", "expected_difficulty": "hard", "placeholder": true, "text": "REPLACE: a query that should surface a redacted observation marker without leaking the underlying private content"},
+    {"id": "pr-02", "bucket": "privacy_redaction", "expected_difficulty": "hard", "placeholder": true, "text": "REPLACE: a query that touches a session with mixed redacted and public content"},
+
+    {"id": "ct-01", "bucket": "cross_tool_mcp", "expected_difficulty": "hard", "placeholder": true, "text": "REPLACE: a query that ties mneme retrieval to another MCP tool (e.g. context7 lookup feeding mneme_search)"},
+    {"id": "ct-02", "bucket": "cross_tool_mcp", "expected_difficulty": "hard", "placeholder": true, "text": "REPLACE: a query whose answer requires both vault retrieval and a fresh external lookup"}
+  ]
+}

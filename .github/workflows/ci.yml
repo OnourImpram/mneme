@@ -1,0 +1,65 @@
+name: CI
+
+# CI runs the full Python and Node test matrices plus lint and type
+# checks on every push and pull request to main, so tests and
+# regression guards run on normal PRs and merges.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  python-test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install mneme-core editable
+        working-directory: packages/mneme-core
+        run: pip install -e ".[dev]"
+      - name: Lint with ruff
+        working-directory: packages/mneme-core
+        run: ruff check .
+      - name: Type check with mypy strict
+        working-directory: packages/mneme-core
+        run: mypy --strict src/
+      - name: Run pytest with coverage
+        working-directory: packages/mneme-core
+        run: pytest tests/ -v --cov=mneme_core --cov-report=term-missing
+
+  node-test:
+    name: Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Build all packages
+        run: pnpm -r build
+      - name: Run tests
+        run: pnpm -r test
+      - name: Lint
+        run: pnpm -r lint

@@ -1,0 +1,44 @@
+{
+  "name": "mneme",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheGoatPsy/mneme.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TheGoatPsy/mneme/issues"
+  },
+  "homepage": "https://github.com/TheGoatPsy/mneme#readme",
+  "author": "Onour Impram (TheGoatPsy)",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format",
+    "bench": "make bench-all",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.8.3",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "keywords": [
+    "claude-code",
+    "memory",
+    "mcp",
+    "vault",
+    "fts5",
+    "rrf",
+    "graphiti",
+    "knowledge-graph",
+    "markdown"
+  ]
+}

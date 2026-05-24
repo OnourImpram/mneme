@@ -1,0 +1,56 @@
+{
+  "name": "mneme",
+  "version": "1.0.0",
+  "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
+  "author": "Onour Impram (TheGoatPsy)",
+  "license": "MIT",
+  "repository": "https://github.com/TheGoatPsy/mneme",
+  "documentation": "https://github.com/TheGoatPsy/mneme/blob/main/docs/HOOKS.md",
+  "hooks": {
+    "PostToolUse": {
+      "module": "mneme_cc_plugin.hooks.post_tool_use",
+      "matcher": "Edit|Write|Bash|Task|MultiEdit",
+      "timeout_ms": 1000
+    },
+    "SessionStart": {
+      "module": "mneme_cc_plugin.hooks.session_start",
+      "timeout_ms": 800
+    },
+    "Stop": {
+      "module": "mneme_cc_plugin.hooks.stop",
+      "timeout_ms": 2000
+    },
+    "PreCompact": {
+      "module": "mneme_cc_plugin.hooks.pre_compact",
+      "timeout_ms": 500
+    },
+    "SessionEnd": {
+      "module": "mneme_cc_plugin.hooks.session_end",
+      "timeout_ms": 800
+    }
+  },
+  "commands": {
+    "/mneme:prime": "commands/prime.md",
+    "/mneme:recall": "commands/recall.md",
+    "/mneme:migrate": "commands/migrate.md"
+  },
+  "skills": [
+    "skills/mneme-prime",
+    "skills/mneme-search"
+  ],
+  "mcp_servers": {
+    "mneme": {
+      "command": "mneme-mcp",
+      "args": []
+    }
+  },
+  "engines": {
+    "claude-code": ">=2.0.0",
+    "python": ">=3.11",
+    "node": ">=20"
+  },
+  "kill_switch": {
+    "env": "MNEME_DISABLED",
+    "description": "When this environment variable is truthy, all hooks exit immediately with success."
+  }
+}
