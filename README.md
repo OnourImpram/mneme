@@ -65,6 +65,20 @@ Verify a healthy install.
 mneme doctor
 ```
 
+## Using mneme with Codex
+
+mneme is Claude-Code-native by origin. Because its retrieval core (`mneme-core`), its MCP server (`mneme-mcp`), and its vault contract are client-neutral, mneme also runs inside the OpenAI Codex CLI as an additive layer, with no loss of fidelity.
+
+```bash
+# Plugin: skills, MCP server, and lifecycle hooks together
+codex plugin marketplace add TheGoatPsy/mneme
+
+# Or wire just the MCP server into ~/.codex/config.toml
+mneme install --client=codex
+```
+
+Codex gets the same six MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+
 ## What v1.0 Ships
 
 - 6 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`.

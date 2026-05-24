@@ -50,6 +50,8 @@ mneme is built on three convictions:
                   +-----------------+
 ```
 
+The diagram above is the Claude Code path, mneme's native origin. Everything from `mneme-mcp` down is client-neutral. Codex drives the same `mneme-mcp` core and the same `mneme hook` entry through the Codex plugin (`packages/mneme-codex-plugin`). See ADR-014 and `docs/CODEX.md`.
+
 ## Architecture Decision Records
 
 Each ADR has the form: Context, Decision, Consequences. Decisions live in the codebase and on disk, not in a wiki.
@@ -157,6 +159,14 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 **Decision**: Adopt spec-kit as the spec-driven workflow tool for mneme v1.0.0 and beyond. The repository ships `.specify/memory/constitution.md` as the canonical constitution, `.specify/specs/NNN-<feature>/{spec,plan,tasks,analyze}.md` as the per-feature workflow artifacts, and `.claude/skills/speckit-*/SKILL.md` as the Claude Code slash-command integration. Slash commands include `/speckit-constitution`, `/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-implement`, `/speckit-clarify`, `/speckit-analyze`, `/speckit-checklist`. The 2026-05-20 v1.0.0-launch artifact set (`001-v1.0.0-launch/`) is the first production application and surfaced 12 cross-artifact findings within hours, validating the audit-trail thesis.
 
 **Consequences**: All future architectural decisions go through spec-kit. Constitution amendments require a corresponding ADR. Trade-off: small upfront cost (operator must learn the eight slash commands and the constitution + spec + plan + tasks + analyze ladder), large payoff (audit-trail-driven development discipline is now tool-enforced, not memory-dependent). Retroactive coverage: this ADR opens before the v1.0.0 tag push, satisfying constitution v1.0.0 pin without recursive self-violation. Lesson learned during the first production application: `/analyze` "missing X" claims must be backed by a fresh `Glob` in the same pass rather than relying on memory.
+
+### ADR-014: Multi-client architecture, Claude-Code-native with Codex as an additive layer
+
+**Context**: mneme was built Claude-Code-native. The retrieval core, the MCP server, and the vault contract are client-neutral, while the hooks, the slash commands, and the installer were Claude-Code-specific. OpenAI Codex CLI added a plugin system (skills, MCP servers, lifecycle hooks) whose skill and MCP formats are close to Claude Code's, which makes a second front-end cheap without touching the core.
+
+**Decision**: Keep Claude Code as the primary, native client. Add Codex support as a parallel layer, never by genericizing the core or diluting the Claude-Code-native identity. Concretely: (1) the MCP server and core stay untouched and serve every MCP client; (2) a shared `mneme hook <event>` CLI subcommand gives both clients one OS-agnostic, client-agnostic hook entry; (3) the Claude Code native plugin lives at `packages/mneme-cc-plugin` with `.claude-plugin/` manifests and a repo-root `.claude-plugin/marketplace.json`; (4) the Codex plugin lives at `packages/mneme-codex-plugin` with `.codex-plugin/` manifests and a repo-root `.agents/plugins/marketplace.json`; (5) `mneme install --client=claude-code|codex|all` wires whichever clients are requested, default `claude-code`.
+
+**Consequences**: Codex users get the same six MCP tools, the same two skills, and four of the five lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact). SessionEnd folds into Stop because Codex has no SessionEnd event. The Claude Code experience is unchanged and stays full-fidelity. Trade-off: two plugin manifests and two marketplace files to keep in sync, and the PostToolUse Bash-output compression is tuned to Claude Code tool names so Codex capture is generic until a Codex tool-name variant lands. The shared core means a retrieval or vault improvement benefits both clients at once.
 
 ## Out of Scope for v1.0
 

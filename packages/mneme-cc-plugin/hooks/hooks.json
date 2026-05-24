@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|Task|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "mneme hook post-tool-use", "timeout": 1 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook session-start", "timeout": 1 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook stop", "timeout": 2 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook pre-compact", "timeout": 1 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook session-end", "timeout": 1 }
+        ]
+      }
+    ]
+  }
+}

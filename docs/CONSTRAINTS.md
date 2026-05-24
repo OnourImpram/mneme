@@ -2,6 +2,8 @@
 
 mneme commits to five public constraints. Each has a definition, a rationale, and a machine-verifiable test. Any pull request that breaks any of these without an accompanying ADR amendment is rejected.
 
+These constraints are client-neutral. Where a constraint names a Claude Code lifecycle hook (Stop, SessionStart, PreCompact), it applies equally to the corresponding Codex lifecycle hook, since both clients drive the same `mneme hook` entry over the same core. See ADR-014 in `docs/ARCHITECTURE.md`.
+
 ## C1: Vault as Single Source of Truth
 
 **Definition**: All durable memory state must be reconstructible from the vault directory alone. Indexes are derived and rebuildable.

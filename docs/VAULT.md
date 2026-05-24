@@ -54,7 +54,7 @@ schema_version: 1
 ---
 ```
 
-Required fields across all types: `id`, `type`, `created`. `schema_version` is recommended but defaults to `1` when omitted, so the parser does not refuse documents that lack it. All other fields are optional unless noted below.
+Required fields across all types: `id`, `type`, `created`. `schema_version` is recommended but defaults to `1` when omitted, so the parser does not refuse documents that lack it. The `source` field records the originating client, for example `claude-code` or `codex-cli`. All other fields are optional unless noted below.
 
 ### Recognized Types
 

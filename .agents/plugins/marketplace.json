@@ -1,0 +1,12 @@
+{
+  "name": "mneme",
+  "plugins": [
+    {
+      "name": "mneme",
+      "source": { "source": "local", "path": "./packages/mneme-codex-plugin" },
+      "description": "Vault-native memory for Codex. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop. Claude-Code-native at its core, extended to Codex.",
+      "category": "memory",
+      "policy": { "installation": "AVAILABLE" }
+    }
+  ]
+}

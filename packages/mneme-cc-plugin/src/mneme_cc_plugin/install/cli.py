@@ -23,9 +23,9 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
 
 import click
 
@@ -257,6 +257,10 @@ class Installer:
             "profile": self.config.profile,
             "interpreter": self.detect_interpreter(),
         }
+        codex_config = _default_codex_config_path()
+        report["codex_present"] = shutil.which("codex") is not None
+        report["codex_config_path"] = str(codex_config)
+        report["codex_config_exists"] = codex_config.exists()
         return report
 
 
@@ -272,18 +276,105 @@ def _default_vault_root() -> Path:
     return Path.home() / "mneme-vault"
 
 
+def _default_codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+CODEX_BLOCK_START = "# >>> mneme (managed) >>>"
+CODEX_BLOCK_END = "# <<< mneme (managed) <<<"
+
+
+def _strip_managed_block(text: str, start: str, end: str) -> str:
+    """Drop the inclusive ``start``..``end`` marker block from ``text``."""
+    out: list[str] = []
+    skipping = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped == start:
+            skipping = True
+            continue
+        if stripped == end:
+            skipping = False
+            continue
+        if not skipping:
+            out.append(line)
+    return "".join(out)
+
+
+@dataclass
+class CodexTarget:
+    """Wire mneme's MCP server into ``~/.codex/config.toml``.
+
+    Codex reads MCP servers from a ``[mcp_servers.<name>]`` table. The
+    entry is bracketed by managed-block sentinels so uninstall removes
+    exactly mneme's lines and leaves the rest of the user's config
+    untouched, with no TOML parser or extra dependency. Codex hooks and
+    skills ship via the Codex marketplace plugin
+    (``packages/mneme-codex-plugin``), not this writer.
+    """
+
+    config_path: Path
+
+    def _block(self, vault_root: Path) -> str:
+        return (
+            f"{CODEX_BLOCK_START}\n"
+            "[mcp_servers.mneme]\n"
+            'command = "mneme-mcp"\n'
+            "args = []\n"
+            "[mcp_servers.mneme.env]\n"
+            f'MNEME_VAULT = "{vault_root.as_posix()}"\n'
+            f"{CODEX_BLOCK_END}\n"
+        )
+
+    def register(self, vault_root: Path) -> str:
+        existing = (
+            self.config_path.read_text(encoding="utf-8")
+            if self.config_path.exists()
+            else ""
+        )
+        if CODEX_BLOCK_START in existing:
+            return "codex: mneme MCP block already present in config.toml"
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        prefix = existing
+        if prefix and not prefix.endswith("\n"):
+            prefix += "\n"
+        if prefix:
+            prefix += "\n"
+        self.config_path.write_text(prefix + self._block(vault_root), encoding="utf-8")
+        return "codex: mneme MCP server registered in config.toml"
+
+    def unregister(self) -> str:
+        if not self.config_path.exists():
+            return "codex: config.toml not found, nothing to remove"
+        text = self.config_path.read_text(encoding="utf-8")
+        if CODEX_BLOCK_START not in text:
+            return "codex: no mneme block present in config.toml"
+        self.config_path.write_text(
+            _strip_managed_block(text, CODEX_BLOCK_START, CODEX_BLOCK_END),
+            encoding="utf-8",
+        )
+        return "codex: mneme MCP block removed from config.toml"
+
+
 @click.group(help="mneme install + lifecycle CLI.")
 @click.version_option(__version__, prog_name="mneme")
 def cli() -> None:  # pragma: no cover - dispatcher
     pass
 
 
-@cli.command(help="Install mneme into Claude Code.")
+@cli.command(help="Install mneme into Claude Code and/or Codex.")
 @click.option(
     "--profile",
     type=click.Choice(PROFILES),
     default=DEFAULT_PROFILE,
     show_default=True,
+)
+@click.option(
+    "--client",
+    type=click.Choice(["claude-code", "codex", "all"]),
+    default="claude-code",
+    show_default=True,
+    help="Which client(s) to wire mneme into.",
 )
 @click.option(
     "--vault",
@@ -298,6 +389,13 @@ def cli() -> None:  # pragma: no cover - dispatcher
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     help="Claude Code settings.json path. Defaults to ~/.claude/settings.json.",
+)
+@click.option(
+    "--codex-config",
+    "codex_config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Codex config.toml path. Defaults to ~/.codex/config.toml.",
 )
 @click.option(
     "--backup-dir",
@@ -315,8 +413,10 @@ def cli() -> None:  # pragma: no cover - dispatcher
 @click.option("--dry-run", is_flag=True, help="Plan the install but make no changes.")
 def install(
     profile: str,
+    client: str,
     vault_root: Path | None,
     settings_path: Path | None,
+    codex_config: Path | None,
     backup_dir: Path | None,
     skip_python: bool,
     skip_node: bool,
@@ -336,8 +436,27 @@ def install(
         inst.install_node_deps()
     inst.init_vault()
     if not dry_run:
-        inst.register_hooks()
-    inst._say(f"mneme install complete (profile={profile}, vault={cfg.vault_root})")
+        if client in ("claude-code", "all"):
+            if cfg.settings_path.exists():
+                inst.register_hooks()
+            elif client == "claude-code":
+                raise click.ClickException(
+                    f"Claude Code settings.json not found at {cfg.settings_path}. "
+                    "Start Claude Code once, or install for Codex with --client=codex."
+                )
+            else:
+                inst._say("claude-code: settings.json not found, skipping (client=all)")
+        if client in ("codex", "all"):
+            target = CodexTarget(
+                config_path=(codex_config or _default_codex_config_path())
+                .expanduser()
+                .resolve()
+            )
+            inst._say(target.register(cfg.vault_root))
+    inst._say(
+        f"mneme install complete (profile={profile}, client={client}, "
+        f"vault={cfg.vault_root})"
+    )
 
 
 @cli.command(help="Upgrade profile or refresh indexes.")
@@ -358,10 +477,23 @@ def upgrade(profile: str) -> None:
     inst._say(f"upgraded to profile={profile}")
 
 
-@cli.command(help="Remove mneme hooks and MCP entry from settings.json.")
+@cli.command(help="Remove mneme from Claude Code and/or Codex.")
+@click.option(
+    "--client",
+    type=click.Choice(["claude-code", "codex", "all"]),
+    default="claude-code",
+    show_default=True,
+    help="Which client(s) to remove mneme from.",
+)
 @click.option(
     "--settings",
     "settings_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--codex-config",
+    "codex_config",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
 )
@@ -372,19 +504,31 @@ def upgrade(profile: str) -> None:
     default=None,
 )
 def uninstall(
+    client: str,
     settings_path: Path | None,
+    codex_config: Path | None,
     backup_dir: Path | None,
 ) -> None:
-    cfg = InstallerConfig(
-        profile=DEFAULT_PROFILE,
-        vault_root=_default_vault_root(),
-        settings_path=(settings_path or _default_settings_path()).expanduser().resolve(),
-        backup_dir=(backup_dir or _default_backup_dir()).expanduser().resolve(),
-    )
-    try:
-        Installer(config=cfg).unregister()
-    except SettingsMutationError as exc:
-        raise click.ClickException(str(exc)) from exc
+    if client in ("claude-code", "all"):
+        cfg = InstallerConfig(
+            profile=DEFAULT_PROFILE,
+            vault_root=_default_vault_root(),
+            settings_path=(settings_path or _default_settings_path())
+            .expanduser()
+            .resolve(),
+            backup_dir=(backup_dir or _default_backup_dir()).expanduser().resolve(),
+        )
+        try:
+            Installer(config=cfg).unregister()
+        except SettingsMutationError as exc:
+            raise click.ClickException(str(exc)) from exc
+    if client in ("codex", "all"):
+        target = CodexTarget(
+            config_path=(codex_config or _default_codex_config_path())
+            .expanduser()
+            .resolve()
+        )
+        click.echo(target.unregister())
 
 
 @cli.command(help="Print environment diagnostic without mutation.")
@@ -418,6 +562,42 @@ def doctor(
     )
     report = Installer(config=cfg).doctor()
     click.echo(json.dumps(report, indent=2, default=str))
+
+
+@cli.command(
+    help=(
+        "Dispatch a lifecycle hook event. Reads the event JSON on stdin "
+        "and writes the hook response on stdout. The native plugin "
+        "hooks.json (Claude Code and Codex) call this so a single "
+        "OS-agnostic command works on every platform and client."
+    )
+)
+@click.argument(
+    "event",
+    type=click.Choice(
+        ["session-start", "post-tool-use", "stop", "pre-compact", "session-end"]
+    ),
+)
+def hook(event: str) -> None:
+    # Lazy import: the hook modules pull in mneme_core staging, distill,
+    # and kg, which install/upgrade/uninstall/doctor never need. Importing
+    # only when a hook actually fires keeps CLI startup light.
+    from ..hooks import (
+        post_tool_use,
+        pre_compact,
+        session_end,
+        session_start,
+        stop,
+    )
+
+    mains: dict[str, Callable[[], int]] = {
+        "session-start": session_start.main,
+        "post-tool-use": post_tool_use.main,
+        "stop": stop.main,
+        "pre-compact": pre_compact.main,
+        "session-end": session_end.main,
+    }
+    sys.exit(mains[event]())
 
 
 def main() -> None:

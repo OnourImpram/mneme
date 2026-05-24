@@ -8,12 +8,15 @@ an injected runner that records calls.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from mneme_cc_plugin.install.cli import (
+    CODEX_BLOCK_START,
+    CodexTarget,
     CommandResult,
     Installer,
     InstallerConfig,
@@ -212,7 +215,9 @@ class TestInstallerUnit:
 
         with pytest.raises(_click.ClickException):
             inst.install_python_deps()
-        assert calls and calls[0][0:3] == ("python", "-m", "pip") or calls[0][1:3] == ("-m", "pip")
+        assert (calls and calls[0][0:3] == ("python", "-m", "pip")) or calls[0][
+            1:3
+        ] == ("-m", "pip")
 
     def test_register_hooks_idempotent(
         self, workspace: dict[str, Path]
@@ -232,3 +237,147 @@ class TestInstallerUnit:
         # Same hook count after running twice.
         for event in first["hooks"]:  # type: ignore[union-attr]
             assert len(first["hooks"][event]) == len(second["hooks"][event])  # type: ignore[index]
+
+
+_HOOK_EVENT_TO_MODULE = {
+    "session-start": "session_start",
+    "post-tool-use": "post_tool_use",
+    "stop": "stop",
+    "pre-compact": "pre_compact",
+    "session-end": "session_end",
+}
+
+
+class TestHookDispatch:
+    """`mneme hook <event>` routes each CLI event to its hook module.
+
+    The native plugin hooks.json (Claude Code and Codex) call
+    `mneme hook <event>`. These tests pin the dispatch table so a future
+    edit cannot silently cross-wire one event to another module.
+    """
+
+    @pytest.mark.parametrize("event", list(_HOOK_EVENT_TO_MODULE))
+    def test_routes_to_matching_module(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        event: str,
+    ) -> None:
+        from mneme_cc_plugin.hooks import (
+            post_tool_use,
+            pre_compact,
+            session_end,
+            session_start,
+            stop,
+        )
+
+        modules = {
+            "session_start": session_start,
+            "post_tool_use": post_tool_use,
+            "stop": stop,
+            "pre_compact": pre_compact,
+            "session_end": session_end,
+        }
+        called: list[str] = []
+
+        def make_fake(name: str) -> Callable[[], int]:
+            def _fake() -> int:
+                called.append(name)
+                return 0
+
+            return _fake
+
+        # Patch every module's main so a misroute records the wrong name.
+        for name, mod in modules.items():
+            monkeypatch.setattr(mod, "main", make_fake(name))
+
+        res = runner.invoke(cli, ["hook", event])
+        assert res.exit_code == 0, res.output
+        assert called == [_HOOK_EVENT_TO_MODULE[event]]
+
+    def test_rejects_unknown_event(self, runner: CliRunner) -> None:
+        res = runner.invoke(cli, ["hook", "bogus"])
+        assert res.exit_code != 0
+        assert "bogus" in res.output or "Invalid value" in res.output
+
+
+class TestCodexTarget:
+    """`mneme install --client=codex` wires the MCP server into config.toml.
+
+    Codex hooks and skills ship via the Codex marketplace plugin; the
+    installer only writes the MCP server table, bracketed by managed
+    sentinels so uninstall leaves the user's own config untouched.
+    """
+
+    def test_install_writes_mcp_block(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        codex_config = tmp_path / ".codex" / "config.toml"
+        res = runner.invoke(
+            cli,
+            [
+                "install",
+                "--client", "codex",
+                "--vault", str(tmp_path / "vault"),
+                "--codex-config", str(codex_config),
+                "--skip-python",
+                "--skip-node",
+            ],
+        )
+        assert res.exit_code == 0, res.output
+        text = codex_config.read_text(encoding="utf-8")
+        assert "[mcp_servers.mneme]" in text
+        assert 'command = "mneme-mcp"' in text
+        assert "MNEME_VAULT" in text
+
+    def test_install_codex_is_idempotent(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        codex_config = tmp_path / "config.toml"
+        args = [
+            "install",
+            "--client", "codex",
+            "--vault", str(tmp_path / "vault"),
+            "--codex-config", str(codex_config),
+            "--skip-python",
+            "--skip-node",
+        ]
+        assert runner.invoke(cli, args).exit_code == 0
+        assert runner.invoke(cli, args).exit_code == 0
+        assert codex_config.read_text(encoding="utf-8").count("[mcp_servers.mneme]") == 1
+
+    def test_uninstall_removes_block_preserving_user_config(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        codex_config = tmp_path / "config.toml"
+        codex_config.write_text(
+            'model = "gpt-5"\n\n[mcp_servers.other]\ncommand = "other-mcp"\n',
+            encoding="utf-8",
+        )
+        common = ["--client", "codex", "--codex-config", str(codex_config)]
+        install = runner.invoke(
+            cli,
+            ["install", *common, "--vault", str(tmp_path / "vault"),
+             "--skip-python", "--skip-node"],
+        )
+        assert install.exit_code == 0, install.output
+        assert "[mcp_servers.mneme]" in codex_config.read_text(encoding="utf-8")
+
+        out = runner.invoke(cli, ["uninstall", *common])
+        assert out.exit_code == 0, out.output
+        text = codex_config.read_text(encoding="utf-8")
+        assert "[mcp_servers.mneme]" not in text
+        assert "mneme (managed)" not in text
+        # User-authored config survives untouched.
+        assert 'model = "gpt-5"' in text
+        assert "[mcp_servers.other]" in text
+
+    def test_target_round_trip(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        target = CodexTarget(config_path=cfg)
+        assert "registered" in target.register(tmp_path / "vault")
+        assert CODEX_BLOCK_START in cfg.read_text(encoding="utf-8")
+        # Second register is a no-op.
+        assert "already present" in target.register(tmp_path / "vault")
+        target.unregister()
+        assert CODEX_BLOCK_START not in cfg.read_text(encoding="utf-8")
