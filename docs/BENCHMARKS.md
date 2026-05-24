@@ -19,14 +19,15 @@ All benchmarks pin hardware specs in a `hardware.json` file alongside results. C
 
 ## Benchmark A: Retrieval Quality
 
-Synthetic 500-query corpus with 5 hard negatives each. Metrics: nDCG@5, Recall@10, MRR.
+Synthetic 500-document corpus with 50 title-anchored queries and hard negatives. Metrics: nDCG@5, Recall@10, MRR.
 
 Conditions compared:
 
-- mneme-rrf (default, fused).
-- mneme-bm25 only (lite profile).
-- mneme-dense only (standard profile minus RRF).
-- Simulated single-backend baselines.
+- `pipeline_rrf_fts5_plus_bow`, shipped RRF code path with FTS5 plus a deterministic BoW surrogate.
+- `pipeline_fts5_only`, production wrapper with the FTS5 leg only.
+- `baseline_fts5_only`, direct BM25 baseline.
+
+The BoW leg is a benchmark surrogate for fusion regression testing. It is not a shipped LEANN dense adapter.
 
 ```bash
 make bench-retrieval
@@ -46,13 +47,7 @@ CI regression guard: Stop hook p95 must stay under 1000 ms.
 
 ## Benchmark C: Token Cost
 
-Token consumption per session across light, medium, and heavy workload profiles.
-
-Conditions compared:
-
-- mneme with `distill.*` enabled.
-- mneme with `distill.*` disabled.
-- claude-mem (LLM-on-Stop, documented dollar comparison).
+Token-saving primitives measured independently across deterministic fixtures.
 
 ```bash
 make bench-cost
@@ -60,32 +55,32 @@ make bench-cost
 
 ## Benchmark D: Migration Validation
 
-50 representative queries from a real claude-mem export, manual relevance judgment, side-by-side mneme vs claude-mem top 5 results.
+Synthetic claude-mem SQLite fixture, migration CLI invocation, idempotence check, dedup check, and redaction invariant check.
 
 ```bash
 make bench-migration
 ```
 
-Target agreement rate: 85 percent or higher.
+Target: all structural assertions pass.
 
 ## Benchmark E: Head-to-Head
 
-Install claude-mem v13.2.0 on identical hardware. Migrate vault to both systems. Run identical 50-query set through both. Measure:
+Run the shared adapter harness on the default synthetic fixture. `MnemeAdapter` always runs when `npx` is available. `ClaudeMemAdapter` is gated by `CLAUDE_MEM_BIN` or a real `claude-mem` binary on PATH. Measure:
 
-1. Stop hook duration (mneme deterministic vs claude-mem with real LLM call).
-2. Retrieval quality with manual relevance judgment.
-3. Actual API tokens consumed by each system.
-4. Install size and first-run time.
+1. Migration status.
+2. nDCG@5, Recall@10, and MRR.
+3. Query latency.
+4. Adapter availability.
 
 ```bash
 make bench-head-to-head
 ```
 
-Results are published in `docs/benchmarks/YYYY-MM-DD/head-to-head.md` regardless of outcome. Transparency on dimensions where mneme loses is the credibility lever.
+The locked public headline comes from `benchmarks/head-to-head/baseline.json`. Real-data operator comparison remains a Phase J dogfood deliverable.
 
 ## Locked Reference Numbers (operator hardware, seed=42)
 
-These numbers are the published baselines for the v1.0 release line. CI regression guards lock the deltas relative to these. Hardware: Windows 11, Python 3.13, Node 22, NTFS SSD. Reproduce on any machine with `make bench-all`.
+These numbers are the published baselines for the v1.0 release line. CI regression guards lock the deltas relative to these. Hardware metadata is written next to every run. Reproduce on any machine with `make bench-all`.
 
 ### Benchmark A: Retrieval Quality
 
@@ -136,11 +131,11 @@ Synthetic claude-mem fixture, TS CLI invoked via `npx tsx`, four invariants chec
 
 ### Benchmark E: Head-to-Head Adapter
 
-100-doc synthetic fixture run through `MnemeAdapter` and (when available) `ClaudeMemAdapter`. ClaudeMemAdapter is gated by `CLAUDE_MEM_BIN` environment variable or `claude-mem` on PATH; reports unavailable otherwise.
+300-doc synthetic fixture with 30 queries run through `MnemeAdapter` and, when available, `ClaudeMemAdapter`. ClaudeMemAdapter is gated by `CLAUDE_MEM_BIN` environment variable or `claude-mem` on PATH. Baseline provenance lives in `benchmarks/head-to-head/baseline.json`.
 
 | Adapter | Status | nDCG@5 | MRR |
 |---|---|---|---|
-| mneme | available | 0.96 | 0.95 |
+| mneme | available | 0.831 | 0.772 |
 | claude-mem | gated (not installed in CI) | n/a | n/a |
 
 Real-data head-to-head against installed claude-mem is a Phase J dogfood week deliverable.

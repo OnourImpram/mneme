@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mneme-core"
 version = "1.0.1"
-description = "Vault-native memory engine for Claude Code. FTS5 BM25 + LEANN dense + Graphiti temporal KG with RRF k=60 fusion."
+description = "Vault-native memory engine for Claude Code. FTS5 BM25, RRF-ready retrieval, gated Graphiti KG, and adaptive context tooling."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -29,9 +29,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Standard profile: dense embeddings + retrieval fusion. LEANN ships via
-# its own wheel and pulls onnxruntime. None of the lite-profile code
-# imports these, so omitting the extra is safe.
+# Standard profile: reserved runtime slot for the roadmap dense adapter.
+# v1.0 ships the RRF protocol and FTS5 leg; the packaged LEANN adapter
+# is intentionally not advertised as shipped.
 standard = [
     "onnxruntime>=1.18,<2"
 ]
@@ -66,7 +66,6 @@ dev = [
 
 [project.scripts]
 mneme = "mneme_core.cli:main"
-mneme-core = "mneme_core.cli:main"
 mneme-audit = "mneme_core.distill.audit:main"
 
 [project.urls]

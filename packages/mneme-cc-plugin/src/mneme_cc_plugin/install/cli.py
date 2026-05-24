@@ -6,6 +6,14 @@ Subcommands:
   mneme upgrade      change profile in place, rebuild indexes only
   mneme uninstall    remove hooks and MCP entry from settings.json
   mneme doctor       print environment status, no mutation
+  mneme hook         dispatch Claude Code or Codex lifecycle hooks
+  mneme index        FTS5 index maintenance from mneme-core
+  mneme kg           full-profile knowledge-graph worker from mneme-core
+  mneme compress     opt-in compression lifecycle from mneme-core
+  mneme patterns     reusable action-pattern memory from mneme-core
+  mneme trajectory   per-session trajectory recorder from mneme-core
+  mneme audit        token consumption audit from mneme-core
+  mneme audit-log    privacy redaction audit reader from mneme-core
   mneme version      print package version
 
 The orchestrator separates "what to run" from "how to run it" by
@@ -28,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+import mneme_core.cli as core_cli
+from mneme_core.distill.audit import cli as audit_cli
 
 from .. import __version__
 from .settings import (
@@ -575,6 +585,11 @@ def doctor(
     click.echo(json.dumps(report, indent=2, default=str))
 
 
+@cli.command("version", help="Print mneme package version.")
+def version_cmd() -> None:
+    click.echo(__version__)
+
+
 @cli.command(
     help=(
         "Dispatch a lifecycle hook event. Reads the event JSON on stdin "
@@ -609,6 +624,28 @@ def hook(event: str) -> None:
         "session-end": session_end.main,
     }
     sys.exit(mains[event]())
+
+
+def _register_core_commands() -> None:
+    """Expose the vault-operation CLI under the plugin-owned console script.
+
+    Both mneme-core and mneme-cc-plugin historically published a
+    ``mneme`` console script. In a normal install the plugin entry
+    point wins, which hid the public vault commands documented in the
+    README. Re-registering the core Click groups here keeps one user
+    contract without duplicating the implementation.
+    """
+
+    cli.add_command(core_cli.index, "index")
+    cli.add_command(core_cli.kg, "kg")
+    cli.add_command(core_cli.compress, "compress")
+    cli.add_command(core_cli.patterns_group, "patterns")
+    cli.add_command(core_cli.trajectory_group, "trajectory")
+    cli.add_command(audit_cli, "audit")
+    cli.add_command(core_cli.audit_log, "audit-log")
+
+
+_register_core_commands()
 
 
 def main() -> None:

@@ -39,13 +39,14 @@ so `npx` finds the workspace's local `tsx`. The benchmark is a no-op
 ## Running
 
 ```bash
-python benchmarks/migration/run.py --observations 200 --output-format=json > result.json
+python benchmarks/migration/run.py --observations 200 --output-format=json --output result.json
 ```
 
 Flags:
 
 - `--observations 200`
 - `--hardware-output benchmarks/migration/hardware.json`
+- `--output result.json`
 
 ## Reference output (operator hardware, observations=50)
 

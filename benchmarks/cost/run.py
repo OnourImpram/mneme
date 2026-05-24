@@ -50,6 +50,15 @@ from mneme_core.distill.shell_compress import compress_shell_output  # noqa: E40
 CHARS_PER_TOKEN = 4
 
 
+def write_json(payload: object, output_path: Path) -> None:
+    """Write benchmark JSON as UTF-8 without BOM on every platform."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def approx_tokens(text: str) -> int:
     """Heuristic char-count -> token-count conversion."""
     return math.ceil(len(text) / CHARS_PER_TOKEN) if text else 0
@@ -173,14 +182,14 @@ def measure_compressed_format() -> dict[str, dict[str, int | float]]:
             "When the operator's vault contains both English and Turkish "
             "text, single-leg retrieval underperforms because BM25 cannot "
             "see lexical equivalents like 'compaction' and 'consolidation'. "
-            "Fusing FTS5 with a dense backend via RRF k=60 lifts nDCG@5 by "
+            "Fusing FTS5 with a benchmark surrogate via RRF k=60 lifts nDCG@5 by "
             "approximately nine points on the synthetic corpus and trends "
             "the same direction on real-world Phase J dogfood data."
         ),
         key_points=[
             "Use RRF when corpus has multilingual content.",
             "Set k=60 per Cormack et al. 2009.",
-            "Expect ~9 point nDCG@5 lift over single-leg.",
+            "Expect ~9 point nDCG@5 lift over the single-leg synthetic baseline.",
         ],
     )
     out: dict[str, dict[str, int | float]] = {}
@@ -215,6 +224,12 @@ def main() -> int:
         type=Path,
         default=None,
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional path to write JSON output as UTF-8 without BOM.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -233,10 +248,13 @@ def main() -> int:
     if args.hardware_output is not None:
         write_hardware_json(capture_hardware(seed=args.seed), args.hardware_output)
 
-    if args.output_format == "json":
+    if args.output is not None:
+        write_json(payload, args.output)
+
+    if args.output_format == "json" and args.output is None:
         json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")
-    else:
+    elif args.output_format == "table":
         sc = payload["shell_compress"]
         sys.stdout.write("Benchmark C - cost\n")
         sys.stdout.write(

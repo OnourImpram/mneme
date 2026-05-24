@@ -51,7 +51,7 @@ head-to-head locally during Phase J dogfood week.
 ## Running
 
 ```bash
-python benchmarks/head-to-head/run.py --output-format=json > result.json
+python benchmarks/head-to-head/run.py --output-format=json --output result.json
 ```
 
 Flags:
@@ -59,29 +59,31 @@ Flags:
 - `--docs-per-topic 30` (default; 10 topics x 30 = 300 docs)
 - `--queries-per-topic 3` (default; 30 queries total)
 - `--hardware-output benchmarks/head-to-head/hardware.json`
+- `--output result.json` (writes UTF-8 JSON without relying on shell redirect)
 
 To wire claude-mem for a real comparison:
 
 ```bash
 # Install claude-mem somewhere on PATH (or set CLAUDE_MEM_BIN).
 # Then re-run the benchmark; ClaudeMemAdapter will become available.
-python benchmarks/head-to-head/run.py --output-format=json > result.json
+python benchmarks/head-to-head/run.py --output-format=json --output result.json
 ```
 
 ## Reference run (operator hardware, MnemeAdapter only)
 
 | Metric | Value |
 |---|---|
-| Fixture | 100 docs, 20 queries |
-| Migrate elapsed | 3.9 s |
-| Avg query latency | 3.5 ms |
-| nDCG@5 | 0.963 |
+| Fixture | 300 docs, 30 queries |
+| Migrate elapsed | hardware-dependent |
+| Avg query latency | hardware-dependent |
+| nDCG@5 | 0.831 |
 | Recall@10 | 1.000 |
-| MRR | 0.950 |
+| MRR | 0.772 |
 
-Numbers will move when the dense backend lands in the standard
-profile and when the corpus expands to 1,700+ observation operator
-data during Phase J.
+These values are locked in `baseline.json` with the exact command,
+fixture size, and reference hardware metadata. Numbers will move when
+the packaged dense backend lands and when the corpus expands to
+operator data during Phase J.
 
 ## Adding a third adapter
 

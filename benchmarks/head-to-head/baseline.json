@@ -1,0 +1,58 @@
+{
+  "benchmark": "head-to-head",
+  "seed": 42,
+  "provenance": {
+    "command": "python benchmarks/head-to-head/run.py --output-format=json --docs-per-topic=30 --queries-per-topic=3 --seed=42 --output benchmarks/_runs/head-to-head.json --hardware-output benchmarks/_runs/head-to-head-hardware.json",
+    "fixture": {
+      "docs_per_topic": 30,
+      "queries_per_topic": 3,
+      "topics": 10,
+      "docs": 300,
+      "queries": 30,
+      "fixture_rows": 300
+    },
+    "reference_hardware": {
+      "os": "Windows",
+      "os_release": "11",
+      "cpu_model": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+      "cpu_count_logical": 22,
+      "python_version": "3.14.3",
+      "node_version": "v24.14.0",
+      "mneme_bench_seed": 42
+    },
+    "notes": "Published v1.0 baseline uses the mneme adapter metrics on the default 300-document synthetic fixture. Competitor adapter availability is environment-dependent and is not part of the headline unless a real adapter binary is installed."
+  },
+  "published_headline": {
+    "adapter": "mneme",
+    "fixture_docs": 300,
+    "fixture_queries": 30,
+    "metrics": {
+      "ndcg_at_5": 0.8305502758333402,
+      "recall_at_10": 1.0,
+      "mrr": 0.7722222222222221
+    }
+  },
+  "results": [
+    {
+      "adapter": "mneme",
+      "available": true,
+      "migrate_status": "ok",
+      "queries_evaluated": 30,
+      "metrics": {
+        "ndcg_at_5": 0.8305502758333402,
+        "recall_at_10": 1.0,
+        "mrr": 0.7722222222222221
+      }
+    },
+    {
+      "adapter": "claude-mem",
+      "available": "environment-dependent",
+      "headline_status": "gated",
+      "metrics": {
+        "ndcg_at_5": null,
+        "recall_at_10": null,
+        "mrr": null
+      }
+    }
+  ]
+}

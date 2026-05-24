@@ -2,7 +2,7 @@
   "benchmark": "retrieval-quality",
   "seed": 42,
   "recorded_at": "2026-05-19",
-  "notes": "Locked baseline for Benchmark A. Pinned MNEME_BENCH_SEED=42. The pipeline_rrf_fts5_plus_bow ndcg_at_5 is the headline; the bag-of-words backend is a synthetic surrogate for the dense leg that lands in the standard profile post-v1.0.",
+  "notes": "Locked baseline for Benchmark A. Pinned MNEME_BENCH_SEED=42. The pipeline_rrf_fts5_plus_bow ndcg_at_5 is the headline; the bag-of-words backend is a synthetic surrogate for the roadmap dense leg.",
   "corpus": {
     "docs": 500,
     "queries": 50,

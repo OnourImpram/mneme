@@ -1,11 +1,9 @@
 /**
  * mneme_search — FTS5 BM25 retrieval over the vault.
  *
- * v1.0 Phase C ships the FTS5 leg. The Backend interface mirrors the
- * Python `RetrievalBackend` Protocol so a dense (LEANN) or graph
- * (Graphiti) backend can fuse in later via RRF without touching this
- * file. The dense+KG fusion will live in `src/retrieval/rrf.ts` and
- * land alongside Phase E.
+ * v1.0 ships the FTS5 leg. Dense retrieval is roadmap. KG enrichment
+ * is available through summarize and timeline when full-profile graph
+ * state is active.
  */
 
 import { existsSync } from "node:fs";
@@ -77,7 +75,7 @@ export function searchTool(
 			ok: false,
 			error: {
 				code: ERROR_CODES.INDEX_NOT_FOUND,
-				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme-core index rebuild' first.`,
+				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme index' first.`,
 			},
 		};
 	}

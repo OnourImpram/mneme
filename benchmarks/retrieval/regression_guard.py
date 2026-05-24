@@ -18,6 +18,20 @@ import sys
 from pathlib import Path
 
 
+def load_json(path: Path) -> object:
+    """Load JSON written by Python, UTF-8 BOM tools, or PowerShell redirect."""
+    raw = path.read_bytes()
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "utf-16"):
+        try:
+            return json.loads(raw.decode(encoding))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ValueError(f"empty JSON path: {path}")
+
+
 def fetch_dotted(obj: object, dotted: str) -> float:
     cur: object = obj
     for part in dotted.split("."):
@@ -51,8 +65,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = json.loads(args.result.read_text(encoding="utf-8"))
-    baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+    result = load_json(args.result)
+    baseline = load_json(args.baseline)
     fresh = fetch_dotted(result, args.metric_path)
     locked = fetch_dotted(baseline, args.metric_path)
     drop = locked - fresh

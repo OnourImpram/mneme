@@ -50,13 +50,50 @@ class TestCliDispatcher:
     def test_help_lists_subcommands(self, runner: CliRunner) -> None:
         res = runner.invoke(cli, ["--help"])
         assert res.exit_code == 0
-        for sub in ("install", "upgrade", "uninstall", "doctor"):
+        for sub in (
+            "install",
+            "upgrade",
+            "uninstall",
+            "doctor",
+            "hook",
+            "index",
+            "kg",
+            "compress",
+            "patterns",
+            "trajectory",
+            "audit",
+            "audit-log",
+            "version",
+        ):
             assert sub in res.output
 
     def test_version_flag(self, runner: CliRunner) -> None:
         res = runner.invoke(cli, ["--version"])
         assert res.exit_code == 0
         assert "mneme" in res.output
+
+    def test_version_command(self, runner: CliRunner) -> None:
+        res = runner.invoke(cli, ["version"])
+        assert res.exit_code == 0
+        assert res.output.strip()
+
+    @pytest.mark.parametrize(
+        ("args", "expected"),
+        [
+            (["index", "--help"], "rebuild"),
+            (["compress", "--help"], "status"),
+            (["patterns", "--help"], "list"),
+            (["trajectory", "--help"], "list"),
+            (["audit", "--help"], "token"),
+            (["audit-log", "--help"], "redaction"),
+        ],
+    )
+    def test_core_commands_are_exposed(
+        self, runner: CliRunner, args: list[str], expected: str
+    ) -> None:
+        res = runner.invoke(cli, args)
+        assert res.exit_code == 0, res.output
+        assert expected in res.output
 
     def test_doctor_prints_json(
         self, runner: CliRunner, workspace: dict[str, Path]

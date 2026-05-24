@@ -4,7 +4,7 @@ A living document tracking other memory tools in the Claude Code, MCP, and Pytho
 
 ## What Changed in the v1.0 Release Line
 
-- Phase H benchmark suite is in place and published. Concrete numbers in `docs/BENCHMARKS.md`: nDCG@5 = 0.893 (RRF fused), Stop hook p95 = 2 ms, shell_compress 88 percent reduction. Comparing tools without seeded reproducible numbers is now an apples-to-oranges conversation.
+- Phase H benchmark suite is in place and published. Concrete numbers in `docs/BENCHMARKS.md`: Benchmark A nDCG@5 = 0.893 on the shipped RRF path with a BoW surrogate, Stop hook p95 = 2 ms, shell_compress 88 percent reduction. Comparing tools without seeded reproducible numbers is now an apples-to-oranges conversation.
 - Phase G migration tool ships. Lossless one-command import from claude-mem v13.2.0 with tri-state archive and idempotent re-run. The switching cost from claude-mem to mneme is one command.
 - Phase F.6 adds pattern memory and trajectory recorder as vault-markdown primitives. Adds two axes that were previously implicit in the table.
 
@@ -15,10 +15,10 @@ We rate each competitor on the six axes mneme commits to (see `docs/ARCHITECTURE
 | Axis | mneme | claude-mem v13.2.0 | mem0 | letta | zep | supermemory | episodic-memory |
 |---|---|---|---|---|---|---|---|
 | Vault-native transparency | strong (markdown) | weak (SQLite) | weak (vectors) | medium | weak | weak (cloud) | weak |
-| Hybrid retrieval depth | strong (RRF fused) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak |
+| Hybrid retrieval depth | medium now, strong roadmap (FTS5 shipped, RRF-ready, dense roadmap) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak |
 | Zero-LLM-Stop latency | strong (under 1s) | weak (120s timeout) | n/a | n/a | n/a | n/a | n/a |
 | Privacy redaction | strong (built-in) | absent | absent | absent | absent | absent | absent |
-| Temporal reasoning | strong (Graphiti) | absent | weak | medium | strong | weak | absent |
+| Temporal reasoning | gated strong (Graphiti full profile) | absent | weak | medium | strong | weak | absent |
 | Adaptive context layer | strong (built-in) | absent | absent | absent | absent | absent | absent |
 
 ## Detailed Notes

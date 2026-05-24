@@ -6,7 +6,7 @@
 
 > Vault-native memory for Claude Code. Markdown is ground truth.
 
-Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
+FTS5 retrieval, RRF-ready core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
 
 **Status**: v1.0.1 repo hardening. Public package, plugin, runtime, and documentation version sources are aligned for the next GitHub release gate.
 
@@ -16,15 +16,15 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 
 - **Markdown is ground truth.** Your vault is a directory of plain `.md` files you can `git diff`, `grep`, edit, and back up.
 - **No LLM on the critical path.** The Stop hook appends deterministically. Compression happens in the background, opt-in, with a cost cap.
-- **Hybrid retrieval, not just vector search.** Full-text BM25 plus dense embeddings plus a temporal knowledge graph, fused with Reciprocal Rank Fusion at `k=60`.
+- **Hybrid-ready retrieval, not just vector search.** Shipped v1.0 uses FTS5 BM25 in the MCP server and exposes the RRF fusion protocol in `mneme-core`. Full-profile knowledge graph enrichment is gated by the local Graphiti and Neo4j setup. The packaged LEANN dense adapter is roadmap, not part of the v1.0 shipped default.
 - **Token-efficient by architecture.** Shell output compression, injection deduplication, adaptive top-k, and three injection format levels save 40 to 60 percent on session token consumption.
 - **Privacy by default.** Inline `<private>` tag redaction at staging write with SHA256 audit log. Zero outbound network calls except opted-in compression LLM and optional local Neo4j.
-- **Temporal reasoning.** Bi-temporal knowledge graph (`valid_from`, `valid_to`) lets you ask "what was decided about X between dates A and B?".
+- **Temporal reasoning.** Gated full-profile Graphiti support can enrich summarize and timeline queries when the KG active flag and local Neo4j are present. Lite installs fall back to FTS5 and mtime ordering.
 - **Pattern and trajectory memory.** First-class vault-markdown primitives for Signal/Action/Outcome patterns and per-session step recorders, queryable via the same retrieval pipeline.
 
 ## Reproducible Numbers
 
-These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42` on a 500-document synthetic corpus. Reproduce with `make bench-all`.
+These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. Benchmark A uses a 500-document corpus. Benchmark E uses its default 300-document, 30-query fixture. Reproduce with `make bench-all`.
 
 | Benchmark | Metric | Result |
 |---|---|---|
@@ -35,9 +35,9 @@ These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42` o
 | C. Injection deduplication | skip rate | **95 percent** in tight 20-turn sessions |
 | C. Compressed format | savings | keypoints **46 percent**, ref **88 percent** vs full |
 | D. Migration tool | assertions | **4 of 4** pass (migrated, idempotent, dedup, redaction) |
-| E. Head-to-head adapter | mneme leg | nDCG@5 **0.96**, MRR **0.95** on 100-doc fixture |
+| E. Head-to-head adapter | mneme leg | nDCG@5 **0.831**, MRR **0.772** on 300-doc fixture |
 
-CI regression guards lock these numbers. Any pull request that drops nDCG@5 by more than 0.02 or breaches the 1000 ms Stop hook p95 fails the build.
+CI regression guards lock the path-scoped benchmark surface. Pull requests touching benchmarked code run the benchmark workflow. Any run that drops Benchmark A nDCG@5 by more than 0.02 or breaches the 1000 ms Stop hook p95 fails the build.
 
 ## Three-Tier Install
 
@@ -46,10 +46,11 @@ CI regression guards lock these numbers. Any pull request that drops nDCG@5 by m
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
-# Standard: lite + LEANN dense embeddings + RRF fusion + summarize tool
+# Standard: lite + optional ONNX runtime slot and RRF extension points.
+# Packaged LEANN dense retrieval is roadmap, not shipped in v1.0.
 mneme install --profile=standard
 
-# Full: standard + Graphiti temporal knowledge graph + timeline tool (Docker + Neo4j)
+# Full: standard + gated Graphiti temporal knowledge graph enrichment (Docker + Neo4j)
 mneme install --profile=full
 ```
 
@@ -63,20 +64,6 @@ Verify a healthy install.
 
 ```bash
 mneme doctor
-```
-
-## CLI Surfaces
-
-`mneme` is the Claude Code and Codex install, hook, and doctor CLI provided by
-`mneme-cc-plugin`. Vault operations live on the core CLI so plugin installs do
-not shadow day-to-day memory commands.
-
-```bash
-mneme-core index rebuild --vault ~/mneme-vault
-mneme-core patterns search --vault ~/mneme-vault --query "release gate"
-mneme-core trajectory list --vault ~/mneme-vault
-mneme-core compress status --vault ~/mneme-vault
-python -m mneme_core version
 ```
 
 ## Using mneme with Codex
@@ -95,22 +82,24 @@ Codex gets the same six MCP tools, the same two skills, and the same vault. Four
 
 ## What v1.0 Ships
 
-- 6 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`.
+- 6 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`. Shipped default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active.
 - 5 Claude Code hooks: `PostToolUse`, `SessionStart`, `Stop`, `PreCompact`, `SessionEnd`.
 - 3 slash commands: `/mneme:prime`, `/mneme:recall`, `/mneme:migrate`.
 - 2 skills: `mneme-prime`, `mneme-search`.
 - 5-benchmark suite (`make bench-all`) including a head-to-head adapter for claude-mem v13.2.0.
 - One-command migration: `mneme-migrate migrate-from-claude-mem` with tri-state archive flag and idempotent re-run.
-- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus the `mneme-audit` CLI for session token reports.
-- Pattern memory: `mneme-core patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
-- Trajectory recorder: `mneme-core trajectory {start, step, end, show, list}` capturing per-session decision trails under `vault/trajectories/`.
-- Background AI compression (opt-in, default off): `mneme-core compress {enable, disable, status, dry-run, run}` with monthly cost cap ledger.
+- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus `mneme audit` for token reports and `mneme audit-log` for redaction audit entries.
+- Pattern memory: `mneme patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
+- Trajectory recorder: `mneme trajectory {start, step, end, show, list}` capturing per-session decision trails under `vault/trajectories/`.
+- Background AI compression (opt-in, default off): `mneme compress {enable, disable, status, dry-run, run}` with monthly cost cap ledger.
 
 ## What v1.0 Does Not Ship Yet
 
 A credible "best in market" claim requires honest scope acknowledgment.
 
 - No tree-sitter codebase priming. Planned for v1.2 as a separate `mneme-code` package.
+- No packaged LEANN dense adapter in the v1.0 install path. The RRF protocol and benchmark surrogate are shipped. The real dense adapter remains roadmap.
+- No dense or KG leg inside `mneme_search` by default. MCP search is FTS5 in v1.0. KG enrichment is gated for summarize and timeline.
 - No localized observation modes. English-default at v1.0, Turkish casefold is a utility not a mode preset.
 - No cloud SaaS option. mneme is local-first by architectural conviction.
 - No web-based knowledge graph visual explorer. Planned for v1.2 dashboard.

@@ -18,6 +18,20 @@ import sys
 from pathlib import Path
 
 
+def load_json(path: Path) -> object:
+    """Load JSON written by Python, UTF-8 BOM tools, or PowerShell redirect."""
+    raw = path.read_bytes()
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "utf-16"):
+        try:
+            return json.loads(raw.decode(encoding))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise ValueError(f"empty JSON path: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Latency p95 guard for Bench B.")
     parser.add_argument("result", type=Path, help="Fresh result.json to check.")
@@ -35,7 +49,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = json.loads(args.result.read_text(encoding="utf-8"))
+    result = load_json(args.result)
     cur: object = result
     for part in args.metric_path.split("."):
         if not isinstance(cur, dict):

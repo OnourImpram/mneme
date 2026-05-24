@@ -6,22 +6,22 @@ not require Claude Code to be installed or running.
 
 Top-level groups:
 
-* ``mneme-core index``   FTS5 indexer subcommands (see ``mneme_core.fts5``).
-* ``mneme-core kg``      Out-of-band knowledge-graph worker.
-* ``mneme-core version`` Print package version.
+* ``mneme index``   FTS5 indexer subcommands (see ``mneme_core.fts5``).
+* ``mneme kg``      Out-of-band knowledge-graph worker (full profile).
+* ``mneme audit-log`` Privacy redaction audit reader.
+* ``mneme version`` Print package version.
 
 ``mneme-cc-plugin`` re-uses the ``mneme`` console-script name for the
-plugin-side install orchestrator. The two surfaces are intentionally
-separate: plugin install runs once, vault operations run repeatedly.
-The plugin CLI shadows this one if both packages are installed; that
-is fine because this package also exposes ``mneme-core`` and supports
-the explicit module path ``python -m mneme_core``.
+plugin-side install orchestrator. The plugin CLI imports and exposes
+these same command objects so normal installs still have one public
+``mneme`` surface.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import click
@@ -634,6 +634,65 @@ def index_stats(vault_root: Path | None) -> None:
                 "by_frontmatter_type": [
                     {"type": row[0] or "(none)", "count": row[1]} for row in by_type_rows
                 ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def _audit_since_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value == "today":
+        return date.today().isoformat()
+    return value
+
+
+@cli.command("audit-log", help="Inspect privacy redaction audit JSONL entries.")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="YYYY-MM-DD lower bound, or 'today'.",
+)
+@click.option("--limit", type=int, default=100, show_default=True)
+def audit_log(vault_root: Path | None, since: str | None, limit: int) -> None:
+    vault = _resolve_vault(vault_root)
+    since_date = _audit_since_date(since)
+    entries: list[dict[str, object]] = []
+    if vault.audit_log_dir.is_dir():
+        for path in sorted(vault.audit_log_dir.glob("*.jsonl")):
+            if since_date is not None and path.stem < since_date:
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    record = {"_parse_error": True, "raw": line}
+                if isinstance(record, dict):
+                    entries.append(record)
+    if limit >= 0:
+        entries = entries[-limit:]
+    click.echo(
+        json.dumps(
+            {
+                "audit_dir": str(vault.audit_log_dir),
+                "since": since_date,
+                "count": len(entries),
+                "entries": entries,
             },
             indent=2,
             ensure_ascii=False,

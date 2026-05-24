@@ -54,6 +54,9 @@ python benchmarks/migration/run.py --observations=200
 python benchmarks/head-to-head/run.py --docs-per-topic=30
 ```
 
+Use `--output path/to/result.json` on any runner to write UTF-8 JSON
+without relying on shell redirect encoding.
+
 ## Reproducibility
 
 - Pinned seed: `MNEME_BENCH_SEED=42` (Makefile defaults to this).
@@ -64,8 +67,8 @@ python benchmarks/head-to-head/run.py --docs-per-topic=30
 ## CI
 
 `.github/workflows/bench.yml` runs every benchmark on Ubuntu with
-artifact upload. Push trigger is currently paused per
-`docs/CI-BILLING.md`; manual runs go through `workflow_dispatch`.
+artifact upload for manual dispatch and for PRs or pushes that touch
+benchmarked packages, benchmark code, or the benchmark workflow.
 
 ## Adding a new benchmark
 

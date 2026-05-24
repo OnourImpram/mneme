@@ -38,6 +38,23 @@ from mneme_core.bench.hardware import (  # noqa: E402
 )
 
 
+def write_json(payload: object, output_path: Path) -> None:
+    """Write benchmark JSON as UTF-8 without BOM on every platform."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def emit_json(payload: object, output_path: Path | None) -> None:
+    if output_path is not None:
+        write_json(payload, output_path)
+        return
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
 def build_fixture_db(path: Path, observation_count: int) -> dict[str, int]:
     """Materialize a synthetic claude-mem v13.2.0 schema with rows.
 
@@ -216,6 +233,12 @@ def main() -> int:
         type=Path,
         default=None,
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional path to write JSON output as UTF-8 without BOM.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -242,8 +265,7 @@ def main() -> int:
             payload["status"] = "skipped"
             payload["reason"] = str(exc)
             payload["seeded_counts"] = seeded
-            json.dump(payload, sys.stdout, indent=2)
-            sys.stdout.write("\n")
+            emit_json(payload, args.output)
             return 0
 
         payload["tsx_command"] = tsx_cmd
@@ -255,8 +277,7 @@ def main() -> int:
             payload["status"] = "error"
             payload["first_run"] = {"rc": first_rc, "stats": first_stats}
             payload["seeded_counts"] = seeded
-            json.dump(payload, sys.stdout, indent=2)
-            sys.stdout.write("\n")
+            emit_json(payload, args.output)
             return 1
 
         t0 = time.perf_counter()
@@ -302,10 +323,12 @@ def main() -> int:
             "redactions_match_seeded": first_redactions >= seeded["redactable_rows"],
         }
 
-    if args.output_format == "json":
-        json.dump(payload, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-    else:
+    if args.output is not None:
+        write_json(payload, args.output)
+
+    if args.output_format == "json" and args.output is None:
+        emit_json(payload, None)
+    elif args.output_format == "table":
         sys.stdout.write("Benchmark D - migration validation\n")
         sys.stdout.write(f"  status: {payload['status']}\n")
         if payload["status"] == "ok":

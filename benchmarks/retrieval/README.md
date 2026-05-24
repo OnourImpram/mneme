@@ -30,8 +30,8 @@ production `mneme_core.retrieval.rrf.retrieve` pipeline.
 | `pipeline_rrf_fts5_plus_bow` | `retrieve` with FTS5 + BoW cosine | Exercises RRF fusion code path. |
 
 The bag-of-words backend (`BowBackend` in `run.py`) is a pure-Python
-TF-cosine surrogate. It is **not** a substitute for the LEANN dense
-backend in the standard profile; it exists only so the benchmark can
+TF-cosine surrogate. It is **not** a substitute for a packaged LEANN dense
+adapter; it exists only so the benchmark can
 exercise actual RRF fusion under controlled inputs.
 
 ## Metrics
@@ -44,7 +44,7 @@ exercise actual RRF fusion under controlled inputs.
 ## Running
 
 ```bash
-python benchmarks/retrieval/run.py --output-format=json > result.json
+python benchmarks/retrieval/run.py --output-format=json --output result.json
 ```
 
 Optional flags:
@@ -53,6 +53,7 @@ Optional flags:
 - `--docs-per-topic 50`
 - `--queries-per-topic 5`
 - `--hardware-output benchmarks/retrieval/hardware.json`
+- `--output result.json`
 
 ## Regression guard
 
@@ -82,6 +83,5 @@ the top-10.
 
 - Real-world retrieval quality on operator vaults. Phase J's dogfood
   week is the source for that.
-- The dense embedding leg. That ships in the standard profile
-  post-v1.0; this benchmark exercises a synthetic surrogate.
+- The dense embedding leg. That is roadmap; this benchmark exercises a synthetic surrogate.
 - Head-to-head versus claude-mem. See `benchmarks/head-to-head/`.

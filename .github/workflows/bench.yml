@@ -1,15 +1,21 @@
 name: Benchmarks
 
-# Push trigger temporarily disabled due to GitHub Actions billing constraints.
-# Manual runs remain available via workflow_dispatch.
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'packages/mneme-core/**'
-  #     - 'packages/mneme-mcp/**'
-  #     - 'benchmarks/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/mneme-core/**'
+      - 'packages/mneme-mcp/**'
+      - 'benchmarks/**'
+      - '.github/workflows/bench.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/mneme-core/**'
+      - 'packages/mneme-mcp/**'
+      - 'benchmarks/**'
+      - '.github/workflows/bench.yml'
 
 jobs:
   retrieval-quality:
@@ -28,7 +34,7 @@ jobs:
           mkdir -p benchmarks/_runs
           python benchmarks/retrieval/run.py --output-format=json \
             --hardware-output benchmarks/_runs/retrieval-hardware.json \
-            > benchmarks/_runs/retrieval.json
+            --output benchmarks/_runs/retrieval.json
       - name: Regression guard (nDCG@5 must not drop more than 0.02)
         run: python benchmarks/retrieval/regression_guard.py benchmarks/_runs/retrieval.json
       - uses: actions/upload-artifact@v4
@@ -52,7 +58,7 @@ jobs:
           mkdir -p benchmarks/_runs
           python benchmarks/latency/run.py --output-format=json --sessions=100 \
             --hardware-output benchmarks/_runs/latency-hardware.json \
-            > benchmarks/_runs/latency.json
+            --output benchmarks/_runs/latency.json
       - name: P95 guard (Stop hook proxy must stay under 1000ms)
         run: python benchmarks/latency/p95_guard.py benchmarks/_runs/latency.json --threshold-ms=1000
       - uses: actions/upload-artifact@v4
@@ -76,7 +82,7 @@ jobs:
           mkdir -p benchmarks/_runs
           python benchmarks/cost/run.py --output-format=json \
             --hardware-output benchmarks/_runs/cost-hardware.json \
-            > benchmarks/_runs/cost.json
+            --output benchmarks/_runs/cost.json
       - uses: actions/upload-artifact@v4
         with:
           name: bench-cost
@@ -107,12 +113,12 @@ jobs:
           mkdir -p benchmarks/_runs
           python benchmarks/migration/run.py --output-format=json --observations=200 \
             --hardware-output benchmarks/_runs/migration-hardware.json \
-            > benchmarks/_runs/migration.json
+            --output benchmarks/_runs/migration.json
       - name: Assert all migration assertions passed
         run: |
           python - <<'PY'
           import json, sys
-          payload = json.loads(open("benchmarks/_runs/migration.json").read())
+          payload = json.loads(open("benchmarks/_runs/migration.json", encoding="utf-8").read())
           status = payload.get("status")
           if status == "skipped":
               print("Migration benchmark skipped:", payload.get("reason"))
@@ -156,7 +162,7 @@ jobs:
           mkdir -p benchmarks/_runs
           python benchmarks/head-to-head/run.py --output-format=json \
             --hardware-output benchmarks/_runs/head-to-head-hardware.json \
-            > benchmarks/_runs/head-to-head.json
+            --output benchmarks/_runs/head-to-head.json
       - uses: actions/upload-artifact@v4
         with:
           name: bench-head-to-head

@@ -10,7 +10,7 @@ These constraints are client-neutral. Where a constraint names a Claude Code lif
 
 **Rationale**: User owns the data. Tool migration must be lossless. Backup is `tar czf backup.tar.gz vault/`.
 
-**Verification**: `mneme-core index rebuild --vault <vault>` reconstructs derived FTS5 state from the vault, modulo non-deterministic embedding seeds for optional dense indexes. Tested in `benchmarks/migration/`.
+**Verification**: `mneme index rebuild` reconstructs FTS5 from vault markdown. Migration benchmark D verifies the same source fixture can be migrated, re-run idempotently, and rebuilt without structural loss.
 
 ## C2: Stop Hook Latency Under 1 Second p95
 
@@ -30,11 +30,11 @@ These constraints are client-neutral. Where a constraint names a Claude Code lif
 
 ## C4: Privacy Redaction at Staging Write
 
-**Definition**: Content matched by `<private>...</private>` tags or by configured PII patterns must be stripped before reaching staging JSONL, telemetry, knowledge graph, FTS5 index, or vault markdown. A SHA256 audit log entry must record the redaction.
+**Definition**: Content matched by `<private>...</private>` tags or by configured PII patterns must be stripped before reaching staging JSONL, telemetry, knowledge graph, FTS5 index, or vault markdown. Staging and telemetry redactions must write an audit entry.
 
 **Rationale**: Privacy is a non-negotiable user expectation. Leakage is hard to recall.
 
-**Verification**: `tests/integration/test_privacy_redaction.py` injects ten `<private>` samples and asserts zero appearance in any downstream store. Audit log entry presence confirmed.
+**Verification**: `packages/mneme-core/tests/integration/test_staging.py` and `packages/mneme-core/tests/integration/test_telemetry.py` assert recursive redaction and audit-log entry creation. MCP write redaction returns `redactions_applied` and is covered in the Node test suite.
 
 ## C5: Token Efficiency on by Default
 
@@ -42,4 +42,4 @@ These constraints are client-neutral. Where a constraint names a Claude Code lif
 
 **Rationale**: Hidden token costs erode user trust and break the cost model. Default-on prevents accidental waste.
 
-**Verification**: `benchmarks/cost/run.py` compares mneme-distill-on against mneme-distill-off against a no-memory baseline across light, medium, and heavy workloads. Default config must demonstrate 40 to 60 percent reduction on heavy workload. Current seeded reference numbers: `shell_compress` 88 percent reduction on redundant Bash output, `injection_dedup` 95 percent skip rate in tight 20-turn sessions, `compressed_format=keypoints` 46 percent size vs full, `compressed_format=ref` 12 percent of full.
+**Verification**: `benchmarks/cost/run.py` measures the shipped primitives directly. Current seeded reference numbers: `shell_compress` 88 percent reduction on redundant Bash output, `injection_dedup` 95 percent skip rate in tight 20-turn sessions, `compressed_format=keypoints` 46 percent size vs full, `compressed_format=ref` 12 percent of full.

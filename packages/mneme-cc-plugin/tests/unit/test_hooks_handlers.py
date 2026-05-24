@@ -28,7 +28,6 @@ from mneme_cc_plugin.hooks import (
 
 @pytest.fixture
 def vault(tmp_path: Path) -> VaultConfig:
-    VaultConfig.fromPath = VaultConfig.from_path  # alias
     v = VaultConfig.from_path(tmp_path)
     (v.root / ".mneme").mkdir(parents=True, exist_ok=True)
     return v

@@ -20,7 +20,7 @@ The five Claude Code hooks mneme installs are deterministic local-only operation
 | SessionStart | None | Reads vault, runs FTS5 query, injects context. Disk-local. |
 | Stop | None | Writes session markdown via atomic rename. Disk-local. p95 < 1s validated in `benchmarks/latency/`. |
 | PreCompact | None | Saves Claude Code state pointer. Disk-local. |
-| SessionEnd | None | Flushes background queues. Disk-local. |
+| SessionEnd | None by default | Stamps state. If compression is explicitly enabled and provider auth exists, launches the opted-in background compression subprocess. |
 
 Constitutional principles C2 + C3 (Zero-LLM-Stop Critical Path) make the absence of outbound calls in Stop, SessionStart, and PreCompact an enforced invariant rather than a documentation promise. `tools/spec_verify.py` static-greps each hook source for `anthropic.`, `openai.`, `requests.`, `httpx.`, `urllib.request` patterns and fails CI on any unsanctioned match. The grep is shipped in the public repo, the CI job runs on every PR, the failure mode is observable.
 
@@ -28,17 +28,17 @@ Constitutional principles C2 + C3 (Zero-LLM-Stop Critical Path) make the absence
 
 ### 1. LLM API for Compression
 
-**When**: only when the user explicitly sets `compression_enabled: true` in `~/.mneme/config.toml` AND provides an API key (either an Anthropic key or via Claude Code's own auth pass-through).
+**When**: only when the user explicitly enables compression with `mneme compress enable` or the equivalent vault config, no pause flag is present, and an API key is available in the environment.
 
 **Endpoint**: `api.anthropic.com` by default, or the user-configured endpoint via the pluggable `LlmProvider` Protocol (Anthropic ships in `mneme-core`, OpenAI and Ollama adapters land in v1.1).
 
-**Frequency**: at most once per session, in the background, after Stop. Subject to the cost cap ledger.
+**Frequency**: at most once per session, in the background, after SessionEnd. Subject to the cost cap ledger.
 
 **Payload**: redacted session staging content (post-C4 privacy redaction). Never raw user prompts, never `<private>`-tagged content.
 
 **Cost ledger**: every API call is recorded with token counts and dollar cost in `vault/.mneme/kg_cost_ledger.jsonl` under `kind: compression`. The user-configurable monthly cap defaults to 25 USD. When the cap is reached, compression pauses until the next month or until the user raises the cap.
 
-**Opt-out**: set `compression_enabled: false` (the default) or run `mneme-core compress disable`.
+**Opt-out**: set `compression_enabled: false` (the default) or run `mneme compress disable`.
 
 ### 2. Local Neo4j (Full Profile Only)
 
@@ -55,8 +55,8 @@ Constitutional principles C2 + C3 (Zero-LLM-Stop Critical Path) make the absence
 | Tier | Default outbound | Opt-in outbound | Local subprocess |
 |---|---|---|---|
 | lite | None | None | None |
-| standard | None | LLM compression (if enabled) | ONNX runtime in-process |
-| full | None | LLM compression (if enabled) | Neo4j on localhost:7687, ONNX runtime in-process |
+| standard | None | LLM compression (if enabled) | Optional ONNX runtime slot, no shipped dense adapter in v1.0 |
+| full | None | LLM compression (if enabled) | Neo4j on localhost:7687, optional ONNX runtime slot |
 
 No tier introduces a third party network endpoint by default. The lite tier has zero subprocess dependencies.
 
@@ -72,9 +72,9 @@ mneme enforces redaction at the earliest possible point in the data pipeline (st
 - FTS5 index
 - Vault session markdown at `vault/sessions/YYYY-MM-DD.md`
 
-**Audit trail**: a SHA256 hash of the original (unredacted) content is written to `~/.mneme/audit/YYYY-MM-DD.jsonl`. The audit log lets the user verify that redaction fired without storing the redacted content itself.
+**Audit trail**: PostToolUse staging and telemetry redactions write a SHA256-derived hash of the original content to `vault/.mneme/audit/YYYY-MM-DD.jsonl`. The audit log lets the user verify that redaction fired without storing the redacted content itself. The MCP `mneme_write` tool also redacts `<private>` text before writing and returns `redactions_applied`; it does not persist a separate audit entry in v1.0.
 
-**Verification**: `tests/integration/test_privacy_redaction.py` injects ten `<private>` samples and asserts zero appearance in any downstream store. The test runs in CI on every PR per constitutional principle C4.
+**Verification**: `packages/mneme-core/tests/integration/test_staging.py` and `packages/mneme-core/tests/integration/test_telemetry.py` assert recursive `<private>` redaction across downstream stores and audit-log entry creation. These run in CI on every PR per constitutional principle C4.
 
 ## Migration Tool Privacy
 
@@ -114,17 +114,17 @@ No file outside this list is opened.
 
 ## Audit Log
 
-Privacy-relevant operations write to `~/.mneme/audit/YYYY-MM-DD.jsonl` with SHA256 hashes of redacted content, not the content itself. Daily rotation. Inspect these JSONL files directly or with your normal log tooling.
+Privacy-relevant staging and telemetry operations write to `vault/.mneme/audit/YYYY-MM-DD.jsonl` with hashes of redacted content, not the content itself. Daily rotation. Use `mneme audit-log` to inspect.
 
 Schema per entry:
 
 ```json
 {
   "ts": "2026-05-20T17:46:24Z",
-  "op": "redact",
-  "scope": "staging|telemetry|kg|fts5|vault",
-  "sha256": "abc123...",
-  "bytes_redacted": 412
+  "host": "workstation",
+  "field": "tool_response.stdout",
+  "original_length": 412,
+  "audit_hash": "abc123..."
 }
 ```
 
@@ -133,8 +133,8 @@ Schema per entry:
 The simplest way to validate the zero-outbound claim is to run mneme inside a network observer and confirm operations still succeed without non-localhost connections.
 
 ```bash
-# Linux: strace a local diagnostic command to check outbound syscalls.
-strace -f -e trace=network -o /tmp/mneme-net.log mneme doctor
+# Linux: strace mneme to check outbound syscalls.
+strace -f -e trace=network -o /tmp/mneme-net.log mneme index stats
 grep -E "AF_INET[6]?" /tmp/mneme-net.log | grep -v "127\.0\.0\.1\|::1"
 
 # macOS: lsof to see open network connections during a session.

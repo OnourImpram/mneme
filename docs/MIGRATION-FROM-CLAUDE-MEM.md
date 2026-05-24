@@ -55,11 +55,11 @@ mneme-migrate migrate-from-claude-mem --source ~/.claude-mem/db.sqlite --vault ~
 Before committing fully to mneme, run both systems against the same vault and compare:
 
 ```bash
-mneme migrate-from-claude-mem --source ~/.claude-mem/db.sqlite --vault ~/test-vault
+mneme-migrate migrate-from-claude-mem --source ~/.claude-mem/db.sqlite --vault ~/test-vault
 make bench-migration  # runs benchmark D from the launch plan
 ```
 
-Benchmark D reports agreement rate against manual relevance judgment. Target is at least 85 percent agreement on the top 5 results for 50 representative queries.
+Benchmark D reports structural correctness against a synthetic fixture. Target is all four assertions passing.
 
 ## Frontmatter Mapping
 
@@ -110,7 +110,7 @@ This design avoids accidental destruction while leaving a clean cutover path for
 
 ## Privacy Redaction
 
-Every text field is scanned for `<private>...</private>` segments before writing. Matched content is replaced with `<REDACTED>` and a SHA256 hash of the original is appended to `~/.mneme/audit.log`. The number of redactions per record is surfaced in frontmatter as `redacted_count`.
+Every text field is scanned for `<private>...</private>` segments before writing. Matched content is replaced with `<REDACTED>`. The number of redactions per record is surfaced in frontmatter as `redacted_count`, and aggregate redaction counts are recorded in the migration manifest.
 
 ```
 [mneme-migrate] redacted 27 <private> blocks across 1754 records

@@ -45,6 +45,15 @@ from mneme_core.vault.atomic_write import atomic_write_text  # noqa: E402
 DEFAULT_QUANTILES = [0.5, 0.95, 0.99]
 
 
+def write_json(payload: object, output_path: Path) -> None:
+    """Write benchmark JSON as UTF-8 without BOM on every platform."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _materialize_vault(corpus, vault_root: Path) -> None:
     vault_root.mkdir(parents=True, exist_ok=True)
     for doc in corpus.docs:
@@ -197,6 +206,12 @@ def main() -> int:
         type=Path,
         default=None,
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional path to write JSON output as UTF-8 without BOM.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -219,10 +234,13 @@ def main() -> int:
     if args.hardware_output is not None:
         write_hardware_json(capture_hardware(seed=args.seed), args.hardware_output)
 
-    if args.output_format == "json":
+    if args.output is not None:
+        write_json(payload, args.output)
+
+    if args.output_format == "json" and args.output is None:
         json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")
-    else:
+    elif args.output_format == "table":
         sys.stdout.write("Benchmark B - latency\n")
         sys.stdout.write(f"  stop_hook_proxy_ms p95: {stop_hook.get('p95')}\n")
         sys.stdout.write(f"  retrieve_ms p95:        {retrieve_dist.get('p95')}\n")

@@ -23,7 +23,7 @@ help:
 
 install-dev:
 	cd packages/mneme-core && $(PY) -m pip install -e ".[dev]"
-	$(PY) -m pip install -e packages/mneme-cc-plugin
+	$(PY) -m pip install -e "packages/mneme-cc-plugin[dev]"
 	$(PNPM) install --frozen-lockfile
 
 test:
@@ -37,6 +37,7 @@ test-parity:
 
 lint:
 	cd packages/mneme-core && ruff check . && mypy --strict src/
+	cd packages/mneme-cc-plugin && ruff check . && mypy --strict src/
 	$(PNPM) --filter mneme-mcp lint
 
 $(BENCH_OUT):
@@ -46,33 +47,33 @@ bench-retrieval: $(BENCH_OUT)
 	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/retrieval/run.py \
 	  --output-format=json --seed=$(BENCH_SEED) \
 	  --hardware-output $(BENCH_OUT)/retrieval-hardware.json \
-	  > $(BENCH_OUT)/retrieval.json
+	  --output $(BENCH_OUT)/retrieval.json
 	$(PY) benchmarks/retrieval/regression_guard.py $(BENCH_OUT)/retrieval.json
 
 bench-latency: $(BENCH_OUT)
 	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/latency/run.py \
 	  --output-format=json --seed=$(BENCH_SEED) \
 	  --hardware-output $(BENCH_OUT)/latency-hardware.json \
-	  > $(BENCH_OUT)/latency.json
+	  --output $(BENCH_OUT)/latency.json
 	$(PY) benchmarks/latency/p95_guard.py $(BENCH_OUT)/latency.json --threshold-ms=1000
 
 bench-cost: $(BENCH_OUT)
 	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/cost/run.py \
 	  --output-format=json --seed=$(BENCH_SEED) \
 	  --hardware-output $(BENCH_OUT)/cost-hardware.json \
-	  > $(BENCH_OUT)/cost.json
+	  --output $(BENCH_OUT)/cost.json
 
 bench-migration: $(BENCH_OUT)
 	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/migration/run.py \
 	  --output-format=json --seed=$(BENCH_SEED) \
 	  --hardware-output $(BENCH_OUT)/migration-hardware.json \
-	  > $(BENCH_OUT)/migration.json
+	  --output $(BENCH_OUT)/migration.json
 
 bench-head-to-head: $(BENCH_OUT)
 	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/head-to-head/run.py \
 	  --output-format=json --seed=$(BENCH_SEED) \
 	  --hardware-output $(BENCH_OUT)/head-to-head-hardware.json \
-	  > $(BENCH_OUT)/head-to-head.json
+	  --output $(BENCH_OUT)/head-to-head.json
 
 bench-all: bench-retrieval bench-latency bench-cost bench-migration bench-head-to-head
 	@echo "All benchmarks complete. Results in $(BENCH_OUT)/."

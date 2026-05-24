@@ -18,7 +18,7 @@ and the regression guard can catch fusion regressions.
 
 Usage:
 
-    python benchmarks/retrieval/run.py --output-format=json > result.json
+    python benchmarks/retrieval/run.py --output-format=json --output result.json
     python benchmarks/retrieval/run.py --output-format=table
 """
 
@@ -58,6 +58,15 @@ from mneme_core.retrieval.rrf import (  # noqa: E402
 )
 
 DEFAULT_TOP_N = 10
+
+
+def write_json(payload: object, output_path: Path) -> None:
+    """Write benchmark JSON as UTF-8 without BOM on every platform."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def materialize_vault(corpus, vault_root: Path) -> None:
@@ -212,6 +221,12 @@ def main() -> int:
         default=None,
         help="Optional path to write hardware.json alongside the result.",
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional path to write JSON output as UTF-8 without BOM.",
+    )
     args = parser.parse_args()
 
     corpus = build_synthetic_corpus(
@@ -279,10 +294,13 @@ def main() -> int:
     if args.hardware_output is not None:
         write_hardware_json(capture_hardware(seed=args.seed), args.hardware_output)
 
-    if args.output_format == "json":
+    if args.output is not None:
+        write_json(payload, args.output)
+
+    if args.output_format == "json" and args.output is None:
         json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")
-    else:
+    elif args.output_format == "table":
         sys.stdout.write("Benchmark A - retrieval quality\n")
         for condition, metrics in payload["conditions"].items():
             sys.stdout.write(f"  {condition}:\n")

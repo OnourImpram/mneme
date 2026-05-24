@@ -5,11 +5,11 @@
  * Six tools over stdio transport, all prefixed `mneme_` to avoid
  * namespace clash with other MCP servers running in the same client:
  *
- *   mneme_search     hybrid retrieval (FTS5 today, RRF+KG in Phase E)
+ *   mneme_search     FTS5 retrieval today, dense search roadmap
  *   mneme_recall     session by id or date range, with optional body
  *   mneme_write      atomic section append/replace with frontmatter
- *   mneme_summarize  topic grouped by directory (KG layer Phase E)
- *   mneme_timeline   subject ordered by mtime (bi-temporal Phase E)
+ *   mneme_summarize  topic grouped by directory, KG-enriched when active
+ *   mneme_timeline   subject ordered by mtime, KG-enriched when active
  *   mneme_prime      preflight context bundle within token budget
  *
  * The server resolves a VaultConfig once at startup. Vault root comes
@@ -59,7 +59,7 @@ const TOOLS: ToolDef[] = [
 	{
 		name: "mneme_search",
 		description:
-			"Hybrid retrieval over the vault. v1.0 ships FTS5 BM25 with " +
+			"Retrieval over the vault. v1.0 ships FTS5 BM25 with " +
 			"Turkish casefold normalization. Optional date and frontmatter " +
 			"type filters. Returns ranked hits with snippets.",
 		zodSchema: SearchInputSchema,
@@ -143,8 +143,8 @@ const TOOLS: ToolDef[] = [
 	{
 		name: "mneme_summarize",
 		description:
-			"Topic summary grouped by directory. v1.0 uses FTS5 only. Phase E " +
-			"will add Graphiti BFS expansion; output shape is stable across both.",
+			"Topic summary grouped by directory. v1.0 uses FTS5 and can add " +
+			"Graphiti fields when full-profile KG state is active.",
 		zodSchema: SummarizeInputSchema,
 		inputSchema: {
 			type: "object",
@@ -167,8 +167,8 @@ const TOOLS: ToolDef[] = [
 		name: "mneme_timeline",
 		description:
 			"Temporal-ordered references for a subject. v1.0 returns FTS5 hits " +
-			"sorted by mtime ascending. Phase E adds bi-temporal as_of semantics " +
-			"via Graphiti.",
+			"sorted by mtime ascending and can add bi-temporal Graphiti facts " +
+			"when full-profile KG state is active.",
 		zodSchema: TimelineInputSchema,
 		inputSchema: {
 			type: "object",

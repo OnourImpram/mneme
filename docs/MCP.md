@@ -1,12 +1,12 @@
 # MCP Tool Reference
 
-mneme-mcp exposes six tools over stdio in every install profile. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client. Lite uses the local FTS5 baseline. Standard and full profile components add derived indexes and graph state that the core package can consume without changing MCP tool names.
+mneme-mcp exposes six tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
 
 ## Tools
 
 ### mneme_search
 
-Retrieval across the vault. **v1.0 MCP server**: FTS5 BM25 with Turkish casefold normalization. The hybrid RRF fusion documented at the `mneme-core` Python API (FTS5 plus LEANN dense plus Graphiti temporal KG, `k=60`) is consumed by the build-time indexer and benchmark suite. Callers needing direct index maintenance should use `mneme-core`.
+Retrieval across the vault. **Shipped v1.0 MCP server**: FTS5 BM25 only. **Gated**: summarize and timeline can add Graphiti fields when full-profile KG state and local Neo4j are active. **Roadmap**: packaged dense LEANN retrieval inside MCP search. The RRF fusion protocol is available in `mneme-core` for Python callers and in Benchmark A through a deterministic BoW surrogate.
 
 **Input schema**:
 
@@ -81,7 +81,7 @@ Inject preflight context for a session. Combines recent sessions, relevant topic
 
 ### mneme_summarize
 
-Summarize a topic across multiple sessions. v1.0 groups FTS5 hits by directory and returns source-backed sections. The output shape is stable for future graph expansion.
+Summarize a topic across multiple sessions. Shipped default groups FTS5 matches by directory. Gated full-profile KG enrichment can add `related_entities` when the KG active flag and local Neo4j are present. The tool does not call an LLM in v1.0.
 
 **Input**: `{ "topic": "string", "date_range": ["ISO8601 date", "ISO8601 date"] }`.
 
@@ -89,7 +89,7 @@ Summarize a topic across multiple sessions. v1.0 groups FTS5 hits by directory a
 
 ### mneme_timeline
 
-Temporal query for a subject. v1.0 returns FTS5 hits ordered by mtime. Full-profile graph state can add bi-temporal semantics in later releases without renaming the tool.
+Temporal query for a subject. Shipped default returns FTS5 hits sorted by mtime. Gated full-profile KG enrichment can add bi-temporal Graphiti facts and apply `as_of` semantics when the graph is active.
 
 **Input**:
 

@@ -6,11 +6,11 @@ This document captures the design philosophy and the Architecture Decision Recor
 
 mneme is built on three convictions:
 
-1. **Markdown is ground truth.** All durable memory lives as plain markdown files in a user-owned directory called the vault. Indexes (FTS5, dense embeddings, knowledge graph) are derived artifacts that can be rebuilt at any time. The user owns the data, not the tool.
+1. **Markdown is ground truth.** All durable memory lives as plain markdown files in a user-owned directory called the vault. Shipped indexes such as FTS5, and gated or roadmap artifacts such as knowledge graph and dense indexes, are derived artifacts that can be rebuilt at any time. The user owns the data, not the tool.
 
 2. **Determinism on the critical path.** The Stop hook must finish in under one second p95 and must never depend on a network call or an LLM API. Compression and AI processing happen in the background, opt-in, with cost caps.
 
-3. **Hybrid retrieval beats single-leg retrieval.** No one signal is sufficient. mneme fuses BM25 lexical recall, dense semantic recall, and temporal knowledge graph traversal using Reciprocal Rank Fusion at `k=60`.
+3. **Hybrid-ready retrieval beats single-leg retrieval.** No one signal is sufficient. mneme ships BM25 lexical recall and an RRF-ready protocol at `k=60`. Full-profile KG enrichment is gated. Packaged dense retrieval is roadmap.
 
 ## Component Map
 
@@ -36,10 +36,10 @@ mneme is built on three convictions:
                    +------+----+-----+------+
                           |    |     |
                           v    v     v
-                   +-------+ +---+ +-----------+
-                   | FTS5  | |LEA| | Graphiti  |
-                   | BM25  | |NN | | Neo4j KG  |
-                   +---+---+ +-+-+ +-----+-----+
+                   +-------+ +---------+ +-----------+
+                   | FTS5  | | Dense   | | Graphiti  |
+                   | BM25  | | roadmap | | Neo4j KG  |
+                   +---+---+ +----+----+ +-----+-----+
                        \      |       /
                         \     v      /
                          \  RRF k=60/
@@ -74,17 +74,17 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 
 ### ADR-003: RRF fusion at k=60
 
-**Context**: Single-backend retrieval (BM25 only, or dense only) leaves recall on the table.
+**Context**: Single-backend retrieval leaves recall on the table, but v1.0 must not advertise dense retrieval before the packaged adapter is present.
 
-**Decision**: Run all available backends in parallel, fuse with Reciprocal Rank Fusion `score = sum(1 / (k + rank_i))` at `k=60`.
+**Decision**: Run all available backends in parallel, fuse with Reciprocal Rank Fusion `score = sum(1 / (k + rank_i))` at `k=60`. v1.0 ships FTS5 and the injectable backend protocol. Benchmark A uses a deterministic BoW surrogate to guard the fusion path.
 
-**Consequences**: Better recall and precision than any single backend. Trade-off: latency budget split across backends.
+**Consequences**: The fusion path is tested before the packaged dense adapter lands. Trade-off: public docs must label dense retrieval as roadmap until the real adapter ships.
 
 ### ADR-004: Three-tier install profile
 
-**Context**: Graphiti requires Docker and Neo4j. LEANN requires ONNX runtime. These are heavy dependencies that block casual adoption.
+**Context**: Graphiti requires Docker and Neo4j. Dense retrieval requires additional runtime and adapter packaging. These are heavy dependencies that block casual adoption.
 
-**Decision**: Three install tiers (lite, standard, full) with progressive feature unlock and in-place upgrade.
+**Decision**: Three install tiers (lite, standard, full) with progressive feature unlock and in-place upgrade. v1.0 standard reserves the dense runtime slot. Full gates Graphiti and Neo4j.
 
 **Consequences**: 60-second first install for lite users, full power available for production deployments.
 

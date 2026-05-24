@@ -5,24 +5,16 @@ Python core for [mneme](https://github.com/TheGoatPsy/mneme): vault-native memor
 This package provides:
 
 - FTS5 BM25 full-text indexer with language-aware normalization (Turkish casefold module included as utility).
-- LEANN dense embedding adapter (optional, standard+ profile).
-- Graphiti bi-temporal knowledge graph adapter (optional, full profile).
-- Retrieval pipeline with Reciprocal Rank Fusion at `k=60`.
+- RRF-ready retrieval pipeline at `k=60`, with FTS5 shipped and optional backends injectable by callers.
+- Graphiti bi-temporal knowledge graph adapter, gated by the full profile and local Neo4j.
+- Roadmap dense embedding adapter. The v1.0 standard profile reserves the runtime slot but does not ship packaged LEANN retrieval.
 - Background compression pipeline with 4-D rubric (Accuracy, Depth, Context, Continuity) and cost cap ledger.
-- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, and the `mneme-audit` CLI.
+- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, and the `mneme audit` CLI.
 
 ## Installation
 
 ```bash
 pip install mneme-core
-```
-
-Core vault operations use the non-shadowing `mneme-core` console script:
-
-```bash
-mneme-core index rebuild --vault ~/mneme-vault
-mneme-core compress status --vault ~/mneme-vault
-python -m mneme_core version
 ```
 
 For development:

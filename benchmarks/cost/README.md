@@ -36,7 +36,7 @@ plus the saving versus the `full` baseline.
 ## Running
 
 ```bash
-python benchmarks/cost/run.py --output-format=json > result.json
+python benchmarks/cost/run.py --output-format=json --output result.json
 ```
 
 Flags:
@@ -44,6 +44,7 @@ Flags:
 - `--turns 20`
 - `--unique-docs 5`
 - `--hardware-output benchmarks/cost/hardware.json`
+- `--output result.json`
 
 ## Reference numbers (operator hardware, single run)
 

@@ -126,7 +126,7 @@ tar czf mneme-vault-$(date +%F).tar.gz vault/
 # Migrate to new machine
 tar xzf mneme-vault-*.tar.gz
 export MNEME_VAULT=$PWD/vault
-mneme-core index rebuild --vault "$PWD/vault"
+mneme index rebuild
 ```
 
 Rebuild is idempotent and produces equivalent retrieval results.
@@ -143,7 +143,7 @@ The upgrade path is:
 
 1. Detect current profile from `.mneme/profile.json`.
 2. Install the additional Python dependencies for the target tier.
-3. Build the new index types (LEANN dense for standard, Graphiti episodes for full).
+3. Rebuild FTS5 and, for full profile, enable the Graphiti queue and local Neo4j path.
 4. Update `.mneme/profile.json` and verify with `mneme doctor`.
 
-Downgrade is also non-destructive: indexes for the removed tier stay on disk but are unused. Back up the vault first, then remove unused derived index directories under `.mneme/` if you want to reclaim disk space.
+Downgrade is also non-destructive: derived artifacts for the removed tier stay on disk but are unused. Remove them manually only after taking a vault backup.

@@ -6,11 +6,11 @@ mneme registers five Claude Code hooks. Each has a strict latency budget and a d
 
 | Hook | File | Budget | Seeded p95 reference | Purpose |
 |---|---|---|---|---|
-| `PostToolUse` | `hooks/post_tool_use.py` | non-blocking | n/a (async) | Capture tool input/output, stage for indexing, append to KG episode queue. (v1.0 note: `distill.shell_compress` is a standalone utility used by `mneme-audit` and benchmark C; the hook does not yet apply it inline; wiring into the staging pipeline is scheduled for v1.1.) |
+| `PostToolUse` | `hooks/post_tool_use.py` | non-blocking | n/a (async) | Capture tool input/output, compress long Bash stdout/stderr with `distill.shell_compress`, stage for indexing, append to the KG queue when the full-profile flag is active. |
 | `SessionStart` | `hooks/session_start.py` | 500 ms p95 | 3 ms (retrieve over 500-doc corpus) | Inject preflight vault context with `distill.injection_dedup`. |
 | `Stop` | `hooks/stop.py` | 1000 ms p95 | **2 ms** (Benchmark B, seed 42) | Append session summary deterministically. No LLM call. |
 | `PreCompact` | `hooks/pre_compact.py` | 200 ms p95 | sub-millisecond | Snapshot pre-compaction state for recovery. |
-| `SessionEnd` | `hooks/session_end.py` | 500 ms p95 | sub-millisecond | Flush staging buffers and mark community-refresh flag. (v1.0 note: opt-in background compression is launched via `mneme-core compress run` from the user's scheduler; auto-launch from this hook is scheduled for v1.1.) |
+| `SessionEnd` | `hooks/session_end.py` | 500 ms p95 | sub-millisecond | Stamp session state and launch opt-in background compression only when compression is enabled, no pause flag is present, and provider auth is in env. |
 
 Latency reference numbers come from `benchmarks/latency/run.py` on operator hardware (Windows 11, Python 3.13, NTFS SSD), seeded with `MNEME_BENCH_SEED=42`. CI guard at `benchmarks/latency/p95_guard.py` enforces the 1000 ms Stop budget.
 
@@ -41,7 +41,7 @@ Hook entries are merged additively. mneme never replaces user-configured hooks. 
 Hooks never block Claude Code. Every hook entry is wrapped by `mneme_cc_plugin.hooks.lib.run_hook`, which:
 
 1. Runs the handler inside a try/except.
-2. Captures any exception, writes it to `~/.mneme/audit.log`.
+2. Captures any exception, writes it to stderr, and exits safely.
 3. Exits with code 0 regardless of internal failure.
 
 The contract is: a broken mneme never breaks the user's session. The cost is silent failure under bugs, which is why `mneme doctor` exists and is the first triage step for any reported issue.
@@ -60,7 +60,7 @@ When `MNEME_DISABLED` is truthy, all mneme hooks exit immediately with code 0 (s
 
 ## Three-Layer Gate Pattern
 
-Optional integrations (knowledge graph, compression, dense embeddings) follow a uniform three-layer gate.
+Optional integrations (knowledge graph, compression, dense embeddings) follow a uniform three-layer gate. In v1.0, dense retrieval remains a roadmap adapter. KG and compression gates are shipped.
 
 1. **Config flag** (`compression_enabled`, `kg_enabled`, etc.) must be `true`.
 2. **Lazy import** of the heavy dependency only when the flag is on.
@@ -74,4 +74,4 @@ This is what lets lite-profile installs run with zero Neo4j and zero LLM SDK on 
 mneme uninstall
 ```
 
-Removes hook entries from `settings.json` (preserves all non-mneme entries), deletes `.mneme/` indexes, leaves the vault directory untouched. Pass `--purge-vault` to delete the vault as well, only with explicit confirmation.
+Removes hook entries from `settings.json` and preserves all non-mneme entries. The command leaves the vault directory and `.mneme/` indexes untouched so uninstall is reversible.

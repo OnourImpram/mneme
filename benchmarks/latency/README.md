@@ -30,7 +30,7 @@ size. Wall time and derived docs/second are reported.
 ## Running
 
 ```bash
-python benchmarks/latency/run.py --output-format=json > result.json
+python benchmarks/latency/run.py --output-format=json --output result.json
 ```
 
 Optional flags:
@@ -39,6 +39,7 @@ Optional flags:
 - `--queries 1000` (default)
 - `--skip-indexer-scaling` to drop the 1k/3k/7k sweep
 - `--hardware-output benchmarks/latency/hardware.json`
+- `--output result.json`
 
 ## CI guard
 
