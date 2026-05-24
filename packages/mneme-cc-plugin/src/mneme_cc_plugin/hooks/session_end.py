@@ -28,7 +28,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from mneme_core.vault.atomic_write import atomic_write_text
@@ -97,14 +97,14 @@ def _maybe_launch_compression(vault: VaultConfig) -> None:
             popen_kwargs["creationflags"] = _DETACHED_FLAGS
         else:
             popen_kwargs["start_new_session"] = True
-        subprocess.Popen(cmd, **popen_kwargs)  # noqa: S603
+        subprocess.Popen(cmd, **popen_kwargs)
     except Exception as exc:
         sys.stderr.write(
             f"[mneme:SessionEnd] compression launch skipped: {exc}\n"
         )
 
 
-def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:  # noqa: ARG001
+def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="SessionEnd")
         return
@@ -118,7 +118,7 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:  # noqa: A
     except (OSError, json.JSONDecodeError):
         state = {}
 
-    state["last_session_end_at"] = datetime.now(timezone.utc).isoformat()
+    state["last_session_end_at"] = datetime.now(UTC).isoformat()
     state.setdefault("schema_version", 1)
 
     try:

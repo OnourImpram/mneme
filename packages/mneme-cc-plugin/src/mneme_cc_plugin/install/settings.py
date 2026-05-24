@@ -28,7 +28,7 @@ import json
 import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +111,7 @@ def write_settings(
         preserve_bom = file_has_bom(path)
 
     backup_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_path = backup_dir / f"{path.name}.bak-{reason}-{ts}"
     if path.exists():
         shutil.copy2(path, backup_path)

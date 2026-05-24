@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from mneme_cc_plugin.install.settings import (
-    SettingsMutationError,
     UTF8_BOM,
+    SettingsMutationError,
     add_hook,
     add_mcp_server,
     file_has_bom,

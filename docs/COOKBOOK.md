@@ -101,13 +101,15 @@ This recipe requires the full profile because temporal queries traverse the Grap
 
 The pure-Python Turkish casefold normalizer handles the famous edge case where `.lower()` fails on dotless capital I.
 
-```bash
-mneme search "KIYASLAMA"
-mneme search "kıyaslama"
-mneme search "kiyaslama"
+Call `mneme_search` from your MCP client with each query:
+
+```json
+{"query": "KIYASLAMA"}
+{"query": "kıyaslama"}
+{"query": "kiyaslama"}
 ```
 
-All three queries return the same result set. The indexer normalizes both query and document using `mneme_core.fts5.locale.tr.normalize_tr`, which preserves dotted/dotless I distinction correctly. Standard Python `.lower()` fails on `KIYASLAMA` because it produces `kiyaslama` instead of `kıyaslama`, splitting the result set in two.
+All three calls return the same result set. The indexer normalizes both query and document using `mneme_core.fts5.locale.tr.normalize_tr`, which preserves dotted/dotless I distinction correctly. Standard Python `.lower()` fails on `KIYASLAMA` because it produces `kiyaslama` instead of `kıyaslama`, splitting the result set in two.
 
 Verified by `tests/unit/test_tr_normalize.py` (5 of 5 pass including the `KIYASLAMA` edge case).
 
@@ -133,7 +135,7 @@ Verify zero leakage:
 
 ```bash
 grep -r "hunter2\|sk-redacted" ~/mneme-vault ~/.mneme  # expected: no matches
-mneme audit-log --since=today                           # expected: 2 redaction entries
+cat ~/.mneme/audit/*.jsonl                              # expected: redaction hash entries
 ```
 
 ---
@@ -180,8 +182,8 @@ Benchmark C measures this: keypoints 46 percent, ref 12 percent vs full.
 Compression is opt-in by design. Default is off so users never face a surprise bill.
 
 ```bash
-mneme compress enable --monthly-cap-usd=5
-mneme compress status
+mneme-core compress enable --cost-cap-usd-monthly=5
+mneme-core compress status
 ```
 
 Output:
@@ -197,7 +199,7 @@ sessions_pending: 12
 Compression runs in the background after Stop, never on the critical path. The cost ledger tracks every API call. When the cap is reached, compression pauses until the next month or until the user raises the cap.
 
 ```bash
-mneme compress dry-run --session=2026-05-19T14-32-11
+mneme-core compress dry-run
 # prints estimated token count and dollar cost without calling the API
 ```
 

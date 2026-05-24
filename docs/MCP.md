@@ -1,12 +1,12 @@
 # MCP Tool Reference
 
-mneme-mcp exposes six tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
+mneme-mcp exposes six tools over stdio in every install profile. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client. Lite uses the local FTS5 baseline. Standard and full profile components add derived indexes and graph state that the core package can consume without changing MCP tool names.
 
 ## Tools
 
 ### mneme_search
 
-Retrieval across the vault. **v1.0 MCP server**: FTS5 BM25 only. The hybrid RRF fusion documented at the `mneme-core` Python API (FTS5 plus LEANN dense plus Graphiti temporal KG, `k=60`) is consumed by the build-time indexer and benchmark suite; wiring dense and KG backends into the MCP server is scheduled for v1.1. For v1.0, callers needing hybrid retrieval should drive `mneme-core` directly from Python.
+Retrieval across the vault. **v1.0 MCP server**: FTS5 BM25 with Turkish casefold normalization. The hybrid RRF fusion documented at the `mneme-core` Python API (FTS5 plus LEANN dense plus Graphiti temporal KG, `k=60`) is consumed by the build-time indexer and benchmark suite. Callers needing direct index maintenance should use `mneme-core`.
 
 **Input schema**:
 
@@ -29,16 +29,20 @@ Retrieval across the vault. **v1.0 MCP server**: FTS5 BM25 only. The hybrid RRF 
 
 ```json
 {
-  "results": [
-    {
-      "path": "vault/sessions/2026-05-19/14-32-11-rrf-fusion.md",
-      "score": 0.873,
-      "snippet": "decided to fuse FTS5 and dense embeddings with RRF k=60...",
-      "frontmatter": {"type": "session", "tags": ["retrieval", "rrf"]}
-    }
-  ],
-  "rrf_k": 60,
-  "backends_used": ["fts5", "leann"]
+  "ok": true,
+  "data": {
+    "query": "rrf fusion",
+    "hits": [
+      {
+        "path": "sessions/2026-05-19/14-32-11-rrf-fusion.md",
+        "title": "RRF fusion decision",
+        "score": -1.72,
+        "snippet": "decided to fuse FTS5 and dense embeddings with RRF k=60...",
+        "type": "session",
+        "mtime": 1789727531
+      }
+    ]
+  }
 }
 ```
 
@@ -77,7 +81,7 @@ Inject preflight context for a session. Combines recent sessions, relevant topic
 
 ### mneme_summarize
 
-Summarize a topic across multiple sessions. Walks the knowledge graph (full profile) or runs an LLM-assisted summarization if opted in.
+Summarize a topic across multiple sessions. v1.0 groups FTS5 hits by directory and returns source-backed sections. The output shape is stable for future graph expansion.
 
 **Input**: `{ "topic": "string", "date_range": ["ISO8601 date", "ISO8601 date"] }`.
 
@@ -85,7 +89,7 @@ Summarize a topic across multiple sessions. Walks the knowledge graph (full prof
 
 ### mneme_timeline
 
-Temporal query against the bi-temporal knowledge graph. Available only in the full profile.
+Temporal query for a subject. v1.0 returns FTS5 hits ordered by mtime. Full-profile graph state can add bi-temporal semantics in later releases without renaming the tool.
 
 **Input**:
 
@@ -122,22 +126,23 @@ All tools return a structured error envelope on failure rather than throwing a r
 
 ```json
 {
+  "ok": false,
   "error": {
-    "code": "VAULT_NOT_FOUND | PATH_TRAVERSAL | INVALID_INPUT | INDEX_NOT_BUILT | PROFILE_MISMATCH | INTERNAL",
-    "message": "human-readable description",
-    "context": {"vault_path": "/path/that/was/tried"}
+    "code": "INVALID_ARGUMENT | UNKNOWN_TOOL | INDEX_NOT_FOUND | PATH_OUTSIDE_VAULT | FEATURE_UNAVAILABLE | QUERY_TOO_SHORT | IO_ERROR",
+    "message": "human-readable description"
   }
 }
 ```
 
 | Code | Meaning | Recovery |
 |---|---|---|
-| `VAULT_NOT_FOUND` | Configured vault path does not exist or is unreadable. | Set `MNEME_VAULT` or run `mneme install`. |
-| `PATH_TRAVERSAL` | `mneme_write` target resolved outside the vault root. | Use a path inside the vault. |
-| `INVALID_INPUT` | Zod validation failed on the request payload. | Inspect `context.zod_issues`. |
-| `INDEX_NOT_BUILT` | FTS5 sqlite missing or stale. | Run `mneme rebuild-indexes`. |
-| `PROFILE_MISMATCH` | Tool requires standard or full profile but install is lite. | `mneme install --upgrade-profile=...`. |
-| `INTERNAL` | Unexpected exception. | Inspect `~/.mneme/audit.log`. |
+| `INVALID_ARGUMENT` | Zod validation failed or a required argument is missing. | Fix the request payload against the tool schema. |
+| `UNKNOWN_TOOL` | The client requested a tool name this server does not expose. | Call `tools/list` and use one of the advertised `mneme_*` names. |
+| `INDEX_NOT_FOUND` | FTS5 sqlite is missing. | Run `mneme-core index rebuild`. |
+| `PATH_OUTSIDE_VAULT` | `mneme_write` target resolved outside the vault root. | Use a relative path inside the vault. |
+| `FEATURE_UNAVAILABLE` | The requested feature is unavailable in the current local configuration. | Enable the needed local profile or disable the feature-specific call. |
+| `QUERY_TOO_SHORT` | The query is below the configured gating threshold. | Send a longer query or lower the threshold. |
+| `IO_ERROR` | Unexpected filesystem, database, or runtime failure. | Inspect the client stderr and local mneme audit files. |
 
 See `packages/mneme-mcp/src/errors.ts` for the canonical Zod schema.
 

@@ -11,7 +11,7 @@ candidate doc into context, and mark it after.
 State is persisted as a JSON file under
 ``vault/.mneme/injection-tracker/{session_id}.json`` so trackers
 survive process restarts within a session. Old tracker files are
-cleaned up by ``mneme audit`` periodically; the data is cheap to
+cleaned up by ``mneme-audit`` periodically; the data is cheap to
 recompute so cleanup is best-effort.
 """
 

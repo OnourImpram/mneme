@@ -8,7 +8,7 @@
 
 Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
 
-**Status**: v1.0.0-rc (release candidate). Engineering complete through Phase H of the 11-phase launch plan. Hard launch target 2026-08-03.
+**Status**: v1.0.1 repo hardening. Public package, plugin, runtime, and documentation version sources are aligned for the next GitHub release gate.
 
 ## Why mneme
 
@@ -42,7 +42,7 @@ CI regression guards lock these numbers. Any pull request that drops nDCG@5 by m
 ## Three-Tier Install
 
 ```bash
-# Lite: FTS5 + Stop hook + privacy redaction + 4 MCP tools (Python + Node only)
+# Lite: FTS5 + Stop hook + privacy redaction + 6 MCP tools (Python + Node only)
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
@@ -56,13 +56,27 @@ mneme install --profile=full
 Upgrade in place without losing data.
 
 ```bash
-mneme install --upgrade-profile=standard
+mneme upgrade --profile=standard
 ```
 
 Verify a healthy install.
 
 ```bash
 mneme doctor
+```
+
+## CLI Surfaces
+
+`mneme` is the Claude Code and Codex install, hook, and doctor CLI provided by
+`mneme-cc-plugin`. Vault operations live on the core CLI so plugin installs do
+not shadow day-to-day memory commands.
+
+```bash
+mneme-core index rebuild --vault ~/mneme-vault
+mneme-core patterns search --vault ~/mneme-vault --query "release gate"
+mneme-core trajectory list --vault ~/mneme-vault
+mneme-core compress status --vault ~/mneme-vault
+python -m mneme_core version
 ```
 
 ## Using mneme with Codex
@@ -87,10 +101,10 @@ Codex gets the same six MCP tools, the same two skills, and the same vault. Four
 - 2 skills: `mneme-prime`, `mneme-search`.
 - 5-benchmark suite (`make bench-all`) including a head-to-head adapter for claude-mem v13.2.0.
 - One-command migration: `mneme-migrate migrate-from-claude-mem` with tri-state archive flag and idempotent re-run.
-- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus the `mneme audit` CLI for session token reports.
-- Pattern memory: `mneme patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
-- Trajectory recorder: `mneme trajectory {start, step, end, show, list}` capturing per-session decision trails under `vault/trajectories/`.
-- Background AI compression (opt-in, default off): `mneme compress {enable, disable, status, dry-run, run}` with monthly cost cap ledger.
+- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus the `mneme-audit` CLI for session token reports.
+- Pattern memory: `mneme-core patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
+- Trajectory recorder: `mneme-core trajectory {start, step, end, show, list}` capturing per-session decision trails under `vault/trajectories/`.
+- Background AI compression (opt-in, default off): `mneme-core compress {enable, disable, status, dry-run, run}` with monthly cost cap ledger.
 
 ## What v1.0 Does Not Ship Yet
 
@@ -111,6 +125,7 @@ See `docs/COMPETITIVE.md` for the full landscape and which tools may suit those 
 - `docs/VAULT.md`: vault contract, frontmatter specification, atomic write pattern.
 - `docs/HOOKS.md`: hook integration guide, timing budgets, fail-soft contract.
 - `docs/MCP.md`: tool API reference with JSON schemas and example calls.
+- `docs/RELEASE.md`: GitHub tag, release, and metadata checklist.
 - `docs/COOKBOOK.md`: ten worked recipes with full Claude Code transcripts.
 - `docs/MIGRATION-FROM-CLAUDE-MEM.md`: one-command migration with tri-state archive walkthrough.
 - `docs/BENCHMARKS.md`: methodology and the locked baseline numbers.

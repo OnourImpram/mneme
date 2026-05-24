@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,7 @@ def _is_empty_session(vault_root: Path) -> bool:
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _append_session_section(

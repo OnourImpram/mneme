@@ -34,7 +34,18 @@ import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = "1.0.1";
+
+const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
+
+USAGE
+  mneme-mcp
+  mneme-mcp --version
+
+ENVIRONMENT
+  MNEME_VAULT  Vault root override. Without it, mneme walks for a .mneme marker
+               and then falls back to ~/mneme-vault.
+`;
 
 interface ToolDef {
 	name: string;
@@ -196,6 +207,15 @@ const TOOLS: ToolDef[] = [
 ];
 
 async function main(): Promise<void> {
+	if (process.argv.includes("--version") || process.argv.includes("-V")) {
+		process.stdout.write(`${SERVER_NAME} ${SERVER_VERSION}\n`);
+		return;
+	}
+	if (process.argv.includes("--help") || process.argv.includes("-h")) {
+		process.stdout.write(HELP);
+		return;
+	}
+
 	// When the MCP client disconnects, a final write to the now-closed
 	// stdio pipe raises EPIPE. Node escalates an EventEmitter "error" with
 	// no listener into a process-crashing throw, so treat a broken stdout

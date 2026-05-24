@@ -370,6 +370,12 @@ def cli() -> None:  # pragma: no cover - dispatcher
     show_default=True,
 )
 @click.option(
+    "--upgrade-profile",
+    type=click.Choice(PROFILES),
+    default=None,
+    help="Compatibility alias for --profile when upgrading an existing vault.",
+)
+@click.option(
     "--client",
     type=click.Choice(["claude-code", "codex", "all"]),
     default="claude-code",
@@ -413,6 +419,7 @@ def cli() -> None:  # pragma: no cover - dispatcher
 @click.option("--dry-run", is_flag=True, help="Plan the install but make no changes.")
 def install(
     profile: str,
+    upgrade_profile: str | None,
     client: str,
     vault_root: Path | None,
     settings_path: Path | None,
@@ -422,6 +429,8 @@ def install(
     skip_node: bool,
     dry_run: bool,
 ) -> None:
+    if upgrade_profile is not None:
+        profile = upgrade_profile
     cfg = InstallerConfig(
         profile=profile,
         vault_root=(vault_root or _default_vault_root()).expanduser().resolve(),
@@ -434,8 +443,10 @@ def install(
         inst.install_python_deps()
     if not skip_node:
         inst.install_node_deps()
-    inst.init_vault()
-    if not dry_run:
+    if dry_run:
+        inst._say(f"vault (dry-run): would create marker at {cfg.vault_root / '.mneme'}")
+    else:
+        inst.init_vault()
         if client in ("claude-code", "all"):
             if cfg.settings_path.exists():
                 inst.register_hooks()

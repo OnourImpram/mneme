@@ -7,7 +7,7 @@
  * using a coarse 4-chars-per-token approximation; this is intentional.
  *
  * Phase F.5 (Adaptive Context Layer) will swap the chars-per-token
- * heuristic for the `mneme audit` token-meter and add the
+ * heuristic for the `mneme-audit` token-meter and add the
  * keypoints/ref compression levels. The current implementation is the
  * `full` level only.
  */
@@ -52,7 +52,7 @@ export function primeTool(
 			ok: false,
 			error: {
 				code: ERROR_CODES.INDEX_NOT_FOUND,
-				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme index' first.`,
+				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme-core index rebuild' first.`,
 			},
 		};
 	}

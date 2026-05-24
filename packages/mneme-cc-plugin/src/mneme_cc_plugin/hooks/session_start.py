@@ -155,7 +155,7 @@ def _build_context(vault: VaultConfig) -> str:
     return full
 
 
-def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:  # noqa: ARG001
+def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="SessionStart")
         return

@@ -62,7 +62,7 @@ export async function summarizeTool(
 			ok: false,
 			error: {
 				code: ERROR_CODES.INDEX_NOT_FOUND,
-				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme index' first.`,
+				message: `FTS5 index not found at ${vault.fts5Db}. Run 'mneme-core index rebuild' first.`,
 			},
 		};
 	}

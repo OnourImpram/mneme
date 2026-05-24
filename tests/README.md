@@ -6,7 +6,7 @@ Tests that exercise mneme across package boundaries. Per-package unit and integr
 
 - `e2e_hook_lifecycle.py`: end-to-end test that simulates a full Claude Code session and asserts hook ordering, retrieval correctness, and vault state.
 - `e2e_migrate_then_search.py`: tests `mneme migrate-from-claude-mem` followed by `mneme_search` against the migrated vault.
-- `e2e_three_tier_install.py`: validates that `mneme install --profile=lite` then `--upgrade-profile=standard` then `--upgrade-profile=full` produces equivalent retrieval state without data loss.
+- `e2e_three_tier_install.py`: validates that `mneme install --profile=lite` then `mneme upgrade --profile=standard` then `mneme upgrade --profile=full` produces equivalent retrieval state without data loss.
 
 ## Running
 

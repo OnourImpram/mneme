@@ -126,7 +126,7 @@ tar czf mneme-vault-$(date +%F).tar.gz vault/
 # Migrate to new machine
 tar xzf mneme-vault-*.tar.gz
 export MNEME_VAULT=$PWD/vault
-mneme rebuild-indexes
+mneme-core index rebuild --vault "$PWD/vault"
 ```
 
 Rebuild is idempotent and produces equivalent retrieval results.
@@ -136,7 +136,7 @@ Rebuild is idempotent and produces equivalent retrieval results.
 The vault is profile-agnostic. Upgrading from lite to standard or full only rebuilds derived indexes under `.mneme/`. No vault file is rewritten, no frontmatter is migrated.
 
 ```bash
-mneme install --upgrade-profile=standard
+mneme upgrade --profile=standard
 ```
 
 The upgrade path is:
@@ -146,4 +146,4 @@ The upgrade path is:
 3. Build the new index types (LEANN dense for standard, Graphiti episodes for full).
 4. Update `.mneme/profile.json` and verify with `mneme doctor`.
 
-Downgrade is also non-destructive: indexes for the removed tier stay on disk but are unused. Run `mneme reset --prune-indexes` if you want them removed.
+Downgrade is also non-destructive: indexes for the removed tier stay on disk but are unused. Back up the vault first, then remove unused derived index directories under `.mneme/` if you want to reclaim disk space.

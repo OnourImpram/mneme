@@ -1,14 +1,20 @@
 {
   "name": "mneme",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Vault-native memory for Claude Code. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context.",
   "author": {
     "name": "Onour Impram",
-    "email": "onuribram@outlook.com",
     "url": "https://github.com/TheGoatPsy/mneme"
   },
   "homepage": "https://github.com/TheGoatPsy/mneme",
   "repository": "https://github.com/TheGoatPsy/mneme",
   "license": "MIT",
-  "keywords": ["memory", "mcp", "vault", "fts5", "retrieval", "temporal"]
+  "keywords": [
+    "memory",
+    "mcp",
+    "vault",
+    "fts5",
+    "retrieval",
+    "temporal"
+  ]
 }

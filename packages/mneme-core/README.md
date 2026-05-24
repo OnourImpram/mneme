@@ -9,12 +9,20 @@ This package provides:
 - Graphiti bi-temporal knowledge graph adapter (optional, full profile).
 - Retrieval pipeline with Reciprocal Rank Fusion at `k=60`.
 - Background compression pipeline with 4-D rubric (Accuracy, Depth, Context, Continuity) and cost cap ledger.
-- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, and the `mneme audit` CLI.
+- Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, and the `mneme-audit` CLI.
 
 ## Installation
 
 ```bash
 pip install mneme-core
+```
+
+Core vault operations use the non-shadowing `mneme-core` console script:
+
+```bash
+mneme-core index rebuild --vault ~/mneme-vault
+mneme-core compress status --vault ~/mneme-vault
+python -m mneme_core version
 ```
 
 For development:

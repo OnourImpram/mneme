@@ -10,7 +10,7 @@ These constraints are client-neutral. Where a constraint names a Claude Code lif
 
 **Rationale**: User owns the data. Tool migration must be lossless. Backup is `tar czf backup.tar.gz vault/`.
 
-**Verification**: `mneme rebuild-indexes --from-vault` produces byte-identical retrieval results compared to live indexes, modulo non-deterministic embedding seeds. Tested in `benchmarks/migration/`.
+**Verification**: `mneme-core index rebuild --vault <vault>` reconstructs derived FTS5 state from the vault, modulo non-deterministic embedding seeds for optional dense indexes. Tested in `benchmarks/migration/`.
 
 ## C2: Stop Hook Latency Under 1 Second p95
 

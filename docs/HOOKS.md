@@ -6,11 +6,11 @@ mneme registers five Claude Code hooks. Each has a strict latency budget and a d
 
 | Hook | File | Budget | Seeded p95 reference | Purpose |
 |---|---|---|---|---|
-| `PostToolUse` | `hooks/post_tool_use.py` | non-blocking | n/a (async) | Capture tool input/output, stage for indexing, append to KG episode queue. (v1.0 note: `distill.shell_compress` is a standalone utility used by `mneme audit` and benchmark C; the hook does not yet apply it inline; wiring into the staging pipeline is scheduled for v1.1.) |
+| `PostToolUse` | `hooks/post_tool_use.py` | non-blocking | n/a (async) | Capture tool input/output, stage for indexing, append to KG episode queue. (v1.0 note: `distill.shell_compress` is a standalone utility used by `mneme-audit` and benchmark C; the hook does not yet apply it inline; wiring into the staging pipeline is scheduled for v1.1.) |
 | `SessionStart` | `hooks/session_start.py` | 500 ms p95 | 3 ms (retrieve over 500-doc corpus) | Inject preflight vault context with `distill.injection_dedup`. |
 | `Stop` | `hooks/stop.py` | 1000 ms p95 | **2 ms** (Benchmark B, seed 42) | Append session summary deterministically. No LLM call. |
 | `PreCompact` | `hooks/pre_compact.py` | 200 ms p95 | sub-millisecond | Snapshot pre-compaction state for recovery. |
-| `SessionEnd` | `hooks/session_end.py` | 500 ms p95 | sub-millisecond | Flush staging buffers and mark community-refresh flag. (v1.0 note: opt-in background compression is launched via `mneme compress run` from the user's scheduler; auto-launch from this hook is scheduled for v1.1.) |
+| `SessionEnd` | `hooks/session_end.py` | 500 ms p95 | sub-millisecond | Flush staging buffers and mark community-refresh flag. (v1.0 note: opt-in background compression is launched via `mneme-core compress run` from the user's scheduler; auto-launch from this hook is scheduled for v1.1.) |
 
 Latency reference numbers come from `benchmarks/latency/run.py` on operator hardware (Windows 11, Python 3.13, NTFS SSD), seeded with `MNEME_BENCH_SEED=42`. CI guard at `benchmarks/latency/p95_guard.py` enforces the 1000 ms Stop budget.
 

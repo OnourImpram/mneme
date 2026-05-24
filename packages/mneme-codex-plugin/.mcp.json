@@ -1,6 +1,8 @@
 {
-  "mneme": {
-    "command": "mneme-mcp",
-    "args": []
+  "mcpServers": {
+    "mneme": {
+      "command": "mneme-mcp",
+      "args": []
+    }
   }
 }

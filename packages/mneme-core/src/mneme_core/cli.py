@@ -6,16 +6,16 @@ not require Claude Code to be installed or running.
 
 Top-level groups:
 
-* ``mneme index``   FTS5 indexer subcommands (see ``mneme_core.fts5``).
-* ``mneme kg``      Out-of-band knowledge-graph worker (Phase E).
-* ``mneme version`` Print package version.
+* ``mneme-core index``   FTS5 indexer subcommands (see ``mneme_core.fts5``).
+* ``mneme-core kg``      Out-of-band knowledge-graph worker.
+* ``mneme-core version`` Print package version.
 
 ``mneme-cc-plugin`` re-uses the ``mneme`` console-script name for the
 plugin-side install orchestrator. The two surfaces are intentionally
 separate: plugin install runs once, vault operations run repeatedly.
 The plugin CLI shadows this one if both packages are installed; that
-is fine because the install CLI is the user-facing surface and this
-one is invoked via the explicit module path ``python -m mneme_core``.
+is fine because this package also exposes ``mneme-core`` and supports
+the explicit module path ``python -m mneme_core``.
 """
 
 from __future__ import annotations

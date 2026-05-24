@@ -38,7 +38,7 @@ Constitutional principles C2 + C3 (Zero-LLM-Stop Critical Path) make the absence
 
 **Cost ledger**: every API call is recorded with token counts and dollar cost in `vault/.mneme/kg_cost_ledger.jsonl` under `kind: compression`. The user-configurable monthly cap defaults to 25 USD. When the cap is reached, compression pauses until the next month or until the user raises the cap.
 
-**Opt-out**: set `compression_enabled: false` (the default) or run `mneme compress disable`.
+**Opt-out**: set `compression_enabled: false` (the default) or run `mneme-core compress disable`.
 
 ### 2. Local Neo4j (Full Profile Only)
 
@@ -48,7 +48,7 @@ Constitutional principles C2 + C3 (Zero-LLM-Stop Critical Path) make the absence
 
 **Frequency**: continuous for the lifetime of the Neo4j container. Reads and writes from the Graphiti adapter.
 
-**Opt-out**: `mneme install --upgrade-profile=standard` downgrades and stops the container.
+**Opt-out**: `mneme upgrade --profile=standard` downgrades and stops the container.
 
 ## Tier-by-Tier Outbound Matrix
 
@@ -114,7 +114,7 @@ No file outside this list is opened.
 
 ## Audit Log
 
-Privacy-relevant operations write to `~/.mneme/audit/YYYY-MM-DD.jsonl` with SHA256 hashes of redacted content, not the content itself. Daily rotation. Use `mneme audit-log` to inspect.
+Privacy-relevant operations write to `~/.mneme/audit/YYYY-MM-DD.jsonl` with SHA256 hashes of redacted content, not the content itself. Daily rotation. Inspect these JSONL files directly or with your normal log tooling.
 
 Schema per entry:
 
@@ -133,8 +133,8 @@ Schema per entry:
 The simplest way to validate the zero-outbound claim is to run mneme inside a network observer and confirm operations still succeed without non-localhost connections.
 
 ```bash
-# Linux: strace mneme to check outbound syscalls.
-strace -f -e trace=network -o /tmp/mneme-net.log mneme search "query"
+# Linux: strace a local diagnostic command to check outbound syscalls.
+strace -f -e trace=network -o /tmp/mneme-net.log mneme doctor
 grep -E "AF_INET[6]?" /tmp/mneme-net.log | grep -v "127\.0\.0\.1\|::1"
 
 # macOS: lsof to see open network connections during a session.

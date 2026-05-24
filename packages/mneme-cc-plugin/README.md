@@ -33,11 +33,11 @@ This mutates your Claude Code `settings.json` in a BOM-safe way (Windows-friendl
 
 ## Three-Tier Install Profiles
 
-- `lite`: hooks + commands + 4 MCP tools (Python + Node only).
+- `lite`: hooks + commands + 6 MCP tools (Python + Node only).
 - `standard`: lite + LEANN dense embeddings + RRF fusion + `mneme_summarize`.
 - `full`: standard + Graphiti temporal knowledge graph + `mneme_timeline` (Docker + Neo4j required).
 
-Upgrade in place: `mneme install --upgrade-profile=standard`.
+Upgrade in place: `mneme upgrade --profile=standard`.
 
 ## License
 

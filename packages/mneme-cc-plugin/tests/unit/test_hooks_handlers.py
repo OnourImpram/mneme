@@ -11,13 +11,12 @@ from __future__ import annotations
 import io
 import json
 import sys
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
-
 from mneme_core.vault.config import VaultConfig
+
 from mneme_cc_plugin.hooks import (
     post_tool_use,
     pre_compact,
@@ -29,7 +28,7 @@ from mneme_cc_plugin.hooks import (
 
 @pytest.fixture
 def vault(tmp_path: Path) -> VaultConfig:
-    cfg = VaultConfig.fromPath = VaultConfig.from_path  # alias
+    VaultConfig.fromPath = VaultConfig.from_path  # alias
     v = VaultConfig.from_path(tmp_path)
     (v.root / ".mneme").mkdir(parents=True, exist_ok=True)
     return v

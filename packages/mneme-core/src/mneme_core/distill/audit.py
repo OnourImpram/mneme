@@ -1,4 +1,4 @@
-"""``mneme audit`` CLI: session token-consumption report.
+"""``mneme-audit`` CLI: session token-consumption report.
 
 Reads the telemetry JSONL written by ``mneme_core.telemetry.writer``
 and the staging directory, then reports:
@@ -181,7 +181,7 @@ def _build_recommendations(report: AuditReport) -> list[str]:
         )
     if not out:
         out.append(
-            "No major waste patterns detected. Run 'mneme audit' again next "
+            "No major waste patterns detected. Run 'mneme-audit' again next "
             "week to keep an eye on drift."
         )
     return out

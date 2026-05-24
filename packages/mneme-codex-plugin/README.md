@@ -16,6 +16,11 @@ Codex gets the same tools and the same vault with no loss of fidelity.
   SessionStart (prime context), PostToolUse (stage events), Stop
   (deterministic append, no LLM), PreCompact (state save).
 
+Codex plugin ingestion currently validates skills and MCP companion
+metadata from `.codex-plugin/plugin.json`. Hook wiring remains in
+`hooks/hooks.json` for operator review and manual trust prompts, rather
+than as a rejected manifest field.
+
 ## Prerequisites
 
 The hooks and the MCP server reuse the shared `mneme` CLI and the
@@ -26,8 +31,8 @@ pipx install mneme-cc-plugin   # provides the `mneme` CLI (hook dispatch)
 npm install -g mneme-mcp       # provides the MCP server binary
 ```
 
-These publish with mneme v1.0.0. Until then, install from source in
-this monorepo.
+For source installs, build the Python and Node packages from this
+monorepo before enabling the Codex plugin.
 
 ## Install
 

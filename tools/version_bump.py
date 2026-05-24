@@ -1,13 +1,16 @@
-"""Atomic version bump across all five version sources.
+"""Atomic version bump across all release version sources.
 
-Phase K release infrastructure. mneme has five distinct version
-declaration sites that must move together:
+Release infrastructure. mneme has package metadata, plugin
+manifests, runtime constants, and marketplace metadata that must move
+together:
 
 1. ``packages/mneme-core/pyproject.toml``         (PEP 440)
 2. ``packages/mneme-mcp/package.json``            (SemVer)
 3. ``packages/mneme-cc-plugin/pyproject.toml``    (SemVer-style)
 4. ``packages/mneme-cc-plugin/plugin.json``       (SemVer)
 5. ``package.json`` (workspace root)              (SemVer)
+6. runtime constants, Codex plugin manifest, Claude plugin manifest,
+   and Claude plugin marketplace entry.
 
 The script accepts a SemVer string (``1.0.0``, ``1.0.0-rc.1``,
 ``1.0.0-alpha.0``) and writes the PEP 440 equivalent to the
@@ -23,7 +26,8 @@ PEP 440 mapping:
 Usage:
 
   py -3 tools/version_bump.py 1.0.0-rc.1
-  py -3 tools/version_bump.py --check 1.0.0   # CI assertion mode
+  py -3 tools/version_bump.py --check 1.0.0   # target assertion mode
+  py -3 tools/version_bump.py --check         # all sources agree
 
 In ``--check`` mode the script reads every source, confirms they all
 resolve to the same canonical SemVer, and exits 0 on agreement or 1
@@ -49,6 +53,9 @@ PEP440_RE = re.compile(
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+JsonPathPart = str | int
+
+
 @dataclass(frozen=True)
 class VersionSource:
     label: str
@@ -56,15 +63,17 @@ class VersionSource:
     flavor: str
     # Used by JSON sources: key under root object holding the version.
     json_key: str | None = None
+    # Used by JSON sources when the version is nested.
+    json_path: tuple[JsonPathPart, ...] | None = None
     # Used by py-runtime / ts-runtime: the matching regex anchor.
     # The regex must capture the version literal in group 1.
     runtime_pattern: str | None = None
 
 
 # Build + metadata version sources. ``pep440`` and ``semver-*`` flavors
-# cover the five packaging declaration sites; ``pep440-pystr``,
-# ``semver-pystr``, and ``semver-tsconst`` cover the runtime constants
-# the Codex Pass 1 review flagged as drifting from packaging metadata.
+# cover packaging declaration sites; ``pep440-pystr``, ``semver-pystr``,
+# and ``semver-tsconst`` cover runtime constants. Plugin and marketplace
+# manifest sources keep the install surfaces aligned with package metadata.
 SOURCES: tuple[VersionSource, ...] = (
     VersionSource(
         label="mneme-core pyproject",
@@ -87,6 +96,36 @@ SOURCES: tuple[VersionSource, ...] = (
         path=REPO_ROOT / "packages" / "mneme-cc-plugin" / "plugin.json",
         flavor="semver-json",
         json_key="version",
+    ),
+    VersionSource(
+        label="mneme-cc-plugin native .claude-plugin manifest",
+        path=(
+            REPO_ROOT
+            / "packages"
+            / "mneme-cc-plugin"
+            / ".claude-plugin"
+            / "plugin.json"
+        ),
+        flavor="semver-json",
+        json_key="version",
+    ),
+    VersionSource(
+        label="mneme-codex-plugin manifest",
+        path=(
+            REPO_ROOT
+            / "packages"
+            / "mneme-codex-plugin"
+            / ".codex-plugin"
+            / "plugin.json"
+        ),
+        flavor="semver-json",
+        json_key="version",
+    ),
+    VersionSource(
+        label="Claude marketplace entry",
+        path=REPO_ROOT / ".claude-plugin" / "marketplace.json",
+        flavor="semver-json",
+        json_path=("plugins", 0, "version"),
     ),
     VersionSource(
         label="root package.json",
@@ -133,6 +172,48 @@ SOURCES: tuple[VersionSource, ...] = (
 )
 
 
+def _read_json_path(data: object, path: tuple[JsonPathPart, ...]) -> object:
+    current = data
+    for part in path:
+        if isinstance(part, int):
+            if not isinstance(current, list):
+                raise ValueError(f"Expected list before index {part}")
+            current = current[part]
+        else:
+            if not isinstance(current, dict):
+                raise ValueError(f"Expected object before key {part}")
+            current = current[part]
+    return current
+
+
+def _write_json_path(
+    data: object,
+    path: tuple[JsonPathPart, ...],
+    value: str,
+) -> None:
+    if not path:
+        raise ValueError("JSON path cannot be empty")
+    current = data
+    for part in path[:-1]:
+        if isinstance(part, int):
+            if not isinstance(current, list):
+                raise ValueError(f"Expected list before index {part}")
+            current = current[part]
+        else:
+            if not isinstance(current, dict):
+                raise ValueError(f"Expected object before key {part}")
+            current = current[part]
+    last = path[-1]
+    if isinstance(last, int):
+        if not isinstance(current, list):
+            raise ValueError(f"Expected list before index {last}")
+        current[last] = value
+    else:
+        if not isinstance(current, dict):
+            raise ValueError(f"Expected object before key {last}")
+        current[last] = value
+
+
 def semver_to_pep440(semver: str) -> str:
     m = SEMVER_RE.match(semver)
     if not m:
@@ -169,8 +250,14 @@ def read_version(source: VersionSource) -> str:
         return m.group(1)
     if source.flavor in {"semver-json"}:
         data = json.loads(text)
-        assert source.json_key is not None
-        return data[source.json_key]
+        if source.json_path is not None:
+            version = _read_json_path(data, source.json_path)
+        else:
+            assert source.json_key is not None
+            version = data[source.json_key]
+        if not isinstance(version, str):
+            raise ValueError(f"Version value in {source.label} is not a string")
+        return version
     if source.flavor in {"pep440-pystr", "semver-pystr", "semver-tsconst"}:
         assert source.runtime_pattern is not None
         m = re.search(source.runtime_pattern, text)
@@ -204,8 +291,11 @@ def write_version(source: VersionSource, new_semver: str) -> None:
         )
     elif source.flavor == "semver-json":
         data = json.loads(text)
-        assert source.json_key is not None
-        data[source.json_key] = new_semver
+        if source.json_path is not None:
+            _write_json_path(data, source.json_path, new_semver)
+        else:
+            assert source.json_key is not None
+            data[source.json_key] = new_semver
         updated = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     elif source.flavor in {"pep440-pystr", "semver-pystr", "semver-tsconst"}:
         assert source.runtime_pattern is not None
@@ -243,7 +333,11 @@ def check_consistency() -> tuple[bool, list[tuple[str, str]]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("version", help="Target SemVer (e.g. 1.0.0 or 1.0.0-rc.1)")
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="Target SemVer (e.g. 1.0.0 or 1.0.0-rc.1)",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -251,7 +345,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not SEMVER_RE.match(args.version):
+    if args.version is None and not args.check:
+        parser.error("version is required unless --check is used")
+    if args.version is not None and not SEMVER_RE.match(args.version):
         print(
             f"ERROR: '{args.version}' is not a valid SemVer "
             f"(expected MAJOR.MINOR.PATCH[-alpha|beta|rc.N]).",
@@ -268,11 +364,16 @@ def main() -> int:
                 {"label": label, "version": version} for label, version in seen
             ],
         }
-        match = all(v == args.version for _, v in seen if not v.startswith("ERROR:"))
+        match = (
+            True
+            if args.version is None
+            else all(v == args.version for _, v in seen if not v.startswith("ERROR:"))
+        )
         report["matches_target"] = match
         print(json.dumps(report, indent=2, ensure_ascii=False))
         return 0 if (agree and match) else 1
 
+    assert args.version is not None
     for src in SOURCES:
         write_version(src, args.version)
     agree, seen = check_consistency()

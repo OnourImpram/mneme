@@ -7,7 +7,7 @@ path: the Stop hook stays deterministic and Zero-LLM.
 
 Triggers (chosen by the operator, not the pipeline):
 
-* ``mneme compress run`` CLI invocation.
+* ``mneme-core compress run`` CLI invocation.
 * Scheduled task (cron, Windows Task Scheduler).
 * SessionEnd-driven background spawn that returns immediately.
 
@@ -244,7 +244,7 @@ def _truncate_payload(payload: str, limit: int) -> str:
 # .llm with the per-model schema ``{"input": float, "output": float}``.
 # The estimator computes a conservative upper bound on what one call
 # could cost so the reservation covers any reasonable actual spend.
-# Chars-per-token approximation matches the ``mneme audit`` heuristic.
+# Chars-per-token approximation matches the ``mneme-audit`` heuristic.
 _ESTIMATE_CHARS_PER_TOKEN = 4
 _ESTIMATE_PRICE_FALLBACK: dict[str, float] = {"input": 4.0, "output": 20.0}
 

@@ -1,4 +1,4 @@
-"""Integration tests for the ``mneme audit`` CLI report builder."""
+"""Integration tests for the ``mneme-audit`` CLI report builder."""
 
 from __future__ import annotations
 

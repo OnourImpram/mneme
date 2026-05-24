@@ -2,8 +2,8 @@
 
 The compression layer is OPT-IN. The config file is the canonical
 state of that choice. The pipeline reads this file before every run,
-the CLI ``mneme compress enable`` writes it, and the CLI
-``mneme compress disable`` clears the ``enabled`` flag. No other
+the CLI ``mneme-core compress enable`` writes it, and the CLI
+``mneme-core compress disable`` clears the ``enabled`` flag. No other
 module is allowed to flip the bit.
 
 Sacred constraints honored here:

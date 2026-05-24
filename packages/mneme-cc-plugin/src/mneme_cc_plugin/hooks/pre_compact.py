@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from mneme_core.vault.atomic_write import atomic_write_text
@@ -22,7 +22,7 @@ from .lib import emit, run_hook
 STATE_FILENAME = "state.json"
 
 
-def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:  # noqa: ARG001
+def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="PreCompact")
         return
@@ -36,7 +36,7 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:  # noqa: A
     except (OSError, json.JSONDecodeError):
         state = {}
 
-    state["last_precompact_at"] = datetime.now(timezone.utc).isoformat()
+    state["last_precompact_at"] = datetime.now(UTC).isoformat()
     state.setdefault("schema_version", 1)
 
     try:

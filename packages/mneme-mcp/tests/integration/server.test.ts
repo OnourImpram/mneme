@@ -13,6 +13,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -91,5 +92,22 @@ describe("mneme-mcp server end-to-end", () => {
     };
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("INDEX_NOT_FOUND");
+  });
+});
+
+describe("mneme-mcp CLI metadata", () => {
+  it("--version does not require a vault", () => {
+    const env = { ...process.env };
+    delete env.MNEME_VAULT;
+    const res = spawnSync(`npx tsx ${SERVER_ENTRY} --version`, {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf-8",
+      env,
+      shell: true,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("mneme-mcp 1.0.1");
+    expect(res.stderr).not.toContain("VaultNotFound");
+    expect(res.stderr).not.toContain("[mneme-mcp] fatal");
   });
 });

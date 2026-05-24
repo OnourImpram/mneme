@@ -85,7 +85,7 @@ Results are published in `docs/benchmarks/YYYY-MM-DD/head-to-head.md` regardless
 
 ## Locked Reference Numbers (operator hardware, seed=42)
 
-These numbers are the published baselines for v1.0.0-rc. CI regression guards lock the deltas relative to these. Hardware: Windows 11, Python 3.13, Node 22, NTFS SSD. Reproduce on any machine with `make bench-all`.
+These numbers are the published baselines for the v1.0 release line. CI regression guards lock the deltas relative to these. Hardware: Windows 11, Python 3.13, Node 22, NTFS SSD. Reproduce on any machine with `make bench-all`.
 
 ### Benchmark A: Retrieval Quality
 

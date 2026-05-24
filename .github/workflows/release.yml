@@ -49,12 +49,18 @@ jobs:
           echo "dry_run=$dry" >> "$GITHUB_OUTPUT"
           echo "Resolved target=$target, dry_run=$dry"
 
-      - name: Version-consistency check across all five sources
+      - name: Version-consistency check across release sources
         run: |
           python3 tools/version_bump.py --check "${{ steps.resolve.outputs.version }}"
 
       - name: Critical-path hook verifier (C3 enforcement)
         run: python3 tools/spec_verify.py
+
+      - name: Codex plugin manifest verifier
+        run: python3 tools/validate_codex_plugin.py packages/mneme-codex-plugin
+
+      - name: Public repo integrity verifier
+        run: python3 tools/repo_integrity.py
 
       - uses: actions/setup-python@v5
         with:
@@ -85,6 +91,8 @@ jobs:
         working-directory: packages/mneme-cc-plugin
         run: |
           pip install -e '.[dev]'
+          ruff check .
+          mypy --strict src/
           pytest -q
 
       - name: tools/parity pytest

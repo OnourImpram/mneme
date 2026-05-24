@@ -1,17 +1,39 @@
 {
   "name": "mneme",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Vault-native memory for Codex. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop. Claude-Code-native at its core, extended to Codex.",
   "author": {
     "name": "Onour Impram",
-    "email": "onuribram@outlook.com",
     "url": "https://github.com/TheGoatPsy/mneme"
   },
   "homepage": "https://github.com/TheGoatPsy/mneme",
   "repository": "https://github.com/TheGoatPsy/mneme",
   "license": "MIT",
-  "keywords": ["memory", "mcp", "vault", "retrieval", "temporal"],
+  "keywords": [
+    "memory",
+    "mcp",
+    "vault",
+    "retrieval",
+    "temporal"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "interface": {
+    "displayName": "mneme",
+    "shortDescription": "Vault-native memory for Codex.",
+    "longDescription": "mneme adds local-first vault memory, MCP retrieval, lifecycle skills, and Claude-Code-compatible workflows to Codex while keeping Markdown as ground truth.",
+    "developerName": "Onour Impram",
+    "category": "Productivity",
+    "capabilities": [
+      "Memory",
+      "MCP",
+      "Skills"
+    ],
+    "defaultPrompt": [
+      "Prime this session with mneme vault context.",
+      "Search my mneme vault for this task.",
+      "Review recent memory before editing."
+    ],
+    "brandColor": "#2563EB"
+  }
 }

@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-cc-plugin"
-version = "1.0.0"
+version = "1.0.1"
 description = "Claude Code plugin for mneme: hooks, slash commands, skills, and the install CLI."
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "Onour Impram", email = "onuribram@outlook.com" }]
+authors = [{ name = "Onour Impram" }]
 requires-python = ">=3.11"
 keywords = ["claude-code", "mcp", "memory", "vault", "fts5"]
 classifiers = [

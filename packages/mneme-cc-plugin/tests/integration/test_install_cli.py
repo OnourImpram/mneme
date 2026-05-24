@@ -94,9 +94,27 @@ class TestCliDispatcher:
         assert res.exit_code == 0, res.output
         # Backup dir should not be created since no real write happened.
         assert not workspace["backup"].exists()
-        # Vault marker IS created (it is local-only filesystem prep, not
-        # destructive).
-        assert (workspace["vault"] / ".mneme").exists()
+        assert not (workspace["vault"] / ".mneme").exists()
+        assert "vault (dry-run): would create marker" in res.output
+
+    def test_install_upgrade_profile_alias(
+        self, runner: CliRunner, workspace: dict[str, Path]
+    ) -> None:
+        res = runner.invoke(
+            cli,
+            [
+                "install",
+                "--upgrade-profile", "standard",
+                "--vault", str(workspace["vault"]),
+                "--settings", str(workspace["settings"]),
+                "--backup-dir", str(workspace["backup"]),
+                "--skip-python",
+                "--skip-node",
+                "--dry-run",
+            ],
+        )
+        assert res.exit_code == 0, res.output
+        assert "profile=standard" in res.output
 
     def test_install_writes_hooks_and_mcp(
         self, runner: CliRunner, workspace: dict[str, Path]

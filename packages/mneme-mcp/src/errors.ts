@@ -6,10 +6,14 @@
  * `docs/MCP.md#error-handling`.
  */
 
+import { ZodError } from "zod";
+
 export const ERROR_CODES = {
 	/** A required argument was missing or wrong type. */
 	INVALID_ARGUMENT: "INVALID_ARGUMENT",
-	/** The FTS5 database file is missing. Run `mneme index` first. */
+	/** The client requested a tool name this server does not expose. */
+	UNKNOWN_TOOL: "UNKNOWN_TOOL",
+	/** The FTS5 database file is missing. Run `mneme-core index rebuild` first. */
 	INDEX_NOT_FOUND: "INDEX_NOT_FOUND",
 	/** The target path resolved outside vault root. */
 	PATH_OUTSIDE_VAULT: "PATH_OUTSIDE_VAULT",
@@ -40,6 +44,12 @@ export class MnemeToolError extends Error {
 export function toMnemeError(err: unknown): MnemeError {
 	if (err instanceof MnemeToolError) {
 		return { code: err.code, message: err.message };
+	}
+	if (err instanceof ZodError) {
+		return {
+			code: ERROR_CODES.INVALID_ARGUMENT,
+			message: err.issues.map((issue) => issue.message).join("; "),
+		};
 	}
 	const message = err instanceof Error ? err.message : String(err);
 	return { code: ERROR_CODES.IO_ERROR, message };

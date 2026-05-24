@@ -14,7 +14,6 @@ Three behaviors land here:
 
 from __future__ import annotations
 
-import io
 import json
 import sys
 import threading
@@ -23,8 +22,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from mneme_core.vault.config import VaultConfig
+
 from mneme_cc_plugin.hooks import lock as lock_mod
 from mneme_cc_plugin.hooks import post_tool_use, session_end
 

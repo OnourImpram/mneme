@@ -2,7 +2,7 @@
 
 A living document tracking other memory tools in the Claude Code, MCP, and Python agent ecosystems. Updated monthly. **Last reviewed: 2026-05-19.**
 
-## What Changed at v1.0.0-rc
+## What Changed in the v1.0 Release Line
 
 - Phase H benchmark suite is in place and published. Concrete numbers in `docs/BENCHMARKS.md`: nDCG@5 = 0.893 (RRF fused), Stop hook p95 = 2 ms, shell_compress 88 percent reduction. Comparing tools without seeded reproducible numbers is now an apples-to-oranges conversation.
 - Phase G migration tool ships. Lossless one-command import from claude-mem v13.2.0 with tri-state archive and idempotent re-run. The switching cost from claude-mem to mneme is one command.
