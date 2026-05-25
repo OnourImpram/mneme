@@ -36,6 +36,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..privacy import redact as _privacy_redact
+
 VALID_EVENT_CLASSES: frozenset[str] = frozenset(
     {
         "tool_use",
@@ -198,7 +200,11 @@ def write_event(
     def audit_cb(matched: list[str]) -> None:
         _log_audit(matched, config)
 
-    redacted_name = redact_pii(name, config.pii_patterns, audit_cb)
+    # Apply structural <private> redaction first (always on), then PII
+    # pattern redaction (opt-in via pii_patterns).
+    redacted_name = redact_pii(
+        _privacy_redact(name), config.pii_patterns, audit_cb
+    )
     record: dict[str, Any] = {
         "ts": now.isoformat(),
         "session_id": session_id,
@@ -209,7 +215,9 @@ def write_event(
     }
     for k, v in kwargs.items():
         if isinstance(v, str):
-            record[k] = redact_pii(v, config.pii_patterns, audit_cb)
+            record[k] = redact_pii(
+                _privacy_redact(v), config.pii_patterns, audit_cb
+            )
         else:
             record[k] = v
 

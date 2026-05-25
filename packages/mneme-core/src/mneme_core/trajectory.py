@@ -32,7 +32,9 @@ from typing import Any
 
 import yaml
 
+from .privacy import redact as _privacy_redact
 from .vault.atomic_write import atomic_write_text
+from .vault.file_lock import file_lock
 
 TRAJECTORY_TYPE = "trajectory"
 TRAJECTORY_SCHEMA_VERSION = "1.0.0"
@@ -111,46 +113,68 @@ def record_step(
     input_summary: str = "",
     observation: str = "",
 ) -> bool:
-    """Append one step to the trajectory file. Creates the file if needed."""
+    """Append one step to the trajectory file. Creates the file if needed.
+
+    Redacts ``<private>`` content from action, input_summary, and
+    observation before writing. The read-modify-write sequence is
+    protected by an exclusive per-file lock to prevent lost updates
+    under concurrent writes from two processes.
+    """
     try:
-        if start_trajectory(vault, session_id) is None:
-            return False
+        # Redact user-controlled fields before any disk access.
+        action = _privacy_redact(action)
+        input_summary = _privacy_redact(input_summary)
+        observation = _privacy_redact(observation)
+
         path = _trajectory_path(vault, session_id)
-        if not path.is_file():
-            return False
-        existing = path.read_text(encoding="utf-8")
-        ts = _now().strftime("%H:%M:%S")
-        block_parts = [f"### {ts} - {action}"]
-        if input_summary.strip():
-            block_parts.append(f"\ninput: {input_summary.strip()}")
-        if observation.strip():
-            block_parts.append(f"\nobservation: {observation.strip()}")
-        block = "\n".join(block_parts) + "\n"
-        new_text = existing.rstrip() + "\n\n" + block
-        atomic_write_text(path, new_text)
+        lock_path = path.with_suffix(".lock")
+        # Hold the lock across start_trajectory + read + write so that
+        # concurrent callers cannot interleave their read-modify-write
+        # cycles and lose each other's updates.
+        with file_lock(lock_path):
+            if start_trajectory(vault, session_id) is None:
+                return False
+            if not path.is_file():
+                return False
+            existing = path.read_text(encoding="utf-8")
+            ts = _now().strftime("%H:%M:%S")
+            block_parts = [f"### {ts} - {action}"]
+            if input_summary.strip():
+                block_parts.append(f"\ninput: {input_summary.strip()}")
+            if observation.strip():
+                block_parts.append(f"\nobservation: {observation.strip()}")
+            block = "\n".join(block_parts) + "\n"
+            new_text = existing.rstrip() + "\n\n" + block
+            atomic_write_text(path, new_text)
         return True
     except OSError:
         return False
 
 
 def end_trajectory(vault: Any, session_id: str) -> bool:
-    """Seal the trajectory by stamping ``ended_at`` in the frontmatter."""
+    """Seal the trajectory by stamping ``ended_at`` in the frontmatter.
+
+    The read-modify-write sequence is protected by an exclusive per-file
+    lock to prevent lost updates under concurrent calls.
+    """
     try:
         path = _trajectory_path(vault, session_id)
         if not path.is_file():
             return False
-        traj = _load_from_path(path)
-        if traj is None:
-            return False
-        traj.ended_at = _now().isoformat()
-        # Reserialize: keep body, replace frontmatter.
-        text = path.read_text(encoding="utf-8")
-        match = _FRONTMATTER_RE.match(text)
-        if match is None:
-            return False
-        body = match.group(2)
-        new_text = f"---\n{_frontmatter_text(traj)}\n---\n{body}"
-        atomic_write_text(path, new_text)
+        lock_path = path.with_suffix(".lock")
+        with file_lock(lock_path):
+            traj = _load_from_path(path)
+            if traj is None:
+                return False
+            traj.ended_at = _now().isoformat()
+            # Reserialize: keep body, replace frontmatter.
+            text = path.read_text(encoding="utf-8")
+            match = _FRONTMATTER_RE.match(text)
+            if match is None:
+                return False
+            body = match.group(2)
+            new_text = f"---\n{_frontmatter_text(traj)}\n---\n{body}"
+            atomic_write_text(path, new_text)
         return True
     except OSError:
         return False

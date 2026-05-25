@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-core"
-version = "1.0.1"
+version = "1.0.2"
 description = "Vault-native memory engine for Claude Code. FTS5 BM25, RRF-ready retrieval, gated Graphiti KG, and adaptive context tooling."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,7 +65,11 @@ dev = [
 ]
 
 [project.scripts]
-mneme = "mneme_core.cli:main"
+# Standalone core exposes its CLI as `mneme-core`. The user-facing
+# `mneme` command is owned solely by mneme-cc-plugin, which re-registers
+# these core command groups under it. Both packages previously declared a
+# `mneme` script, so a co-install resolved to whichever pip wrote last.
+mneme-core = "mneme_core.cli:main"
 mneme-audit = "mneme_core.distill.audit:main"
 
 [project.urls]

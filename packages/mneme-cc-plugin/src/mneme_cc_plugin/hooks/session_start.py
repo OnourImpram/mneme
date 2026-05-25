@@ -52,7 +52,9 @@ def _block_date() -> str:
 
 
 def _block_today_headings(vault: VaultConfig) -> str:
-    today_md = vault.root / f"{_today_iso()}.md"
+    # The Stop hook writes the daily session log under sessions/ (its
+    # LOG_DIR_NAME), so read from there rather than the vault root.
+    today_md = vault.root / "sessions" / f"{_today_iso()}.md"
     if not today_md.exists():
         return ""
     try:

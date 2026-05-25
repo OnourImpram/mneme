@@ -127,7 +127,7 @@ export function searchTool(
 				path: h.path,
 				title: h.title,
 				score: h.rank,
-				snippet: h.contentRaw.slice(0, SNIPPET_CHARS),
+				snippet: h.bodyText.slice(0, SNIPPET_CHARS),
 				type: h.frontmatterType,
 				mtime: h.mtime,
 			})),

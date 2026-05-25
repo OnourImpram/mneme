@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [1.0.2] - 2026-05-25
+
+### Fixed
+
+- Default capture loop now produces searchable memory. The Stop hook writes the
+  daily session log with `type: session` frontmatter, so the indexer records
+  `frontmatter_type='session'` and SessionStart surfaces recent sessions.
+  SessionStart's today-headings block now reads from the `sessions/` directory
+  the Stop hook writes to. Previously the log carried no frontmatter type and
+  the recent-sessions block was always empty on a default install.
+- Deleted vault files are pruned from the FTS5 index on a full reindex, so
+  removed notes no longer remain searchable (privacy and recall correctness).
+- Consolidated privacy redaction into a single `mneme_core.privacy.redact` used
+  by every writer (staging, knowledge-graph staging, telemetry, patterns,
+  trajectories), with a matching TypeScript implementation validated against a
+  shared conformance fixture. Redaction is now case-insensitive,
+  attribute-tolerant (`<private reason="...">`), and fail-closed.
+- The installer wires hooks through the `mneme hook <event>` console script
+  (with an absolute-interpreter fallback), so hooks work under a pipx isolated
+  venv instead of a bare `python3 -m` the system interpreter cannot import.
+- Hook timeouts written into `settings.json` are now seconds, matching the
+  Claude Code hook schema and the native plugin manifest. They were
+  milliseconds, which the schema read as 1000-2000 second timeouts that could
+  hang the editor on a wedged hook. A test keeps the installer and manifest in
+  sync, and the ceilings now sit above each hook's internal deadlines.
+- Resolved the duplicate `mneme` console script. Only `mneme-cc-plugin`
+  publishes `mneme`; `mneme-core` publishes `mneme-core`. A co-install no longer
+  resolves to whichever package pip wrote last.
+- The FTS5 query builder splits hyphenated and reserved-character identifiers
+  into a phrase (`claude-mem` becomes `"claude mem"`) instead of fusing them
+  into an unmatchable token. The Python and TypeScript builders now behave
+  identically.
+- Closed a SQLite connection leak in `mneme_core.retrieval.rrf.fts5_search` on
+  the query error paths.
+- The compression cost ledger now fails closed on a corrupt ledger file instead
+  of resetting computed spend to zero and bypassing the cost cap.
+- Pattern and trajectory writes are serialized under a file lock, closing a
+  concurrent read-modify-write lost-update window.
+- MCP search snippets are built from the document body, never the raw
+  frontmatter, so YAML metadata is not returned to callers. A `body_text`
+  column is added to pre-existing vault databases in place.
+- Implemented `MNEME_SKIP_HOOKS` selective hook bypass (documented but
+  previously unimplemented).
+- The MCP server declares `neo4j-driver` as an optional dependency and
+  lazy-loads it, so lite and standard installs no longer pull the driver.
+- Replaced an unsafe tool-error cast in the MCP dispatcher with a runtime type
+  guard.
+
+### Added
+
+- `CITATION.cff` for citable-software metadata.
+
 ## [1.0.1] - 2026-05-24
 
 ### Fixed

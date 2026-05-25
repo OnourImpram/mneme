@@ -75,7 +75,7 @@ class TestRedactPrivate:
         event = {"content": "before <private>secret</private> after"}
         result = redact_private(event, config)
         assert "<private>" not in result["content"]
-        assert "[PRIVATE]" in result["content"]
+        assert "[REDACTED]" in result["content"]
         assert "secret" not in result["content"]
 
     def test_writes_audit_record(self, config: StagingConfig) -> None:
@@ -86,6 +86,7 @@ class TestRedactPrivate:
         rec = json.loads(audit_files[0].read_text(encoding="utf-8").strip())
         assert rec["field"] == "content"
         assert rec["host"] == "testhost"
+        # original_length now covers the whole field value (not just the span).
         assert rec["original_length"] == len("<private>s</private>")
         assert len(rec["audit_hash"]) == 16
 
@@ -93,8 +94,10 @@ class TestRedactPrivate:
         event = {"x": "a<private>1</private>b<private>2</private>c"}
         redact_private(event, config)
         audit_files = list(config.audit_dir.glob("*.jsonl"))
+        # One audit record per field that contained any private content
+        # (not per match span) — the record covers the whole field.
         lines = audit_files[0].read_text(encoding="utf-8").strip().split("\n")
-        assert len(lines) == 2
+        assert len(lines) == 1
 
     def test_non_string_values_untouched(self, config: StagingConfig) -> None:
         event = {"count": 42, "flag": True, "tags": ["a", "b"]}
@@ -119,7 +122,7 @@ class TestRedactPrivate:
             encoding="utf-8"
         )
         assert "token" not in line
-        assert "[PRIVATE]" in line
+        assert "[REDACTED]" in line
 
 
 class TestEnforceSizeCap:

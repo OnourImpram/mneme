@@ -76,9 +76,14 @@ describe("buildFts5Query", () => {
     ).toBe('"hello" OR "world"');
   });
 
-  it("strips FTS5 reserved characters from tokens", () => {
-    // " : * are syntactic in FTS5; strip them out before quoting.
-    expect(buildFts5Query('"foo* bar:qux"')).toBe('"foo" OR "barqux"');
+  it("splits reserved characters into phrases instead of fusing", () => {
+    // " : * - are syntactic/separator chars; split them into a phrase so
+    // the query matches the adjacent tokens unicode61 indexed.
+    expect(buildFts5Query('"foo* bar:qux"')).toBe('"foo" OR "bar qux"');
+  });
+
+  it("turns a hyphenated identifier into a phrase", () => {
+    expect(buildFts5Query("claude-mem")).toBe('"claude mem"');
   });
 
   it("applies the normalizer to each token", () => {

@@ -9,7 +9,10 @@ LLM. The full Stop ritual is:
   2. Otherwise, atomically append a new ``## HH:MM session summary``
      block to today's session log inside the vault. The body lists
      the session_id, the transcript path (if Claude Code surfaced
-     one), and a placeholder for the user to expand later.
+     one), and a placeholder for the user to expand later. The day's
+     log file is created with ``type: session`` frontmatter so the
+     indexer records ``frontmatter_type='session'`` and SessionStart
+     can surface it in the recent-sessions block.
   3. Update a small ``last_session_end_at`` field in the vault's
      state file. The next SessionStart will read this.
 
@@ -88,11 +91,23 @@ def _append_session_section(
     )
     ts_hhmm = _now_utc().strftime("%H:%M")
     with file_lock(lock_path, timeout_s=SESSION_LOG_LOCK_TIMEOUT_S):
-        existing = (
-            target.read_text(encoding="utf-8")
-            if target.exists()
-            else f"# Sessions {today_iso}\n\n"
-        )
+        if target.exists():
+            existing = target.read_text(encoding="utf-8")
+        else:
+            # New daily log: write session-typed frontmatter so the
+            # indexer sets frontmatter_type='session' and SessionStart
+            # can discover it. Built inline to keep the Stop hot path
+            # free of the yaml-backed serializer import.
+            created_iso = _now_utc().isoformat()
+            existing = (
+                "---\n"
+                f"id: session-{today_iso}\n"
+                "type: session\n"
+                f"created: {created_iso}\n"
+                "schema_version: 1\n"
+                "---\n"
+                f"# Sessions {today_iso}\n\n"
+            )
         separator = "" if existing.endswith("\n\n") else "\n\n"
         header = f"## {ts_hhmm} session {session_id}"
         transcript_line = (

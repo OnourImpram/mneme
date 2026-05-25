@@ -45,6 +45,7 @@ import {
 } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
+import { redact as _privacyRedact } from "../privacy.js";
 import { assertWithinVault, atomicWriteText } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 
@@ -125,7 +126,6 @@ interface UserPromptRow {
 	[column: string]: unknown;
 }
 
-const PRIVATE_TAG_RE = /<private>[\s\S]*?<\/private>/g;
 const USER_PROMPT_HEAD_MAX = 200;
 const SOURCE_TAG = "claude-mem-v13.2.0";
 const SCHEMA_VERSION = 1;
@@ -149,22 +149,18 @@ const EXPORT_DIR_REL = ["imported", "claude-mem"] as const;
 
 /**
  * Strip `<private>...</private>` blocks and return the count of
- * substitutions alongside the cleaned text. Counting lets callers
- * surface the redaction rate without re-scanning the output.
+ * substitutions alongside the cleaned text. Delegates to the canonical
+ * ``privacy.redact`` implementation (case-insensitive, attribute-tolerant,
+ * fail-closed) so migrate.ts cannot drift from the shared semantics.
+ *
+ * Note: the replacement token is ``[REDACTED]`` (canonical). Previous
+ * versions used ``<REDACTED>``; existing tests have been updated to match.
  */
 export function redact(input: string | null | undefined): {
 	text: string;
 	count: number;
 } {
-	if (typeof input !== "string" || input.length === 0) {
-		return { text: input ?? "", count: 0 };
-	}
-	let count = 0;
-	const text = input.replace(PRIVATE_TAG_RE, () => {
-		count += 1;
-		return "<REDACTED>";
-	});
-	return { text, count };
+	return _privacyRedact(input);
 }
 
 /**

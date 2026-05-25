@@ -23,13 +23,14 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      title_normalized TEXT,
      path TEXT UNIQUE NOT NULL,
      content_raw TEXT,
+     body_text TEXT,
      content_size INTEGER,
      mtime REAL,
      tags TEXT,
      frontmatter_type TEXT,
      session_id TEXT,
      linked_notes TEXT,
-     schema_version TEXT DEFAULT '1',
+     schema_version TEXT DEFAULT '2',
      language TEXT DEFAULT 'en',
      indexed_at TEXT
    )`,
@@ -50,6 +51,8 @@ export interface TestDoc {
   title: string;
   titleNormalized: string;
   contentRaw: string;
+  /** Document body with frontmatter stripped. Defaults to contentRaw. */
+  bodyText?: string;
   contentNormalized: string;
   mtime: number;
   tags?: string;
@@ -69,9 +72,9 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
     }
     const insertDoc = db.prepare(
       `INSERT INTO documents
-       (title, title_normalized, path, content_raw, content_size, mtime,
+       (title, title_normalized, path, content_raw, body_text, content_size, mtime,
         tags, frontmatter_type, session_id, linked_notes, indexed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = db.prepare(
       `INSERT INTO documents_fts (rowid, title, content, tags, linked_notes)
@@ -79,11 +82,13 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
     );
     const tx = db.transaction(() => {
       for (const d of docs) {
+        const bodyText = d.bodyText ?? d.contentRaw;
         const info = insertDoc.run(
           d.title,
           d.titleNormalized,
           d.path,
           d.contentRaw,
+          bodyText,
           d.contentRaw.length,
           d.mtime,
           d.tags ?? "",

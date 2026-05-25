@@ -106,7 +106,7 @@ describe("mneme-mcp CLI metadata", () => {
       shell: true,
     });
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain("mneme-mcp 1.0.1");
+    expect(res.stdout).toMatch(/mneme-mcp \d+\.\d+\.\d+/);
     expect(res.stderr).not.toContain("VaultNotFound");
     expect(res.stderr).not.toContain("[mneme-mcp] fatal");
   });

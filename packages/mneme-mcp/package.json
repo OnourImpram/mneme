@@ -1,6 +1,6 @@
 {
   "name": "mneme-mcp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "MCP server for mneme: 6 tools for vault-native memory in Claude Code and MCP-compatible clients.",
   "type": "module",
   "main": "dist/index.js",
@@ -44,8 +44,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "better-sqlite3": "^12.4.0",
-    "neo4j-driver": "^5.28.3",
     "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "neo4j-driver": "^5.28.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.10",
