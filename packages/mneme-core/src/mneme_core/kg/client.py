@@ -7,13 +7,21 @@ on the shape.
 
 The credentials file is local to the vault state directory and is
 read by the worker process only. It is never sent over the wire and
-never logged. ``write_credentials`` enforces ``0600`` permissions on
-POSIX so accidental ``ls -la`` does not surface the password.
+never logged. ``write_credentials`` creates the file atomically at
+mode 0o600 on POSIX so no group/world-readable window ever exists.
+
+.. warning:: **Windows — credential file is NOT access-controlled by
+   this code.**  ``os.open`` mode bits do not map to NTFS ACLs on
+   Windows, so the file inherits default ACLs from its parent
+   directory.  Operators on multi-user Windows hosts are responsible
+   for restricting the state directory via NTFS permissions (icacls or
+   Security tab in Explorer) so that only the owning user account can
+   read it.  On POSIX the parent directory is created 0o700, blocking
+   directory traversal by other local users entirely.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import stat
@@ -49,11 +57,41 @@ def read_credentials(path: Path) -> Neo4jCredentials:
 
 
 def write_credentials(path: Path, creds: Neo4jCredentials) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(creds.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    """Write *creds* to *path* with no group/world-readable window.
+
+    On POSIX the parent directory is created with mode 0o700 so other
+    local users cannot traverse into it.  The credential file itself is
+    created (or overwritten) via :func:`os.open` with ``O_CREAT |
+    O_TRUNC`` at mode 0o600, which is atomic with respect to the umask:
+    the file is never visible at a looser mode, even momentarily.
+    :func:`os.fchmod` is additionally called on the open file descriptor
+    to harden pre-existing files whose inode might retain a wider mode
+    from a previous write.
+
+    On Windows ``os.open`` mode bits do not set NTFS ACLs.  See the
+    module-level warning for operator guidance.
+    """
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
     if os.name != "nt":
-        with contextlib.suppress(OSError):
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(parent, stat.S_IRWXU)
+
+    payload = json.dumps(creds.to_dict(), ensure_ascii=False, indent=2) + "\n"
+    encoded = payload.encode("utf-8")
+
+    if os.name != "nt":
+        fd = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(encoded)
+        # Harden pre-existing inodes: O_TRUNC keeps the inode, so a file
+        # previously created at a wider mode retains that mode.  chmod after
+        # close locks it down.  The O_CREAT path already set 0o600 atomically.
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    else:
+        # Windows: write without ACL control; operator must restrict the
+        # parent directory via NTFS permissions (see module docstring).
+        path.write_bytes(encoded)
