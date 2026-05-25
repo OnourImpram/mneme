@@ -249,3 +249,76 @@ class TestDoctorSchemaVersionMismatch:
         s = next(c for c in data["checks"] if c["name"] == "index_schema")
         assert s["status"] == "warn"
         assert "rebuild" in s["detail"]
+
+
+class TestDoctorFrontmatterDates:
+    """Criterion (c): doctor reports notes with unparseable date fields."""
+
+    def _make_bad_date_note(self, vault_root: Path, name: str = "bad-date.md") -> Path:
+        """Write a note with a malformed created value into the vault root."""
+        p = vault_root / name
+        p.write_text(
+            "---\nid: bad-date-note\ntype: session\ncreated: not-a-date\n---\n# Bad\n\nbody\n",
+            encoding="utf-8",
+        )
+        return p
+
+    def test_frontmatter_dates_check_present(self, tmp_path: Path) -> None:
+        """The frontmatter_dates check always appears in doctor output."""
+        vault_root = _make_vault(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
+        data = json.loads(result.output)
+        names = {c["name"] for c in data["checks"]}
+        assert "frontmatter_dates" in names
+
+    def test_good_vault_dates_ok(self, tmp_path: Path) -> None:
+        """A vault with no bad dates reports frontmatter_dates=ok."""
+        vault_root = _make_vault(tmp_path)
+        _add_md_file(vault_root)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
+        data = json.loads(result.output)
+        fd = next(c for c in data["checks"] if c["name"] == "frontmatter_dates")
+        assert fd["status"] == "ok"
+
+    def test_bad_date_note_reported(self, tmp_path: Path) -> None:
+        """Criterion (c): doctor warns and names the offending note."""
+        vault_root = _make_vault(tmp_path)
+        bad_note = self._make_bad_date_note(vault_root)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
+        data = json.loads(result.output)
+        fd = next(c for c in data["checks"] if c["name"] == "frontmatter_dates")
+        assert fd["status"] == "warn", f"Expected warn, got: {fd}"
+        # The note's filename (or relative path) must appear in the detail.
+        assert bad_note.name in fd["detail"], (
+            f"Expected {bad_note.name!r} in detail: {fd['detail']!r}"
+        )
+
+    def test_bad_date_does_not_abort_other_checks(self, tmp_path: Path) -> None:
+        """A bad-date note must not prevent other checks from running."""
+        vault_root = _make_vault(tmp_path)
+        _add_md_file(vault_root)
+        self._make_bad_date_note(vault_root, name="bad.md")
+        _build_index(vault_root)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        check_names = {c["name"] for c in data["checks"]}
+        # All standard checks must still be present.
+        assert {"vault_resolves", "index_present", "index_schema", "index_freshness"}.issubset(
+            check_names
+        )
+
+    def test_overall_is_warn_with_bad_date(self, tmp_path: Path) -> None:
+        """overall degrades to warn (not fail) when only dates are bad."""
+        vault_root = _make_vault(tmp_path)
+        _add_md_file(vault_root)
+        self._make_bad_date_note(vault_root)
+        _build_index(vault_root)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
+        data = json.loads(result.output)
+        assert data["overall"] == "warn"

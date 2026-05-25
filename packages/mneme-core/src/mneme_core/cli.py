@@ -859,6 +859,92 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
     except Exception as exc:  # noqa: BLE001
         checks.append(_check("compression_config", "warn", str(exc)))
 
+    # --- 6. frontmatter_dates ---
+    # Walk every markdown file in the vault and report files that contain
+    # a ``created`` or ``modified`` field that cannot be parsed as ISO 8601.
+    # One bad note must not abort the walk; parsing errors are accumulated.
+    try:
+        import yaml as _yaml
+
+        _EXCLUDE = (
+            "/.git/",
+            "/node_modules/",
+            "/.claude/",
+            "/.obsidian/",
+            "/.trash/",
+            "/.idea/",
+            "/__pycache__/",
+            "/.mneme/",
+        )
+        _FRONTMATTER_DELIM = "---"
+
+        def _has_bad_date(md_path: Path) -> list[str]:
+            """Return a list of field names with unparseable timestamps."""
+            try:
+                text = md_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return []
+            if not text.startswith(_FRONTMATTER_DELIM):
+                return []
+            lines = text.split("\n")
+            if len(lines) < 2 or lines[0].strip() != _FRONTMATTER_DELIM:
+                return []
+            closing = -1
+            for i in range(1, len(lines)):
+                if lines[i].strip() == _FRONTMATTER_DELIM:
+                    closing = i
+                    break
+            if closing == -1:
+                return []
+            yaml_block = "\n".join(lines[1:closing])
+            try:
+                data = _yaml.safe_load(yaml_block) or {}
+            except _yaml.YAMLError:
+                return []
+            if not isinstance(data, dict):
+                return []
+            from .vault.frontmatter import _parse_dt
+
+            bad: list[str] = []
+            for field_name in ("created", "modified"):
+                raw = data.get(field_name)
+                if raw is not None and _parse_dt(raw) is None:
+                    bad.append(field_name)
+            return bad
+
+        bad_notes: list[str] = []
+        for md_path in vault.root.rglob("*.md"):
+            rel = "/" + str(md_path.relative_to(vault.root)).replace("\\", "/") + "/"
+            if any(p in rel for p in _EXCLUDE):
+                continue
+            bad_fields = _has_bad_date(md_path)
+            if bad_fields:
+                bad_notes.append(
+                    f"{md_path.relative_to(vault.root).as_posix()}"
+                    f" (fields: {', '.join(bad_fields)})"
+                )
+
+        if bad_notes:
+            checks.append(
+                _check(
+                    "frontmatter_dates",
+                    "warn",
+                    f"{len(bad_notes)} note(s) with unparseable date fields"
+                    f" — run 'mneme doctor' to list; fix manually:"
+                    f" {'; '.join(bad_notes)}",
+                )
+            )
+        else:
+            checks.append(
+                _check(
+                    "frontmatter_dates",
+                    "ok",
+                    "all frontmatter date fields parse cleanly",
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        checks.append(_check("frontmatter_dates", "warn", str(exc)))
+
     # Derive overall status: fail > warn > ok.
     statuses = {c["status"] for c in checks}
     if "fail" in statuses:
