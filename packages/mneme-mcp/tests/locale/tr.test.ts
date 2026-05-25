@@ -76,3 +76,48 @@ describe("normalize_tr semantic distinction (dotted vs dotless)", () => {
     expect(normalizeTr("İstanbul")).not.toBe(normalizeTr("Istanbul"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Shared golden-vector fixture — parity with Python mneme_core normalizer
+// ---------------------------------------------------------------------------
+//
+// The fixture lives in packages/mneme-core/tests/fixtures/tr_locale_vectors.json
+// and is the canonical source of truth for both implementations.  If this
+// describe block fails while the Python suite passes (or vice-versa) the two
+// normalizers have drifted.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+interface TrVector {
+  id: string;
+  input: string;
+  normalize_tr: string;
+  normalize_tr_for_fts: string;
+  note: string;
+}
+
+const VECTOR_PATH = join(
+  __dirname,
+  "../../../mneme-core/tests/fixtures/tr_locale_vectors.json",
+);
+
+const vectors: TrVector[] = JSON.parse(
+  readFileSync(VECTOR_PATH, "utf8"),
+) as TrVector[];
+
+describe("normalizeTr — golden vectors (cross-language parity)", () => {
+  for (const v of vectors) {
+    it(`${v.id}: normalizeTr`, () => {
+      expect(normalizeTr(v.input)).toBe(v.normalize_tr);
+    });
+  }
+});
+
+describe("normalizeTrForFts — golden vectors (cross-language parity)", () => {
+  for (const v of vectors) {
+    it(`${v.id}: normalizeTrForFts`, () => {
+      expect(normalizeTrForFts(v.input)).toBe(v.normalize_tr_for_fts);
+    });
+  }
+});

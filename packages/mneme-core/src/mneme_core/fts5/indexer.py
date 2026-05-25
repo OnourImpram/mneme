@@ -154,23 +154,46 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     migrate_schema(conn)
 
 
+# Mapping of every column that the current ``documents`` DDL expects, beyond
+# the original v1 set, to the SQL type used when ALTER-adding it.  Adding a
+# new column to the SCHEMA DDL above requires a matching entry here so that
+# existing databases are migrated automatically on the next ``ensure_schema``
+# call.  Never remove or rename entries — doing so would prevent the migration
+# from running on older databases that still lack the column.
+_MIGRATION_COLUMNS: dict[str, str] = {
+    "body_text": "TEXT",
+}
+
+
 def migrate_schema(conn: sqlite3.Connection) -> None:
-    """Apply lightweight in-place migrations to an existing database.
+    """Apply lightweight additive migrations to an existing ``documents`` table.
 
-    Currently handles:
-    * ``body_text TEXT`` column added in schema version 2.  The column
-      stores the document body with YAML frontmatter stripped and is
-      populated on the next full index pass.
+    Derives the expected column set from :data:`_MIGRATION_COLUMNS` and
+    issues ``ALTER TABLE … ADD COLUMN`` for any column that is absent.
+    The operation is idempotent: calling it twice on the same database
+    produces no change on the second call.
 
-    Safe to call on a brand-new database (the column already exists
-    there, so the ALTER is skipped).
+    Design constraints:
+
+    * Only ``ALTER TABLE ADD COLUMN`` is used — SQLite does not support
+      dropping or renaming columns in this mode, so the migration is
+      always purely additive.
+    * ``_MIGRATION_COLUMNS`` is the canonical source of truth for which
+      columns need to be present.  ``SCHEMA_VERSION`` signals the overall
+      intent to callers (e.g. ``mneme doctor index-schema``).
+    * Safe to call on a brand-new database: every column in
+      ``_MIGRATION_COLUMNS`` already exists in the DDL, so all ALTERs
+      are skipped.
     """
     existing_cols = {
         row[1]
         for row in conn.execute("PRAGMA table_info(documents)")
     }
-    if "body_text" not in existing_cols:
-        conn.execute("ALTER TABLE documents ADD COLUMN body_text TEXT")
+    for col_name, col_type in _MIGRATION_COLUMNS.items():
+        if col_name not in existing_cols:
+            conn.execute(
+                f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}"
+            )
 
 
 def _should_index(

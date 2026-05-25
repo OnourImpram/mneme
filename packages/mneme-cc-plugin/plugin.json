@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "author": "Onour Impram (TheGoatPsy)",
   "license": "MIT",

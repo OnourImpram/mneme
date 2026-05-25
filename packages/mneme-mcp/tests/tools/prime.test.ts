@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "../../src/errors.js";
+import { FENCE_CLOSE, FENCE_OPEN, NOTICE } from "../../src/injection.js";
 import { primeTool, PrimeInputSchema } from "../../src/tools/prime.js";
 import { defaultDocs, makeTempVault } from "../helpers/vault_fixture.js";
 
@@ -102,8 +103,16 @@ describe("primeTool runtime", () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.data.truncated).toBe(true);
-      // Budget cap respected (approx 50 tokens * 4 chars).
-      expect(res.data.bytes).toBeLessThanOrEqual(50 * 4 + 100);
+      // Budget caps the CONTENT (approx 50 tokens * 4 chars). The returned
+      // preamble also carries the fixed spotlighting fence (G-3), so allow
+      // for that deterministic framing overhead.
+      const fenceOverhead =
+        FENCE_OPEN.length +
+        " source=vault-prime\n".length +
+        NOTICE.length +
+        2 +
+        FENCE_CLOSE.length;
+      expect(res.data.bytes).toBeLessThanOrEqual(50 * 4 + 100 + fenceOverhead);
     }
   });
 

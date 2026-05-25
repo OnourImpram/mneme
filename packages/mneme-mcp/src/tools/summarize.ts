@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import {
@@ -101,7 +102,8 @@ export async function summarizeTool(
 		const norm = h.path.replace(/\\/g, "/");
 		const dir = dirname(norm);
 		if (!directories[dir]) directories[dir] = [];
-		directories[dir].push({ path: norm, title: h.title });
+		// Title is untrusted vault text; defang the fence sentinel (G-3).
+		directories[dir].push({ path: norm, title: neutralize(h.title) });
 	}
 
 	const kgEnabled = isKgActive(vault);

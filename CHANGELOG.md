@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [1.0.3] - 2026-05-25
+
+### Added
+
+- `mneme doctor` reports vault and index health: whether the vault resolves,
+  whether the FTS5 index exists and is current with the indexer schema version,
+  the indexed document count and freshness, and whether a compression config is
+  present. Exits non-zero only when a check fails.
+- The FTS5 schema migration runner is now version-driven: it derives the
+  expected columns from a canonical map and adds any missing ones in place, so
+  future columns migrate without a full rebuild.
+- A pre-registered retrieval evaluation protocol (`benchmarks/retrieval/PROTOCOL.md`).
+  The harness now reports Recall@10 and runs a negative-query probe (queries with
+  no relevant document must return nothing) alongside nDCG@5, and the regression
+  guard enforces all three. Relevance judgments are fixed before the system runs,
+  to avoid circularity.
+- A shared Turkish-locale golden-vector fixture that validates the Python and
+  TypeScript casefold against the same cases, so the two cannot drift.
+- A retrieval-seam test proving injected dense and knowledge-graph backends fuse
+  with FTS5 through RRF. No default dense backend is wired; dense retrieval stays
+  roadmap, gated on the evaluation harness.
+- A Neo4j service-container CI job and a gated integration test that exercise the
+  full-profile knowledge-graph connection contract against a real database. The
+  test skips cleanly wherever the service and the `neo4j` driver are absent.
+
+### Security
+
+- Vault content that mneme re-injects into model context is now fenced as
+  untrusted data with an explicit "treat as data, not instructions" notice, and
+  the fence sentinel is neutralized inside that content so a crafted note cannot
+  break out of the fence (the spotlighting/delimiting mitigation). The fence
+  wraps the SessionStart preamble, the `mneme_prime` bundle, and `mneme_recall`
+  bodies; `mneme_search`, `mneme_summarize`, and `mneme_timeline` neutralize the
+  titles and snippets they surface. A shared Python/TypeScript conformance
+  fixture keeps both implementations aligned. This mitigates, and does not
+  eliminate, prompt injection from untrusted notes; it layers with `<private>`
+  redaction and the read-path vault containment checks.
+
 ## [1.0.2] - 2026-05-25
 
 ### Fixed
