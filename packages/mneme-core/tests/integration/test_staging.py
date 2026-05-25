@@ -180,3 +180,52 @@ class TestDefaults:
 
     def test_default_cap_is_100mb(self) -> None:
         assert DEFAULT_SIZE_CAP_BYTES == 100 * 1024 * 1024
+
+
+class TestContentHashDedup:
+    """content_hash must be stable across time and host; distinct for distinct content."""
+
+    def test_same_content_different_captured_at_same_hash(self) -> None:
+        # Identical events captured at different times must hash identically.
+        base = {"tool_name": "Edit", "path": "foo.py", "content": "x = 1"}
+        h1 = compute_content_hash({**base, "captured_at": "2026-01-01T00:00:00+00:00"})
+        h2 = compute_content_hash({**base, "captured_at": "2026-06-15T12:34:56+00:00"})
+        assert h1 == h2
+
+    def test_same_content_different_host_same_hash(self) -> None:
+        base = {"tool_name": "Write", "path": "bar.md"}
+        h1 = compute_content_hash({**base, "host": "machine-a"})
+        h2 = compute_content_hash({**base, "host": "machine-b"})
+        assert h1 == h2
+
+    def test_same_content_all_ephemeral_fields_same_hash(self) -> None:
+        base = {"tool_name": "Bash", "command": "ls"}
+        h1 = compute_content_hash(
+            {**base, "captured_at": "2026-01-01T00:00:00+00:00", "host": "a", "content_hash": "old"}
+        )
+        h2 = compute_content_hash(
+            {**base, "captured_at": "2099-12-31T23:59:59+00:00", "host": "z", "content_hash": "stale"}
+        )
+        assert h1 == h2
+
+    def test_different_content_different_hash(self) -> None:
+        h1 = compute_content_hash({"tool_name": "Edit", "path": "a.py"})
+        h2 = compute_content_hash({"tool_name": "Edit", "path": "b.py"})
+        assert h1 != h2
+
+    def test_write_event_hash_stable_across_captures(
+        self, config: StagingConfig, tmp_path: Path
+    ) -> None:
+        # Two capture_event calls with the same logical content (different times
+        # because _now() advances) must write the same content_hash to disk.
+        event_a = {"tool_name": "Edit", "path": "stable.py", "x": "val"}
+        event_b = {"tool_name": "Edit", "path": "stable.py", "x": "val"}
+        capture_event(event_a, config)
+        capture_event(event_b, config)
+        records = []
+        for f in sorted(config.staging_dir.rglob("*-events.jsonl")):
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    records.append(json.loads(line))
+        assert len(records) == 2
+        assert records[0]["content_hash"] == records[1]["content_hash"]

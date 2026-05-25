@@ -261,8 +261,19 @@ def enforce_size_cap(config: StagingConfig) -> int:
 
 
 def compute_content_hash(event: dict[str, Any]) -> str:
-    """Stable hash for downstream deduplication windows."""
-    parts = json.dumps(event, sort_keys=True, default=str, ensure_ascii=False)
+    """Stable hash for downstream deduplication windows.
+
+    The hash is intentionally computed over the *content* of the event —
+    the fields that identify what happened — and must exclude any fields
+    that vary with capture time or capture host (``captured_at``,
+    ``host``, ``content_hash``). This makes the hash stable across
+    repeated captures of the same logical event, enabling cross-time
+    deduplication. Callers must pass the event *before* those ephemeral
+    fields are injected (see ``_write_event``).
+    """
+    _EPHEMERAL = frozenset({"captured_at", "host", "content_hash"})
+    payload = {k: v for k, v in event.items() if k not in _EPHEMERAL}
+    parts = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
     return _sha256_first16(parts)
 
 
@@ -326,9 +337,12 @@ def _write_event(event: dict[str, Any], config: StagingConfig) -> None:
     out_file = out_dir / f"{now.strftime('%H-%M')}-events.jsonl"
 
     event = dict(event)
+    # Hash is computed over content-only fields BEFORE ephemeral metadata
+    # (captured_at, host) are injected, so identical events captured at
+    # different times or on different hosts produce the same content_hash.
+    event["content_hash"] = compute_content_hash(event)
     event["captured_at"] = now.isoformat()
     event["host"] = config.host
-    event["content_hash"] = compute_content_hash(event)
 
     with out_file.open("a", encoding="utf-8") as fp:
         fp.write(json.dumps(event, ensure_ascii=False) + "\n")
