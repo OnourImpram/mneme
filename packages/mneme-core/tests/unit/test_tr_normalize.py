@@ -17,7 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from mneme_core.fts5.locale.tr import normalize_tr, normalize_tr_for_fts
+from mneme_core.fts5.locale.tr import (
+    normalize_tr,
+    normalize_tr_ascii_fold,
+    normalize_tr_ascii_fold_for_fts,
+    normalize_tr_for_fts,
+)
 
 _FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 _VECTORS_PATH = _FIXTURES_DIR / "tr_locale_vectors.json"
@@ -112,6 +117,51 @@ class TestNormalizeTrForFts:
         assert normalize_tr_for_fts("   \n\t  ") == ""
 
 
+class TestNormalizeTrAsciiFold:
+    """Behavior of the dual-key ASCII-fold recall normalizer."""
+
+    @pytest.mark.parametrize(
+        "input_str",
+        ["İ", "I", "ı", "i"],
+    )
+    def test_all_four_i_forms_collapse_to_ascii_i(self, input_str: str) -> None:
+        """Every dotted/dotless i-form folds to plain ASCII i (U+0069)."""
+        assert normalize_tr_ascii_fold(input_str) == "i"
+
+    @pytest.mark.parametrize(
+        "input_str",
+        ["İzmir", "izmir", "Izmir", "IZMIR"],
+    )
+    def test_all_izmir_spellings_share_one_key(self, input_str: str) -> None:
+        """The whole point: every casing of Izmir folds to one key."""
+        assert normalize_tr_ascii_fold(input_str) == "izmir"
+
+    def test_does_not_disturb_other_diacritics(self) -> None:
+        # ş/ç/ğ/ö/ü are left to the unicode61 tokenizer; only i-forms fold.
+        assert normalize_tr_ascii_fold("İŞIK") == "işik"
+        assert normalize_tr_ascii_fold("Çağ") == "çağ"
+
+    def test_diverges_from_cldr_only_on_dotless(self) -> None:
+        # Where CLDR keeps the dotless distinction, the ASCII fold collapses it.
+        assert normalize_tr("Istanbul") == "ıstanbul"
+        assert normalize_tr_ascii_fold("Istanbul") == "istanbul"
+
+    def test_empty_string(self) -> None:
+        assert normalize_tr_ascii_fold("") == ""
+
+    def test_idempotent(self) -> None:
+        for s in ["İzmir", "Istanbul", "KIYASLAMA", "İŞIK"]:
+            once = normalize_tr_ascii_fold(s)
+            assert normalize_tr_ascii_fold(once) == once
+
+    def test_for_fts_collapses_whitespace(self) -> None:
+        assert (
+            normalize_tr_ascii_fold_for_fts("Izmir   Istanbul")
+            == "izmir istanbul"
+        )
+        assert normalize_tr_ascii_fold_for_fts("  IZMIR  ") == "izmir"
+
+
 def _load_vectors() -> list[dict[str, str]]:
     return json.loads(_VECTORS_PATH.read_text(encoding="utf-8"))  # type: ignore[return-value]
 
@@ -139,3 +189,16 @@ class TestGoldenVectors:
     @pytest.mark.parametrize("vec", _params())
     def test_normalize_tr_for_fts(self, vec: dict[str, str]) -> None:
         assert normalize_tr_for_fts(vec["input"]) == vec["normalize_tr_for_fts"]
+
+    @pytest.mark.parametrize("vec", _params())
+    def test_normalize_tr_ascii_fold(self, vec: dict[str, str]) -> None:
+        assert (
+            normalize_tr_ascii_fold(vec["input"]) == vec["normalize_tr_ascii_fold"]
+        )
+
+    @pytest.mark.parametrize("vec", _params())
+    def test_normalize_tr_ascii_fold_for_fts(self, vec: dict[str, str]) -> None:
+        assert (
+            normalize_tr_ascii_fold_for_fts(vec["input"])
+            == vec["normalize_tr_ascii_fold_for_fts"]
+        )

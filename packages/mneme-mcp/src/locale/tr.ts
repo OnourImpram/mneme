@@ -24,3 +24,21 @@ export function normalizeTr(s: string): string {
 export function normalizeTrForFts(s: string): string {
 	return normalizeTr(s).replace(/\s+/g, " ").trim();
 }
+
+/**
+ * Recall-aid fold that collapses both Turkish i-forms onto ASCII `i`.
+ *
+ * Mirrors `mneme_core.fts5.locale.tr.normalize_tr_ascii_fold`. Unlike
+ * `normalizeTr` (CLDR-faithful, keeps dotted vs dotless distinct), this
+ * deliberately maps İ/I/ı/i all to plain `i` so that an ASCII-capital query
+ * recalls a document stored with the proper dotted Turkish spelling. It is a
+ * retrieval key only, never a display transform.
+ */
+export function normalizeTrAsciiFold(s: string): string {
+	if (typeof s !== "string") return "";
+	return normalizeTr(s).replace(/ı/g, "i");
+}
+
+export function normalizeTrAsciiFoldForFts(s: string): string {
+	return normalizeTrAsciiFold(s).replace(/\s+/g, " ").trim();
+}

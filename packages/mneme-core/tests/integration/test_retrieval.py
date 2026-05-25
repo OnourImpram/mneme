@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from mneme_core.fts5.indexer import IndexerConfig, ensure_schema, index_vault
-from mneme_core.fts5.locale.tr import normalize_tr, normalize_tr_for_fts
+from mneme_core.fts5.locale.tr import (
+    normalize_tr,
+    normalize_tr_ascii_fold,
+    normalize_tr_ascii_fold_for_fts,
+    normalize_tr_for_fts,
+)
 from mneme_core.retrieval.rrf import (
     DEFAULT_RRF_K,
     Hit,
@@ -57,6 +62,108 @@ def indexed_db(tmp_path: Path) -> Iterator[Path]:
     index_vault(conn, cfg)
     conn.close()
     yield db_path
+
+
+@pytest.fixture
+def tr_indexed_db(tmp_path: Path) -> Iterator[Path]:
+    """Build a dual-key (CLDR + ASCII-fold) Turkish FTS5 database.
+
+    Stores two notes whose proper titles use the dotted Turkish ``İ``
+    (``İzmir``, ``İstanbul``) so the recall matrix can prove an ASCII-capital
+    query recovers them.
+    """
+    vault = tmp_path / "tr_vault"
+    vault.mkdir()
+    (vault / "izmir.md").write_text(
+        "---\nid: izmir\ntype: note\ntags: sehir\n---\n"
+        "# İzmir\n"
+        "İzmir Ege bolgesinde bir liman sehridir.\n",
+        encoding="utf-8",
+    )
+    (vault / "istanbul.md").write_text(
+        "---\nid: istanbul\ntype: note\ntags: sehir\n---\n"
+        "# İstanbul\n"
+        "İstanbul iki kitayi birlestiren buyuk bir sehirdir.\n",
+        encoding="utf-8",
+    )
+
+    db_path = tmp_path / "tr_fts.db"
+    conn = sqlite3.connect(db_path)
+    ensure_schema(conn)
+    cfg = IndexerConfig(
+        vault_root=vault,
+        db_path=db_path,
+        normalize=normalize_tr,
+        normalize_for_fts=normalize_tr_for_fts,
+        normalize_ascii=normalize_tr_ascii_fold,
+        normalize_ascii_for_fts=normalize_tr_ascii_fold_for_fts,
+    )
+    index_vault(conn, cfg)
+    conn.close()
+    yield db_path
+
+
+class TestTurkishDualKeyRecall:
+    """Single-token recall across every casing of dotted Turkish city names.
+
+    Pre-fix, a CLDR-only index missed ASCII-capital queries: ``Izmir`` folds
+    to dotless ``ızmir`` and never matches a stored dotted ``izmir``. The
+    dual-key ASCII-fold table recovers those without regressing the
+    Turkish-keyboard (``İzmir``) path.
+    """
+
+    def _cfg(self, db_path: Path) -> RetrievalConfig:
+        return RetrievalConfig(
+            fts5_db=db_path,
+            min_query_length=1,
+            normalize=normalize_tr,
+            normalize_ascii=normalize_tr_ascii_fold,
+            top_n_final=5,
+        )
+
+    @pytest.mark.parametrize(
+        "query,expected_title",
+        [
+            ("İzmir", "İzmir"),
+            ("izmir", "İzmir"),
+            ("Izmir", "İzmir"),
+            ("IZMIR", "İzmir"),
+            ("İstanbul", "İstanbul"),
+            ("istanbul", "İstanbul"),
+            ("Istanbul", "İstanbul"),
+            ("ISTANBUL", "İstanbul"),
+        ],
+    )
+    def test_single_token_recall(
+        self, tr_indexed_db: Path, query: str, expected_title: str
+    ) -> None:
+        hits = retrieve(query, self._cfg(tr_indexed_db))
+        titles = [h.title for h in hits]
+        assert expected_title in titles, (
+            f"{query!r} did not recall {expected_title!r}; got {titles}"
+        )
+
+    def test_cldr_only_misses_ascii_capital_then_dual_key_recovers(
+        self, tr_indexed_db: Path
+    ) -> None:
+        # The dual-key fix is load-bearing: CLDR-only (no ascii normalizer)
+        # misses the ASCII-capital spelling...
+        cldr_only = RetrievalConfig(
+            fts5_db=tr_indexed_db, min_query_length=1, normalize=normalize_tr
+        )
+        cldr_hits = retrieve("Izmir", cldr_only)
+        assert not any(h.title == "İzmir" for h in cldr_hits)
+        # ...and enabling the ascii key recovers it.
+        recovered = retrieve("Izmir", self._cfg(tr_indexed_db))
+        assert any(h.title == "İzmir" for h in recovered)
+
+    def test_turkish_keyboard_spelling_not_regressed(
+        self, tr_indexed_db: Path
+    ) -> None:
+        # A Turkish-keyboard user typing the proper dotted spelling must still
+        # hit via the CLDR key even with the ascii key enabled.
+        hits = retrieve("İstanbul", self._cfg(tr_indexed_db))
+        assert any(h.title == "İstanbul" for h in hits)
 
 
 class TestBuildFts5Query:
