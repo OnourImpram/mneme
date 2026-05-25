@@ -64,9 +64,9 @@ def write_credentials(path: Path, creds: Neo4jCredentials) -> None:
     created (or overwritten) via :func:`os.open` with ``O_CREAT |
     O_TRUNC`` at mode 0o600, which is atomic with respect to the umask:
     the file is never visible at a looser mode, even momentarily.
-    :func:`os.fchmod` is additionally called on the open file descriptor
-    to harden pre-existing files whose inode might retain a wider mode
-    from a previous write.
+    :func:`os.chmod` is additionally called on the path after the file is
+    closed, to harden a pre-existing inode that ``O_TRUNC`` reuses and that
+    might retain a wider mode from a previous write.
 
     On Windows ``os.open`` mode bits do not set NTFS ACLs.  See the
     module-level warning for operator guidance.
