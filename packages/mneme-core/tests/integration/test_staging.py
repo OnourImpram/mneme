@@ -201,10 +201,20 @@ class TestContentHashDedup:
     def test_same_content_all_ephemeral_fields_same_hash(self) -> None:
         base = {"tool_name": "Bash", "command": "ls"}
         h1 = compute_content_hash(
-            {**base, "captured_at": "2026-01-01T00:00:00+00:00", "host": "a", "content_hash": "old"}
+            {
+                **base,
+                "captured_at": "2026-01-01T00:00:00+00:00",
+                "host": "a",
+                "content_hash": "old",
+            }
         )
         h2 = compute_content_hash(
-            {**base, "captured_at": "2099-12-31T23:59:59+00:00", "host": "z", "content_hash": "stale"}
+            {
+                **base,
+                "captured_at": "2099-12-31T23:59:59+00:00",
+                "host": "z",
+                "content_hash": "stale",
+            }
         )
         assert h1 == h2
 

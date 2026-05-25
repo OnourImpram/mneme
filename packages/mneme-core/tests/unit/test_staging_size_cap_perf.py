@@ -19,10 +19,9 @@ from unittest.mock import patch
 import pytest
 
 from mneme_core.compression.staging import (
-    StagingConfig,
     _SIZE_COUNTER_NAME,
+    StagingConfig,
     capture_event,
-    enforce_size_cap,
 )
 
 

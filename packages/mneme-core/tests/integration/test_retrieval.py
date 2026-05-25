@@ -18,6 +18,7 @@ from mneme_core.fts5.locale.tr import (
 from mneme_core.retrieval.rrf import (
     DEFAULT_RRF_K,
     Hit,
+    RetrievalBackend,
     RetrievalConfig,
     build_fts5_query,
     fts5_search,
@@ -347,9 +348,7 @@ class TestQueryGate:
     (stub called, returns [] because no real DB, but the call happened).
     """
 
-    def _stub(
-        self, calls: list[str]
-    ) -> "RetrievalBackend":
+    def _stub(self, calls: list[str]) -> RetrievalBackend:
         def _backend(q: str, limit: int) -> list[Hit]:
             calls.append(q)
             return []
