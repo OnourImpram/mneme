@@ -9,6 +9,7 @@ import pytest
 from mneme_core.patterns import (
     PATTERN_TYPE,
     Pattern,
+    _slug,
     delete_pattern,
     from_markdown,
     list_patterns,
@@ -165,3 +166,30 @@ class TestSearch:
         hits = search_patterns(vault, "alpha beta")
         # multi-match scores higher.
         assert hits[0].pattern.name == "multi-match"
+
+
+class TestSlugDotCollapse:
+    """Dot-run collapse: '..' must never survive in a slug."""
+
+    def test_double_dot_alone(self) -> None:
+        result = _slug("..")
+        assert ".." not in result
+
+    def test_traversal_path_collapsed(self) -> None:
+        # "a/../../b" -> after slash→hyphen: "a-..-..-b" -> dots collapsed
+        result = _slug("a/../../b")
+        assert ".." not in result
+
+    def test_quad_dots_collapsed(self) -> None:
+        result = _slug("....")
+        assert ".." not in result
+
+    def test_normal_input_unchanged(self) -> None:
+        # A plain slug with no dot-runs must pass through identically.
+        assert _slug("use-rrf-for-mixed-text") == "use-rrf-for-mixed-text"
+
+    def test_single_dot_preserved(self) -> None:
+        # A single dot between words should survive (e.g. "v1.2").
+        result = _slug("v1.2-release")
+        assert "." in result
+        assert ".." not in result
