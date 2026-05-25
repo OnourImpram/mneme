@@ -80,10 +80,16 @@ class RetrievalConfig:
             FTS5 leg also matches the ASCII-fold key so an ASCII-capital
             query recalls dotted Turkish spellings. ``None`` (default)
             queries only the CLDR key, preserving prior behavior.
-        min_query_length: queries shorter than this character count
-            return an empty list without running any backend. Matches
-            the gate established by claude-mem and others to avoid
-            spurious noise on greetings.
+        min_query_length: a query is gated (returns empty) when its
+            stripped length is below this character count, OR it has
+            fewer than ``min_query_words`` meaningful tokens after
+            stopword removal — i.e. reject empty or greeting-only
+            queries. Default 3.
+        min_query_words: a query is gated (returns empty) when it has
+            fewer than this many meaningful tokens after stopword
+            removal, OR its stripped length is below
+            ``min_query_length`` characters — i.e. reject empty or
+            greeting-only queries. Default 1.
         top_k_per_backend: max results pulled from each backend before
             fusion.
         top_n_final: max results returned after fusion (and reranking
@@ -98,7 +104,8 @@ class RetrievalConfig:
     fts5_db: Path
     normalize: Callable[[str], str] = _identity
     normalize_ascii: Callable[[str], str] | None = None
-    min_query_length: int = 20
+    min_query_length: int = 3
+    min_query_words: int = 1
     top_k_per_backend: int = 50
     top_n_final: int = 5
     rrf_k: int = DEFAULT_RRF_K
@@ -291,14 +298,22 @@ def retrieve(
 
     Steps:
 
-    1. Apply the ``min_query_length`` gate. Empty list if too short.
+    1. Apply the word-aware gate. Empty list if the query has fewer
+       than ``min_query_words`` meaningful tokens after stopword
+       removal, OR its stripped length is below ``min_query_length``.
     2. Normalize the query.
     3. Run FTS5 always. Run dense and KG backends if provided.
     4. Fuse with RRF at the configured ``k``.
     5. Apply the optional reranker, otherwise truncate to
        ``top_n_final``.
     """
-    if len(query) < config.min_query_length:
+    stripped = query.strip()
+    tokens = [
+        t
+        for t in stripped.split()
+        if t.casefold() not in {s.casefold() for s in config.stopwords}
+    ]
+    if len(tokens) < config.min_query_words or len(stripped) < config.min_query_length:
         return []
 
     q_norm = config.normalize(query)
