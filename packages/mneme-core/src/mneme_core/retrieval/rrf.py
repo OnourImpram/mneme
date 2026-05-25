@@ -74,6 +74,12 @@ class RetrievalConfig:
         normalize: token-level normalizer. Defaults to identity. Pass
             ``mneme_core.fts5.locale.tr.normalize_tr`` for Turkish
             vaults.
+        normalize_ascii: optional ASCII-fold normalizer enabling the
+            dual-key Turkish recall path. When set (pass
+            ``mneme_core.fts5.locale.tr.normalize_tr_ascii_fold``), the
+            FTS5 leg also matches the ASCII-fold key so an ASCII-capital
+            query recalls dotted Turkish spellings. ``None`` (default)
+            queries only the CLDR key, preserving prior behavior.
         min_query_length: queries shorter than this character count
             return an empty list without running any backend. Matches
             the gate established by claude-mem and others to avoid
@@ -91,6 +97,7 @@ class RetrievalConfig:
 
     fts5_db: Path
     normalize: Callable[[str], str] = _identity
+    normalize_ascii: Callable[[str], str] | None = None
     min_query_length: int = 20
     top_k_per_backend: int = 50
     top_n_final: int = 5
@@ -125,54 +132,104 @@ def build_fts5_query(prompt_norm: str, stopwords: frozenset[str] = frozenset()) 
     return " OR ".join(phrases)
 
 
+# FTS5 tables the search layer is allowed to MATCH against. Names are
+# interpolated into SQL, so they are validated against this allowlist to keep
+# the query construction injection-proof (the values are always module
+# literals, never caller input).
+_FTS_TABLES: frozenset[str] = frozenset({"documents_fts", "documents_ascii_fts"})
+
+
+def _match_rows(
+    conn: sqlite3.Connection, fts_table: str, fts_query: str, limit: int
+) -> list[tuple[Any, ...]]:
+    """Run one FTS5 MATCH against ``fts_table`` and return raw rows.
+
+    ``fts_table`` must be one of :data:`_FTS_TABLES`; it is validated before
+    interpolation so the formatted SQL cannot carry untrusted input.
+    """
+    if fts_table not in _FTS_TABLES:
+        raise ValueError(f"unknown FTS table: {fts_table!r}")
+    return conn.execute(  # noqa: S608 - table name validated against allowlist
+        f"""SELECT documents.id, documents.path, documents.title,
+                   {fts_table}.rank
+            FROM {fts_table}
+            JOIN documents ON {fts_table}.rowid = documents.id
+            WHERE {fts_table} MATCH ?
+            ORDER BY {fts_table}.rank
+            LIMIT ?""",
+        (fts_query, limit),
+    ).fetchall()
+
+
 def fts5_search(
     prompt_norm: str,
     db_path: Path,
     limit: int = 50,
     stopwords: frozenset[str] = frozenset(),
+    prompt_ascii: str | None = None,
 ) -> list[Hit]:
-    """Run a single FTS5 BM25 search against the mneme indexer schema.
+    """Run an FTS5 BM25 search against the mneme indexer schema.
 
-    Opens the database in read-only mode and returns at most ``limit``
-    hits ordered by FTS5 rank (lower is better, per SQLite convention).
-    Returns an empty list when the database does not exist, the query
-    is empty after filtering, or any SQLite error occurs.
+    Opens the database read-only and returns at most ``limit`` hits ordered
+    by FTS5 rank (lower is better, per SQLite convention). Returns an empty
+    list when the database does not exist, both queries are empty after
+    filtering, or any SQLite error occurs.
+
+    When ``prompt_ascii`` is supplied (the ASCII-fold of the query for a
+    Turkish vault), the sibling ``documents_ascii_fts`` table is queried as a
+    second key and its hits are merged with the CLDR hits, deduplicated by
+    document id keeping the best (lowest) rank. This is a single fused FTS5
+    leg: callers fuse it with dense/KG legs via RRF unchanged. A database
+    built before dual-key indexing simply lacks the ASCII table, so that leg
+    degrades to no extra recall without disturbing the CLDR results.
     """
     if not db_path.exists():
         return []
-    fts_query = build_fts5_query(prompt_norm, stopwords)
-    if not fts_query:
+    cldr_query = build_fts5_query(prompt_norm, stopwords)
+    ascii_query = build_fts5_query(prompt_ascii, stopwords) if prompt_ascii else ""
+    if not cldr_query and not ascii_query:
         return []
+    rows: list[tuple[Any, ...]] = []
     try:
         with contextlib.closing(
             sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         ) as conn:
             conn.execute("PRAGMA query_only = ON")
-            rows = conn.execute(
-                """SELECT documents.id, documents.path, documents.title,
-                          documents_fts.rank
-                   FROM documents_fts
-                   JOIN documents ON documents_fts.rowid = documents.id
-                   WHERE documents_fts MATCH ?
-                   ORDER BY documents_fts.rank
-                   LIMIT ?""",
-                (fts_query, limit),
-            ).fetchall()
+            if cldr_query:
+                rows.extend(_match_rows(conn, "documents_fts", cldr_query, limit))
+            if ascii_query:
+                # The ASCII-fold key is a strictly best-effort recall boost:
+                # the sibling table may be absent on a pre-dual-key database,
+                # and either way its failure must never discard the CLDR rows
+                # already collected above. Swallow any SQLite error from this
+                # leg so it can only ever add recall, never remove it.
+                with contextlib.suppress(sqlite3.Error):
+                    rows.extend(
+                        _match_rows(
+                            conn, "documents_ascii_fts", ascii_query, limit
+                        )
+                    )
     except sqlite3.OperationalError:
         return []
     except Exception:
         return []
 
-    return [
-        Hit(
-            id=r[0],
-            path=r[1],
-            title=r[2] or "",
-            score=float(r[3]),
-            source="fts5",
-        )
-        for r in rows
-    ]
+    # Deduplicate by document id, keeping the best (lowest) rank seen across
+    # either key, then order by rank and truncate to the limit.
+    best: dict[Any, Hit] = {}
+    for r in rows:
+        doc_id = r[0]
+        rank = float(r[3])
+        current = best.get(doc_id)
+        if current is None or rank < current.score:
+            best[doc_id] = Hit(
+                id=doc_id,
+                path=r[1],
+                title=r[2] or "",
+                score=rank,
+                source="fts5",
+            )
+    return sorted(best.values(), key=lambda h: h.score)[:limit]
 
 
 def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
@@ -245,11 +302,17 @@ def retrieve(
         return []
 
     q_norm = config.normalize(query)
+    q_ascii = (
+        config.normalize_ascii(query)
+        if config.normalize_ascii is not None
+        else None
+    )
     fts5_results = fts5_search(
         q_norm,
         config.fts5_db,
         limit=config.top_k_per_backend,
         stopwords=config.stopwords,
+        prompt_ascii=q_ascii,
     )
     rankings: list[list[Hit]] = [fts5_results]
 

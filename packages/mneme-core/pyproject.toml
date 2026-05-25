@@ -108,7 +108,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "-v --strict-markers --cov=mneme_core --cov-report=term-missing --cov-fail-under=70"
+addopts = "-v --strict-markers --cov=mneme_core --cov-report=term-missing --cov-fail-under=80"
 
 [tool.coverage.run]
 branch = true

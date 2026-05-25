@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTr, normalizeTrForFts } from "../../src/locale/tr.js";
+import {
+  normalizeTr,
+  normalizeTrAsciiFold,
+  normalizeTrAsciiFoldForFts,
+  normalizeTrForFts,
+} from "../../src/locale/tr.js";
 
 describe("normalizeTr", () => {
   it("returns empty string for non-string input", () => {
@@ -77,6 +82,48 @@ describe("normalize_tr semantic distinction (dotted vs dotless)", () => {
   });
 });
 
+describe("normalizeTrAsciiFold", () => {
+  it("returns empty string for non-string input", () => {
+    expect(normalizeTrAsciiFold(undefined as unknown as string)).toBe("");
+    expect(normalizeTrAsciiFold(null as unknown as string)).toBe("");
+  });
+
+  it("collapses all four i-forms to plain ascii i", () => {
+    expect(normalizeTrAsciiFold("İ")).toBe("i");
+    expect(normalizeTrAsciiFold("I")).toBe("i");
+    expect(normalizeTrAsciiFold("ı")).toBe("i");
+    expect(normalizeTrAsciiFold("i")).toBe("i");
+  });
+
+  it("every casing of Izmir shares one ascii-fold key", () => {
+    for (const s of ["İzmir", "izmir", "Izmir", "IZMIR"]) {
+      expect(normalizeTrAsciiFold(s)).toBe("izmir");
+    }
+  });
+
+  it("collapses where CLDR keeps the dotless distinction", () => {
+    // CLDR keeps Istanbul dotless; the ascii fold recovers it.
+    expect(normalizeTr("Istanbul")).toBe("ıstanbul");
+    expect(normalizeTrAsciiFold("Istanbul")).toBe("istanbul");
+  });
+
+  it("leaves other diacritics to the tokenizer", () => {
+    expect(normalizeTrAsciiFold("İŞIK")).toBe("işik");
+  });
+});
+
+describe("normalizeTrAsciiFoldForFts", () => {
+  it("collapses internal whitespace runs", () => {
+    expect(normalizeTrAsciiFoldForFts("Izmir   Istanbul")).toBe(
+      "izmir istanbul",
+    );
+  });
+
+  it("trims leading and trailing whitespace", () => {
+    expect(normalizeTrAsciiFoldForFts("   IZMIR   ")).toBe("izmir");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Shared golden-vector fixture — parity with Python mneme_core normalizer
 // ---------------------------------------------------------------------------
@@ -94,6 +141,8 @@ interface TrVector {
   input: string;
   normalize_tr: string;
   normalize_tr_for_fts: string;
+  normalize_tr_ascii_fold: string;
+  normalize_tr_ascii_fold_for_fts: string;
   note: string;
 }
 
@@ -118,6 +167,24 @@ describe("normalizeTrForFts — golden vectors (cross-language parity)", () => {
   for (const v of vectors) {
     it(`${v.id}: normalizeTrForFts`, () => {
       expect(normalizeTrForFts(v.input)).toBe(v.normalize_tr_for_fts);
+    });
+  }
+});
+
+describe("normalizeTrAsciiFold — golden vectors (cross-language parity)", () => {
+  for (const v of vectors) {
+    it(`${v.id}: normalizeTrAsciiFold`, () => {
+      expect(normalizeTrAsciiFold(v.input)).toBe(v.normalize_tr_ascii_fold);
+    });
+  }
+});
+
+describe("normalizeTrAsciiFoldForFts — golden vectors (cross-language parity)", () => {
+  for (const v of vectors) {
+    it(`${v.id}: normalizeTrAsciiFoldForFts`, () => {
+      expect(normalizeTrAsciiFoldForFts(v.input)).toBe(
+        v.normalize_tr_ascii_fold_for_fts,
+      );
     });
   }
 });

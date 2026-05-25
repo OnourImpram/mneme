@@ -70,6 +70,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
     linked_notes,
     tokenize='unicode61 remove_diacritics 2'
 );
+
+-- Dual-key ASCII-fold index for Turkish single-token recall. Holds the same
+-- documents keyed by an ASCII-i fold (İ/I/ı/i all collapse to plain i) so an
+-- ASCII-capital query like "Izmir" recalls a vault that stored the proper
+-- dotted "İzmir". FTS5 virtual tables cannot be ALTER-extended, so this is a
+-- sibling table created idempotently rather than a column on documents_fts;
+-- it stays empty (zero overhead) unless an ASCII normalizer is configured.
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_ascii_fts USING fts5(
+    title,
+    content,
+    tags,
+    linked_notes,
+    tokenize='unicode61 remove_diacritics 2'
+);
 """
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -105,6 +119,15 @@ class IndexerConfig:
             vaults.
         normalize_for_fts: whitespace-collapsing variant for body
             content. Defaults to identity.
+        normalize_ascii: optional ASCII-fold normalizer for the dual-key
+            ``documents_ascii_fts`` table (title, tags, wikilinks). Pass
+            ``mneme_core.fts5.locale.tr.normalize_tr_ascii_fold`` for
+            Turkish vaults to recover ASCII-capital recall. When ``None``
+            (the default) the ASCII table is left empty and the indexer
+            behaves exactly as before.
+        normalize_ascii_for_fts: whitespace-collapsing ASCII-fold variant
+            for body content. Must be supplied together with
+            ``normalize_ascii`` to enable dual-key indexing.
         exclude_patterns: substrings that, if present anywhere in a
             path relative to the vault root (with a leading and
             trailing slash added), cause the file to be skipped.
@@ -114,6 +137,8 @@ class IndexerConfig:
     db_path: Path
     normalize: Callable[[str], str] = _identity
     normalize_for_fts: Callable[[str], str] = _identity
+    normalize_ascii: Callable[[str], str] | None = None
+    normalize_ascii_for_fts: Callable[[str], str] | None = None
     exclude_patterns: tuple[str, ...] = DEFAULT_EXCLUDE_PATTERNS
 
 
@@ -392,6 +417,27 @@ def index_vault(
             ),
         )
 
+        # Dual-key ASCII-fold row. Always clear the prior row (idempotent,
+        # harmless when the table is empty); repopulate only when an ASCII
+        # normalizer pair is configured so non-Turkish vaults pay nothing.
+        conn.execute("DELETE FROM documents_ascii_fts WHERE rowid=?", (doc_id,))
+        if (
+            config.normalize_ascii is not None
+            and config.normalize_ascii_for_fts is not None
+        ):
+            conn.execute(
+                "INSERT INTO documents_ascii_fts "
+                "(rowid, title, content, tags, linked_notes) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    doc_id,
+                    config.normalize_ascii(title),
+                    config.normalize_ascii_for_fts(body),
+                    config.normalize_ascii(tags),
+                    config.normalize_ascii(wikilinks),
+                ),
+            )
+
         stats.indexed += 1
 
     # P0-2: prune rows whose files no longer exist on disk.
@@ -403,6 +449,11 @@ def index_vault(
         live_list = list(live_paths)
         conn.execute(
             f"DELETE FROM documents_fts WHERE rowid IN ("
+            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+            live_list,
+        )
+        conn.execute(
+            f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
             f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
             live_list,
         )

@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from mneme_core.vault.file_lock import file_lock
+from mneme_core.vault.file_lock import _acquire, _release, file_lock
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -245,3 +245,190 @@ class TestTimeoutPath:
         finally:
             child.terminate()
             child.join(timeout=5.0)
+
+
+# ---------------------------------------------------------------------------
+# (d) Branch coverage via injected fakes
+# ---------------------------------------------------------------------------
+#
+# The real ``_acquire`` / ``_release`` only ever run one OS branch per host:
+# the ``msvcrt`` branch on Windows, the ``fcntl`` branch on POSIX. The dormant
+# branch would ship a platform-only lock bug undetected even though both
+# platforms are in the support matrix. These tests drive *both* branches on
+# *any* host by monkeypatching ``sys.platform`` and injecting a fake lock
+# module into ``sys.modules`` (no real Windows or POSIX runner required), and
+# assert the exact lock-call sequence and argument values.
+
+
+class _FakeMsvcrt:
+    """Stand-in for the ``msvcrt`` module used by the win32 lock branch."""
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(
+        self, *, lock_should_fail: bool = False, unlock_should_fail: bool = False
+    ) -> None:
+        self.calls: list[tuple[int, int, int]] = []
+        self._lock_should_fail = lock_should_fail
+        self._unlock_should_fail = unlock_should_fail
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        self.calls.append((fd, mode, nbytes))
+        if mode == self.LK_NBLCK and self._lock_should_fail:
+            raise OSError("region already locked")
+        if mode == self.LK_UNLCK and self._unlock_should_fail:
+            raise OSError("unlock failed")
+
+
+class _FakeFcntl:
+    """Stand-in for the ``fcntl`` module used by the POSIX lock branch."""
+
+    LOCK_EX = 2
+    LOCK_NB = 4
+    LOCK_UN = 8
+
+    def __init__(
+        self, *, lock_should_block: bool = False, unlock_should_fail: bool = False
+    ) -> None:
+        self.calls: list[int] = []
+        self._lock_should_block = lock_should_block
+        self._unlock_should_fail = unlock_should_fail
+
+    def flock(self, fp: object, operation: int) -> None:
+        self.calls.append(operation)
+        if operation == (self.LOCK_EX | self.LOCK_NB) and self._lock_should_block:
+            raise BlockingIOError("would block")
+        if operation == self.LOCK_UN and self._unlock_should_fail:
+            raise OSError("unlock failed")
+
+
+class TestWin32BranchInjected:
+    """Cover the ``msvcrt`` acquire/release branch on any host."""
+
+    def test_acquire_success_locks_one_byte(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        fake = _FakeMsvcrt()
+        monkeypatch.setitem(sys.modules, "msvcrt", fake)
+        fp = open(tmp_path / "w.lock", "a+b")  # noqa: SIM115
+        try:
+            fd = fp.fileno()
+            _acquire(fp, timeout_s=1.0, poll_s=_POLL_S)
+            assert fake.calls == [(fd, _FakeMsvcrt.LK_NBLCK, 1)]
+        finally:
+            fp.close()
+
+    def test_acquire_times_out_and_retries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        fake = _FakeMsvcrt(lock_should_fail=True)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake)
+        fp = open(tmp_path / "w.lock", "a+b")  # noqa: SIM115
+        try:
+            t0 = time.monotonic()
+            with pytest.raises(TimeoutError, match="w.lock"):
+                _acquire(fp, timeout_s=0.2, poll_s=_POLL_S)
+            elapsed = time.monotonic() - t0
+            assert elapsed >= 0.2 * 0.4
+            assert elapsed < 0.2 * 20  # generous upper bound for slow CI
+            # The loop retried the non-blocking lock at least twice.
+            assert len(fake.calls) >= 2
+            assert all(mode == _FakeMsvcrt.LK_NBLCK for _, mode, _ in fake.calls)
+        finally:
+            fp.close()
+
+    def test_release_unlocks_one_byte(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        fake = _FakeMsvcrt()
+        monkeypatch.setitem(sys.modules, "msvcrt", fake)
+        fp = open(tmp_path / "w.lock", "a+b")  # noqa: SIM115
+        try:
+            fd = fp.fileno()
+            _release(fp)
+            assert fake.calls == [(fd, _FakeMsvcrt.LK_UNLCK, 1)]
+        finally:
+            fp.close()
+
+    def test_release_swallows_unlock_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "win32")
+        fake = _FakeMsvcrt(unlock_should_fail=True)
+        monkeypatch.setitem(sys.modules, "msvcrt", fake)
+        fp = open(tmp_path / "w.lock", "a+b")  # noqa: SIM115
+        try:
+            # Must not raise: a failed unlock is benign (kernel reclaims on close).
+            _release(fp)
+            assert fake.calls == [(fp.fileno(), _FakeMsvcrt.LK_UNLCK, 1)]
+        finally:
+            fp.close()
+
+
+class TestPosixBranchInjected:
+    """Cover the ``fcntl`` acquire/release branch on any host."""
+
+    def test_acquire_success_takes_exclusive_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "linux")
+        fake = _FakeFcntl()
+        monkeypatch.setitem(sys.modules, "fcntl", fake)
+        fp = open(tmp_path / "p.lock", "a+b")  # noqa: SIM115
+        try:
+            _acquire(fp, timeout_s=1.0, poll_s=_POLL_S)
+            assert fake.calls == [_FakeFcntl.LOCK_EX | _FakeFcntl.LOCK_NB]
+        finally:
+            fp.close()
+
+    def test_acquire_times_out_and_retries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "linux")
+        fake = _FakeFcntl(lock_should_block=True)
+        monkeypatch.setitem(sys.modules, "fcntl", fake)
+        fp = open(tmp_path / "p.lock", "a+b")  # noqa: SIM115
+        try:
+            t0 = time.monotonic()
+            with pytest.raises(TimeoutError, match="p.lock"):
+                _acquire(fp, timeout_s=0.2, poll_s=_POLL_S)
+            elapsed = time.monotonic() - t0
+            assert elapsed >= 0.2 * 0.4
+            assert elapsed < 0.2 * 20
+            assert len(fake.calls) >= 2
+            assert all(
+                op == _FakeFcntl.LOCK_EX | _FakeFcntl.LOCK_NB for op in fake.calls
+            )
+        finally:
+            fp.close()
+
+    def test_release_unlocks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "linux")
+        fake = _FakeFcntl()
+        monkeypatch.setitem(sys.modules, "fcntl", fake)
+        fp = open(tmp_path / "p.lock", "a+b")  # noqa: SIM115
+        try:
+            _release(fp)
+            assert fake.calls == [_FakeFcntl.LOCK_UN]
+        finally:
+            fp.close()
+
+    def test_release_swallows_unlock_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "platform", "linux")
+        fake = _FakeFcntl(unlock_should_fail=True)
+        monkeypatch.setitem(sys.modules, "fcntl", fake)
+        fp = open(tmp_path / "p.lock", "a+b")  # noqa: SIM115
+        try:
+            # The outer ``except Exception`` must swallow the unlock error.
+            _release(fp)
+            assert fake.calls == [_FakeFcntl.LOCK_UN]
+        finally:
+            fp.close()

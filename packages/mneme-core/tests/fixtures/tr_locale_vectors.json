@@ -4,6 +4,8 @@
     "input": "İstanbul",
     "normalize_tr": "istanbul",
     "normalize_tr_for_fts": "istanbul",
+    "normalize_tr_ascii_fold": "istanbul",
+    "normalize_tr_ascii_fold_for_fts": "istanbul",
     "note": "U+0130 İ -> i; city name with dotted capital"
   },
   {
@@ -11,20 +13,26 @@
     "input": "Istanbul",
     "normalize_tr": "ıstanbul",
     "normalize_tr_for_fts": "ıstanbul",
-    "note": "U+0049 I -> ı; ASCII I is dotless in Turkish"
+    "normalize_tr_ascii_fold": "istanbul",
+    "normalize_tr_ascii_fold_for_fts": "istanbul",
+    "note": "U+0049 I -> ı (CLDR); ASCII fold collapses ı -> i so it recalls İstanbul"
   },
   {
     "id": "kiyaslama_all_caps",
     "input": "KIYASLAMA",
     "normalize_tr": "kıyaslama",
     "normalize_tr_for_fts": "kıyaslama",
-    "note": "All-caps with dotless I; naive .lower() gives kiyaslama (wrong)"
+    "normalize_tr_ascii_fold": "kiyaslama",
+    "normalize_tr_ascii_fold_for_fts": "kiyaslama",
+    "note": "All-caps dotless I; CLDR keeps dotless ı, ASCII fold gives kiyaslama"
   },
   {
     "id": "dotted_capital_I_single",
     "input": "İ",
     "normalize_tr": "i",
     "normalize_tr_for_fts": "i",
+    "normalize_tr_ascii_fold": "i",
+    "normalize_tr_ascii_fold_for_fts": "i",
     "note": "U+0130 alone -> U+0069"
   },
   {
@@ -32,13 +40,17 @@
     "input": "I",
     "normalize_tr": "ı",
     "normalize_tr_for_fts": "ı",
-    "note": "U+0049 alone -> U+0131"
+    "normalize_tr_ascii_fold": "i",
+    "normalize_tr_ascii_fold_for_fts": "i",
+    "note": "U+0049 alone -> U+0131 (CLDR); ASCII fold -> i"
   },
   {
     "id": "lowercase_i_passthrough",
     "input": "i",
     "normalize_tr": "i",
     "normalize_tr_for_fts": "i",
+    "normalize_tr_ascii_fold": "i",
+    "normalize_tr_ascii_fold_for_fts": "i",
     "note": "Dotted small i is already canonical; no change"
   },
   {
@@ -46,13 +58,17 @@
     "input": "ı",
     "normalize_tr": "ı",
     "normalize_tr_for_fts": "ı",
-    "note": "Dotless small ı is already canonical; no change"
+    "normalize_tr_ascii_fold": "i",
+    "normalize_tr_ascii_fold_for_fts": "i",
+    "note": "CLDR keeps dotless ı; ASCII fold collapses to i"
   },
   {
     "id": "all_caps_istanbul_dotted",
     "input": "İSTANBUL",
     "normalize_tr": "istanbul",
     "normalize_tr_for_fts": "istanbul",
+    "normalize_tr_ascii_fold": "istanbul",
+    "normalize_tr_ascii_fold_for_fts": "istanbul",
     "note": "All-caps city name with dotted İ produces fully-dotted lowercase"
   },
   {
@@ -60,20 +76,26 @@
     "input": "İŞIK",
     "normalize_tr": "işık",
     "normalize_tr_for_fts": "işık",
-    "note": "Mixed: dotted İ -> i, dotless I -> ı, Ş -> ş, K -> k"
+    "normalize_tr_ascii_fold": "işik",
+    "normalize_tr_ascii_fold_for_fts": "işik",
+    "note": "Mixed İ/I; ASCII fold collapses the dotless ı to i, ş unchanged"
   },
   {
     "id": "other_turkish_diacritics",
     "input": "ŞİMDİ",
     "normalize_tr": "şimdi",
     "normalize_tr_for_fts": "şimdi",
-    "note": "Ş,İ,M,D,İ -> ş,i,m,d,i"
+    "normalize_tr_ascii_fold": "şimdi",
+    "normalize_tr_ascii_fold_for_fts": "şimdi",
+    "note": "Ş,İ,M,D,İ -> ş,i,m,d,i; no dotless ı, so ASCII fold equals CLDR"
   },
   {
     "id": "ascii_passthrough",
     "input": "Hello World",
     "normalize_tr": "hello world",
     "normalize_tr_for_fts": "hello world",
+    "normalize_tr_ascii_fold": "hello world",
+    "normalize_tr_ascii_fold_for_fts": "hello world",
     "note": "ASCII only; no Turkish substitutions, standard lowercase"
   },
   {
@@ -81,6 +103,8 @@
     "input": "",
     "normalize_tr": "",
     "normalize_tr_for_fts": "",
+    "normalize_tr_ascii_fold": "",
+    "normalize_tr_ascii_fold_for_fts": "",
     "note": "Empty string returns empty string"
   },
   {
@@ -88,27 +112,35 @@
     "input": "İstanbul   Üniversitesi",
     "normalize_tr": "istanbul   üniversitesi",
     "normalize_tr_for_fts": "istanbul üniversitesi",
-    "note": "normalize_tr_for_fts collapses multiple spaces; normalize_tr does not"
+    "normalize_tr_ascii_fold": "istanbul   üniversitesi",
+    "normalize_tr_ascii_fold_for_fts": "istanbul üniversitesi",
+    "note": "for_fts variants collapse multiple spaces; the base variants do not"
   },
   {
     "id": "whitespace_leading_trailing",
     "input": "  İstanbul  ",
     "normalize_tr": "  istanbul  ",
     "normalize_tr_for_fts": "istanbul",
-    "note": "normalize_tr_for_fts strips leading/trailing; normalize_tr does not"
+    "normalize_tr_ascii_fold": "  istanbul  ",
+    "normalize_tr_ascii_fold_for_fts": "istanbul",
+    "note": "for_fts variants strip leading/trailing; the base variants do not"
   },
   {
     "id": "whitespace_newlines",
     "input": "İstanbul\n\nÜniversitesi",
     "normalize_tr": "istanbul\n\nüniversitesi",
     "normalize_tr_for_fts": "istanbul üniversitesi",
-    "note": "normalize_tr_for_fts collapses newlines to single space"
+    "normalize_tr_ascii_fold": "istanbul\n\nüniversitesi",
+    "normalize_tr_ascii_fold_for_fts": "istanbul üniversitesi",
+    "note": "for_fts variants collapse newlines to single space"
   },
   {
     "id": "two_forms_distinct",
     "input": "İI",
     "normalize_tr": "iı",
     "normalize_tr_for_fts": "iı",
-    "note": "Dotted İ and dotless I adjacent; must stay distinct after folding"
+    "normalize_tr_ascii_fold": "ii",
+    "normalize_tr_ascii_fold_for_fts": "ii",
+    "note": "CLDR keeps İ/I distinct (iı); ASCII fold collapses both to ii (recall aid)"
   }
 ]
