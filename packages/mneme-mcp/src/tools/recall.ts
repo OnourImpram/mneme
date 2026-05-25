@@ -11,6 +11,7 @@ import { join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { wrapUntrusted } from "../injection.js";
 import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
@@ -141,7 +142,9 @@ export function recallTool(
 			const full = resolvePath(join(vault.root, r.path));
 			try {
 				assertWithinVault(vault.root, full);
-				e.body = readFileSync(full, "utf8");
+				// Full body is untrusted vault content returned on explicit
+				// request; fence it with the spotlighting guard (gap G-3).
+				e.body = wrapUntrusted(readFileSync(full, "utf8"), "vault-recall");
 			} catch (err) {
 				// Leave body undefined and surface nothing to the caller about
 				// the suppressed row, so a poisoned index cannot probe what is

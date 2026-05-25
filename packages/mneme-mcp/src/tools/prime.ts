@@ -17,6 +17,7 @@ import { join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { wrapUntrusted } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
@@ -116,7 +117,11 @@ export function primeTool(
 		if (!ok) break;
 	}
 
-	const preamble = sections.join("\n");
+	// The preamble is assembled from untrusted vault bodies and is
+	// surfaced as authoritative session context, so fence it with the
+	// spotlighting guard (gap G-3). bytes/approx_tokens reflect the
+	// fenced output that is actually returned. Empty input yields "".
+	const preamble = wrapUntrusted(sections.join("\n"), "vault-prime");
 	return {
 		ok: true,
 		data: {

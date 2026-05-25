@@ -1,12 +1,14 @@
 """CI regression guard for Benchmark A - retrieval quality.
 
-Compares the headline metric from a fresh ``result.json`` against the
-locked baseline in ``baseline.json`` and exits non-zero if the metric
-drops by more than ``--threshold`` (default 0.02).
+Checks three things against the locked baseline in ``baseline.json``:
 
-Default metric is ``conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5``,
-the production pipeline scored on the synthetic corpus with RRF
-fusion enabled. Override with ``--metric-path`` if a different
+1. ``conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5`` must not drop
+   by more than ``--threshold`` (default 0.02).
+2. ``conditions.pipeline_rrf_fts5_plus_bow.recall_at_10`` must not drop
+   by more than ``--recall-threshold`` (default 0.05).
+3. ``negative_probe.all_passed`` in the fresh result must be ``true``.
+
+Override the primary metric path with ``--metric-path`` if a different
 condition becomes the headline in a future revision.
 """
 
@@ -43,6 +45,17 @@ def fetch_dotted(obj: object, dotted: str) -> float:
     return float(cur)
 
 
+def fetch_bool(obj: object, dotted: str) -> bool:
+    cur: object = obj
+    for part in dotted.split("."):
+        if not isinstance(cur, dict):
+            raise KeyError(f"Path segment {part!r} hit a non-dict in {dotted}")
+        cur = cur[part]
+    if not isinstance(cur, bool):
+        raise TypeError(f"Resolved {dotted} to a non-bool: {cur!r}")
+    return cur
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Regression guard for Bench A.")
     parser.add_argument("result", type=Path, help="Fresh result.json to check.")
@@ -61,27 +74,73 @@ def main() -> int:
         "--threshold",
         type=float,
         default=0.02,
-        help="Allowed absolute drop before the guard fails.",
+        help="Allowed absolute drop for the primary metric (nDCG@5).",
+    )
+    parser.add_argument(
+        "--recall-metric-path",
+        type=str,
+        default="conditions.pipeline_rrf_fts5_plus_bow.recall_at_10",
+    )
+    parser.add_argument(
+        "--recall-threshold",
+        type=float,
+        default=0.05,
+        help="Allowed absolute drop for Recall@10.",
     )
     args = parser.parse_args()
 
     result = load_json(args.result)
     baseline = load_json(args.baseline)
-    fresh = fetch_dotted(result, args.metric_path)
-    locked = fetch_dotted(baseline, args.metric_path)
-    drop = locked - fresh
+
+    # --- nDCG@5 check ---
+    fresh_ndcg = fetch_dotted(result, args.metric_path)
+    locked_ndcg = fetch_dotted(baseline, args.metric_path)
+    ndcg_drop = locked_ndcg - fresh_ndcg
+    ndcg_passed = ndcg_drop <= args.threshold
+
+    # --- Recall@10 check ---
+    fresh_recall = fetch_dotted(result, args.recall_metric_path)
+    locked_recall = fetch_dotted(baseline, args.recall_metric_path)
+    recall_drop = locked_recall - fresh_recall
+    recall_passed = recall_drop <= args.recall_threshold
+
+    # --- Negative probe check ---
+    # The field may be absent in result files produced before this guard
+    # was introduced; treat absence as a failure so old results do not
+    # silently skip the check.
+    probe_passed: bool
+    if isinstance(result, dict) and "negative_probe" in result:
+        probe_passed = fetch_bool(result, "negative_probe.all_passed")
+    else:
+        probe_passed = False
+
+    overall_passed = ndcg_passed and recall_passed and probe_passed
 
     report = {
-        "metric": args.metric_path,
-        "baseline": locked,
-        "result": fresh,
-        "absolute_drop": drop,
-        "threshold": args.threshold,
-        "passed": drop <= args.threshold,
+        "ndcg_at_5": {
+            "metric": args.metric_path,
+            "baseline": locked_ndcg,
+            "result": fresh_ndcg,
+            "absolute_drop": ndcg_drop,
+            "threshold": args.threshold,
+            "passed": ndcg_passed,
+        },
+        "recall_at_10": {
+            "metric": args.recall_metric_path,
+            "baseline": locked_recall,
+            "result": fresh_recall,
+            "absolute_drop": recall_drop,
+            "threshold": args.recall_threshold,
+            "passed": recall_passed,
+        },
+        "negative_probe": {
+            "passed": probe_passed,
+        },
+        "overall_passed": overall_passed,
     }
     json.dump(report, sys.stdout, indent=2)
     sys.stdout.write("\n")
-    return 0 if report["passed"] else 1
+    return 0 if overall_passed else 1
 
 
 if __name__ == "__main__":

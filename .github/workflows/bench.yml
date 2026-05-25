@@ -35,7 +35,7 @@ jobs:
           python benchmarks/retrieval/run.py --output-format=json \
             --hardware-output benchmarks/_runs/retrieval-hardware.json \
             --output benchmarks/_runs/retrieval.json
-      - name: Regression guard (nDCG@5 must not drop more than 0.02)
+      - name: Regression guard (nDCG@5, Recall@10, negative probe)
         run: python benchmarks/retrieval/regression_guard.py benchmarks/_runs/retrieval.json
       - uses: actions/upload-artifact@v4
         with:

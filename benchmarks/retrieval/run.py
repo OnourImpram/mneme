@@ -16,6 +16,19 @@ the production RRF fusion code path under known-relevant data so the
 metric for the fused condition is comparable to the FTS5-only baseline
 and the regression guard can catch fusion regressions.
 
+Negative probe
+--------------
+A small set of noisy queries is also run.  These queries contain only
+generic filler words that do NOT appear in any document title or body
+vocabulary.  The criterion: every hit returned for a negative-probe
+query must have a BM25/cosine score below a low-confidence ceiling
+(operationalised as: the top hit's raw score must be lower than the
+minimum top-hit score observed across the positive queries, OR the
+result list is empty).  Because the synthetic corpus uses a closed
+vocabulary, a query built exclusively from out-of-vocabulary terms
+should produce no results at all from the FTS5 leg; the probe verifies
+that the pipeline does not hallucinate relevance.
+
 Usage:
 
     python benchmarks/retrieval/run.py --output-format=json --output result.json
@@ -37,6 +50,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "mneme-core" / "src"))
 
 from mneme_core.bench import (  # noqa: E402
+    SyntheticCorpus,
     build_synthetic_corpus,
     capture_hardware,
     mean_reciprocal_rank,
@@ -69,7 +83,7 @@ def write_json(payload: object, output_path: Path) -> None:
     )
 
 
-def materialize_vault(corpus, vault_root: Path) -> None:
+def materialize_vault(corpus: SyntheticCorpus, vault_root: Path) -> None:
     """Write each synthetic doc as a markdown file under ``vault_root``."""
     vault_root.mkdir(parents=True, exist_ok=True)
     for doc in corpus.docs:
@@ -92,7 +106,7 @@ class BowBackend:
     fusion code under controlled inputs.
     """
 
-    def __init__(self, corpus) -> None:
+    def __init__(self, corpus: SyntheticCorpus) -> None:
         self._doc_vectors: list[tuple[str, Counter[str], float]] = []
         for doc in corpus.docs:
             tokens = (doc.title + " " + doc.body).lower().split()
@@ -130,9 +144,9 @@ def _doc_id_from_hit(hit: Hit) -> str:
 
 
 def evaluate_condition(
-    corpus,
+    corpus: SyntheticCorpus,
     config: RetrievalConfig,
-    dense_backend=None,
+    dense_backend: BowBackend | None = None,
 ) -> dict[str, float]:
     """Run every query through ``retrieve`` and aggregate metrics."""
     ndcg_scores: list[float] = []
@@ -157,7 +171,7 @@ def evaluate_condition(
     }
 
 
-def evaluate_single_leg_fts5(corpus, db_path: Path) -> dict[str, float]:
+def evaluate_single_leg_fts5(corpus: SyntheticCorpus, db_path: Path) -> dict[str, float]:
     """FTS5-only baseline that skips RetrievalConfig.min_query_length.
 
     Calls ``fts5_search`` directly so the metric is comparable to the
@@ -180,6 +194,66 @@ def evaluate_single_leg_fts5(corpus, db_path: Path) -> dict[str, float]:
         ),
         "mrr": mean_reciprocal_rank(rr_inputs, cutoff=10),
         "queries_evaluated": len(corpus.queries),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Negative probe
+# ---------------------------------------------------------------------------
+
+# These query strings contain ONLY generic English words that are absent from
+# every topic vocabulary in synth.py (_TOPIC_VOCAB) and from the _FILLER
+# list.  They are chosen so the FTS5 index returns an empty result set; any
+# non-empty result would indicate the retriever is matching on stop-word noise.
+#
+# The probe is defined statically here and must NOT be derived from the
+# system's output.  They were authored before running the harness and are
+# frozen as part of the pre-registration commit (see PROTOCOL.md).
+_NEGATIVE_PROBE_QUERIES: list[str] = [
+    "luminescent crystallography photon refraction prism",
+    "seismic tectonic lithosphere mantle subduction",
+    "endoplasmic reticulum mitochondria ribosome cytoplasm",
+    "sonata allegro cadence fugue counterpoint harmony",
+    "hydraulic reservoir turbine impeller cavitation nozzle",
+]
+
+# Criterion: a negative-probe query passes if the FTS5 leg returns NO hits.
+# The FTS5 index only stores tokens it has seen; out-of-vocabulary query terms
+# produce an empty match set.  A non-empty result means the retriever matched
+# on partial token overlap with stop-words or index noise, which is a defect.
+_NEGATIVE_PROBE_MAX_HITS = 0
+
+
+def evaluate_negative_probe(db_path: Path) -> dict[str, object]:
+    """Run the negative-probe queries and report pass/fail per query.
+
+    Pass criterion: FTS5 returns zero hits for every probe query.
+    Any non-zero result set is a failure (hallucinated relevance).
+    """
+    results: list[dict[str, object]] = []
+    all_passed = True
+    for query in _NEGATIVE_PROBE_QUERIES:
+        hits = fts5_search(query, db_path, limit=5)
+        hit_count = len(hits)
+        passed = hit_count <= _NEGATIVE_PROBE_MAX_HITS
+        if not passed:
+            all_passed = False
+        results.append(
+            {
+                "query": query,
+                "hits_returned": hit_count,
+                "max_hits_allowed": _NEGATIVE_PROBE_MAX_HITS,
+                "passed": passed,
+            }
+        )
+    return {
+        "criterion": (
+            f"FTS5 must return <= {_NEGATIVE_PROBE_MAX_HITS} hits "
+            "for every out-of-vocabulary query"
+        ),
+        "queries_probed": len(_NEGATIVE_PROBE_QUERIES),
+        "all_passed": all_passed,
+        "per_query": results,
     }
 
 
@@ -269,6 +343,8 @@ def main() -> int:
             dense_backend=bow_backend,
         )
 
+        negative_probe = evaluate_negative_probe(db_path)
+
     payload = {
         "benchmark": "retrieval-quality",
         "seed": args.seed,
@@ -289,6 +365,8 @@ def main() -> int:
             "pipeline_rrf_fts5_plus_bow": fused,
         },
         "headline_ndcg_at_5": fused["ndcg_at_5"],
+        "headline_recall_at_10": fused["recall_at_10"],
+        "negative_probe": negative_probe,
     }
 
     if args.hardware_output is not None:
@@ -306,6 +384,17 @@ def main() -> int:
             sys.stdout.write(f"  {condition}:\n")
             for key, value in metrics.items():
                 sys.stdout.write(f"    {key}: {value}\n")
+        sys.stdout.write(
+            f"  headline_ndcg_at_5: {payload['headline_ndcg_at_5']}\n"
+        )
+        sys.stdout.write(
+            f"  headline_recall_at_10: {payload['headline_recall_at_10']}\n"
+        )
+        probe = payload["negative_probe"]
+        sys.stdout.write(
+            f"  negative_probe: all_passed={probe['all_passed']} "
+            f"({probe['queries_probed']} queries)\n"
+        )
 
     return 0
 

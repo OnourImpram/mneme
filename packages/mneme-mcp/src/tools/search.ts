@@ -9,6 +9,7 @@
 import { existsSync } from "node:fs";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { type Fts5Hit, buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import type { VaultConfig } from "../vault/config.js";
@@ -123,11 +124,14 @@ export function searchTool(
 		ok: true,
 		data: {
 			query: args.query,
+			// Title and snippet are untrusted vault text. Neutralize the
+			// spotlighting fence sentinel (gap G-3) so a crafted note cannot
+			// forge an untrusted-memory boundary inside a search result.
 			hits: filtered.map((h) => ({
 				path: h.path,
-				title: h.title,
+				title: neutralize(h.title),
 				score: h.rank,
-				snippet: h.bodyText.slice(0, SNIPPET_CHARS),
+				snippet: neutralize(h.bodyText.slice(0, SNIPPET_CHARS)),
 				type: h.frontmatterType,
 				mtime: h.mtime,
 			})),

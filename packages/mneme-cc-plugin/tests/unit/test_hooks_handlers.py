@@ -112,6 +112,28 @@ class TestSessionStartHandle:
         assert "Session 1" in ctx
         assert "Session 2" in ctx
 
+    def test_vault_blocks_fenced_as_untrusted(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        # G-3: vault-derived blocks must be wrapped in the spotlighting
+        # fence so crafted titles/headings cannot act as instructions.
+        from tests.unit.fts5_test_db import build_minimal_db
+
+        build_minimal_db(
+            vault.fts5_db,
+            docs=[
+                {"path": "s1.md", "title": "Session 1", "type": "session", "mtime": 1.0},
+            ],
+        )
+        buf = _capture(monkeypatch)
+        session_start.handle({}, vault)
+        ctx = json.loads(buf.getvalue())["hookSpecificOutput"]["additionalContext"]
+        assert "[mneme:untrusted-memory]" in ctx
+        assert "[/mneme:untrusted-memory]" in ctx
+        open_at = ctx.index("[mneme:untrusted-memory]")
+        close_at = ctx.index("[/mneme:untrusted-memory]")
+        assert open_at < ctx.index("Session 1") < close_at
+
 
 class TestStopHandle:
     def test_no_vault_returns_continue(

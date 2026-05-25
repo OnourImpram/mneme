@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Vault-native memory for Codex. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop. Claude-Code-native at its core, extended to Codex.",
   "author": {
     "name": "Onour Impram",

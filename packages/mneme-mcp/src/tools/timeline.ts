@@ -16,6 +16,7 @@
 import { existsSync } from "node:fs";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import {
@@ -119,7 +120,8 @@ export async function timelineTool(
 	const entries: TimelineEntry[] = hits
 		.map((h) => ({
 			path: h.path,
-			title: h.title,
+			// Title is untrusted vault text; defang the fence sentinel (G-3).
+			title: neutralize(h.title),
 			mtime: h.mtime,
 			frontmatter_type: h.frontmatterType,
 		}))

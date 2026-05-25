@@ -30,6 +30,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from mneme_core.injection import wrap_untrusted
 from mneme_core.vault.config import VaultConfig
 
 from .lib import emit, run_hook
@@ -143,15 +144,24 @@ def _block_recent_sessions(vault: VaultConfig) -> str:
 
 
 def _build_context(vault: VaultConfig) -> str:
-    blocks: list[str] = [
-        "## Vault Context (mneme SessionStart)",
-        "",
-        _block_date(),
-        _block_today_headings(vault),
-        _block_git_summary(vault.root),
-        _block_recent_sessions(vault),
-    ]
-    full = "\n".join(b for b in blocks if b)
+    # Vault-derived blocks are untrusted: a crafted note title, section
+    # heading, or commit message could carry prompt-injection text that
+    # would otherwise be surfaced as authoritative preamble. Fence them
+    # with the spotlighting guard (gap G-3) so the model treats them as
+    # data. The date block is system-generated and stays outside.
+    untrusted = "\n".join(
+        b
+        for b in (
+            _block_today_headings(vault),
+            _block_git_summary(vault.root),
+            _block_recent_sessions(vault),
+        )
+        if b
+    )
+    parts: list[str] = ["## Vault Context (mneme SessionStart)", "", _block_date()]
+    if untrusted:
+        parts.append(wrap_untrusted(untrusted, source="vault-session-start"))
+    full = "\n".join(p for p in parts if p)
     if len(full) > MAX_CHARS:
         full = full[:MAX_CHARS] + "\n\n[CONTEXT TRUNCATED]"
     return full

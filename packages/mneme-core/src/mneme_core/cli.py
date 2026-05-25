@@ -700,6 +700,180 @@ def audit_log(vault_root: Path | None, since: str | None, limit: int) -> None:
     )
 
 
+@cli.command("doctor", help="Run vault health checks and print a JSON report.")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--json/--no-json",
+    "as_json",
+    default=True,
+    show_default=True,
+    help="Emit output as JSON (default) or plain text.",
+)
+def doctor(vault_root: Path | None, as_json: bool) -> None:
+    """Check vault health: index presence, schema version, row count, config."""
+    import sqlite3 as _sqlite3
+
+    from .fts5.indexer import SCHEMA_VERSION as _SCHEMA_VERSION
+
+    CheckResult = dict[str, str]  # {name, status, detail}
+
+    def _check(
+        name: str,
+        status: str,
+        detail: str,
+    ) -> CheckResult:
+        return {"name": name, "status": status, "detail": detail}
+
+    checks: list[CheckResult] = []
+
+    # --- 1. vault_resolves ---
+    try:
+        vault = _resolve_vault(vault_root)
+        vault_ok = vault.root.is_dir()
+        if vault_ok:
+            checks.append(
+                _check(
+                    "vault_resolves",
+                    "ok",
+                    str(vault.root),
+                )
+            )
+        else:
+            checks.append(
+                _check(
+                    "vault_resolves",
+                    "fail",
+                    f"vault root does not exist or is not a directory: {vault.root}",
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        checks.append(_check("vault_resolves", "fail", str(exc)))
+        overall = "fail"
+        report: dict[str, object] = {"overall": overall, "checks": checks}
+        click.echo(json.dumps(report, indent=2, ensure_ascii=False))
+        sys.exit(1)
+
+    db_path = vault.fts5_db
+    db_exists = db_path.exists()
+
+    # --- 2. index_present ---
+    if db_exists:
+        checks.append(_check("index_present", "ok", str(db_path)))
+    else:
+        checks.append(
+            _check(
+                "index_present",
+                "warn",
+                f"FTS5 index not found at {db_path}; run: mneme index rebuild",
+            )
+        )
+
+    # --- 3. index_schema ---
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT MAX(schema_version) FROM documents"
+                ).fetchone()
+                stored_ver = row[0] if row and row[0] is not None else "unknown"
+                if stored_ver == _SCHEMA_VERSION:
+                    checks.append(
+                        _check(
+                            "index_schema",
+                            "ok",
+                            f"schema_version={stored_ver}",
+                        )
+                    )
+                else:
+                    checks.append(
+                        _check(
+                            "index_schema",
+                            "warn",
+                            (
+                                f"stored schema_version={stored_ver!r} "
+                                f"!= expected {_SCHEMA_VERSION!r}; "
+                                "run: mneme index rebuild to migrate"
+                            ),
+                        )
+                    )
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("index_schema", "fail", str(exc)))
+    else:
+        checks.append(_check("index_schema", "na", "index absent — skipped"))
+
+    # --- 4. index_freshness ---
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                row_count_row = conn.execute(
+                    "SELECT COUNT(*) FROM documents"
+                ).fetchone()
+                row_count = row_count_row[0] if row_count_row else 0
+                max_indexed_at_row = conn.execute(
+                    "SELECT MAX(indexed_at) FROM documents"
+                ).fetchone()
+                max_indexed_at = (
+                    max_indexed_at_row[0]
+                    if max_indexed_at_row and max_indexed_at_row[0] is not None
+                    else None
+                )
+            finally:
+                conn.close()
+            detail = f"documents={row_count}, max_indexed_at={max_indexed_at}"
+            if row_count == 0:
+                checks.append(
+                    _check(
+                        "index_freshness",
+                        "warn",
+                        f"index is empty ({detail}); run: mneme index rebuild",
+                    )
+                )
+            else:
+                checks.append(_check("index_freshness", "ok", detail))
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("index_freshness", "fail", str(exc)))
+    else:
+        checks.append(_check("index_freshness", "na", "index absent — skipped"))
+
+    # --- 5. compression_config ---
+    try:
+        config_exists = vault.compression_config_path.exists()
+        checks.append(
+            _check(
+                "compression_config",
+                "ok" if config_exists else "na",
+                str(vault.compression_config_path)
+                if config_exists
+                else "not configured (opt-in feature)",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks.append(_check("compression_config", "warn", str(exc)))
+
+    # Derive overall status: fail > warn > ok.
+    statuses = {c["status"] for c in checks}
+    if "fail" in statuses:
+        overall = "fail"
+    elif "warn" in statuses:
+        overall = "warn"
+    else:
+        overall = "ok"
+
+    report = {"overall": overall, "checks": checks}
+    click.echo(json.dumps(report, indent=2, ensure_ascii=False))
+    if overall == "fail":
+        sys.exit(1)
+
+
 @cli.command("version", help="Print mneme-core version.")
 def version_cmd() -> None:
     click.echo(__version__)

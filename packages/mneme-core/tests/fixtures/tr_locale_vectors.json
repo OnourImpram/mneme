@@ -1,0 +1,114 @@
+[
+  {
+    "id": "dotted_capital_I_istanbul",
+    "input": "İstanbul",
+    "normalize_tr": "istanbul",
+    "normalize_tr_for_fts": "istanbul",
+    "note": "U+0130 İ -> i; city name with dotted capital"
+  },
+  {
+    "id": "dotless_capital_I_istanbul",
+    "input": "Istanbul",
+    "normalize_tr": "ıstanbul",
+    "normalize_tr_for_fts": "ıstanbul",
+    "note": "U+0049 I -> ı; ASCII I is dotless in Turkish"
+  },
+  {
+    "id": "kiyaslama_all_caps",
+    "input": "KIYASLAMA",
+    "normalize_tr": "kıyaslama",
+    "normalize_tr_for_fts": "kıyaslama",
+    "note": "All-caps with dotless I; naive .lower() gives kiyaslama (wrong)"
+  },
+  {
+    "id": "dotted_capital_I_single",
+    "input": "İ",
+    "normalize_tr": "i",
+    "normalize_tr_for_fts": "i",
+    "note": "U+0130 alone -> U+0069"
+  },
+  {
+    "id": "dotless_capital_I_single",
+    "input": "I",
+    "normalize_tr": "ı",
+    "normalize_tr_for_fts": "ı",
+    "note": "U+0049 alone -> U+0131"
+  },
+  {
+    "id": "lowercase_i_passthrough",
+    "input": "i",
+    "normalize_tr": "i",
+    "normalize_tr_for_fts": "i",
+    "note": "Dotted small i is already canonical; no change"
+  },
+  {
+    "id": "lowercase_dotless_i_passthrough",
+    "input": "ı",
+    "normalize_tr": "ı",
+    "normalize_tr_for_fts": "ı",
+    "note": "Dotless small ı is already canonical; no change"
+  },
+  {
+    "id": "all_caps_istanbul_dotted",
+    "input": "İSTANBUL",
+    "normalize_tr": "istanbul",
+    "normalize_tr_for_fts": "istanbul",
+    "note": "All-caps city name with dotted İ produces fully-dotted lowercase"
+  },
+  {
+    "id": "mixed_case_dotted_and_dotless",
+    "input": "İŞIK",
+    "normalize_tr": "işık",
+    "normalize_tr_for_fts": "işık",
+    "note": "Mixed: dotted İ -> i, dotless I -> ı, Ş -> ş, K -> k"
+  },
+  {
+    "id": "other_turkish_diacritics",
+    "input": "ŞİMDİ",
+    "normalize_tr": "şimdi",
+    "normalize_tr_for_fts": "şimdi",
+    "note": "Ş,İ,M,D,İ -> ş,i,m,d,i"
+  },
+  {
+    "id": "ascii_passthrough",
+    "input": "Hello World",
+    "normalize_tr": "hello world",
+    "normalize_tr_for_fts": "hello world",
+    "note": "ASCII only; no Turkish substitutions, standard lowercase"
+  },
+  {
+    "id": "empty_string",
+    "input": "",
+    "normalize_tr": "",
+    "normalize_tr_for_fts": "",
+    "note": "Empty string returns empty string"
+  },
+  {
+    "id": "whitespace_internal_runs",
+    "input": "İstanbul   Üniversitesi",
+    "normalize_tr": "istanbul   üniversitesi",
+    "normalize_tr_for_fts": "istanbul üniversitesi",
+    "note": "normalize_tr_for_fts collapses multiple spaces; normalize_tr does not"
+  },
+  {
+    "id": "whitespace_leading_trailing",
+    "input": "  İstanbul  ",
+    "normalize_tr": "  istanbul  ",
+    "normalize_tr_for_fts": "istanbul",
+    "note": "normalize_tr_for_fts strips leading/trailing; normalize_tr does not"
+  },
+  {
+    "id": "whitespace_newlines",
+    "input": "İstanbul\n\nÜniversitesi",
+    "normalize_tr": "istanbul\n\nüniversitesi",
+    "normalize_tr_for_fts": "istanbul üniversitesi",
+    "note": "normalize_tr_for_fts collapses newlines to single space"
+  },
+  {
+    "id": "two_forms_distinct",
+    "input": "İI",
+    "normalize_tr": "iı",
+    "normalize_tr_for_fts": "iı",
+    "note": "Dotted İ and dotless I adjacent; must stay distinct after folding"
+  }
+]

@@ -12,9 +12,15 @@ locale rules are not Turkish-aware. Our normalizer produces
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from mneme_core.fts5.locale.tr import normalize_tr, normalize_tr_for_fts
+
+_FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
+_VECTORS_PATH = _FIXTURES_DIR / "tr_locale_vectors.json"
 
 
 class TestNormalizeTr:
@@ -104,3 +110,32 @@ class TestNormalizeTrForFts:
 
     def test_whitespace_only(self) -> None:
         assert normalize_tr_for_fts("   \n\t  ") == ""
+
+
+def _load_vectors() -> list[dict[str, str]]:
+    return json.loads(_VECTORS_PATH.read_text(encoding="utf-8"))  # type: ignore[return-value]
+
+
+def _params() -> list[pytest.param]:  # type: ignore[type-arg]
+    return [pytest.param(v, id=v["id"]) for v in _load_vectors()]
+
+
+class TestGoldenVectors:
+    """Drive both normalizers from the shared cross-language fixture.
+
+    The same JSON file is consumed by the TS parity test in
+    ``packages/mneme-mcp/tests/locale/tr.test.ts``.  Any divergence
+    between the two implementations will surface here first (Python)
+    and again there (TypeScript).
+    """
+
+    def test_fixture_file_exists(self) -> None:
+        assert _VECTORS_PATH.exists(), f"fixture missing: {_VECTORS_PATH}"
+
+    @pytest.mark.parametrize("vec", _params())
+    def test_normalize_tr(self, vec: dict[str, str]) -> None:
+        assert normalize_tr(vec["input"]) == vec["normalize_tr"]
+
+    @pytest.mark.parametrize("vec", _params())
+    def test_normalize_tr_for_fts(self, vec: dict[str, str]) -> None:
+        assert normalize_tr_for_fts(vec["input"]) == vec["normalize_tr_for_fts"]
