@@ -31,13 +31,13 @@ keep their original soft-fail semantics for backwards compatibility.
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from ..vault.atomic_write import atomic_write_text
 from ..vault.file_lock import file_lock
 
 DEFAULT_LEDGER_KIND = "compression"
@@ -75,7 +75,19 @@ def append_cost(
     host: str,
     kind: str = DEFAULT_LEDGER_KIND,
 ) -> None:
-    """Atomically append one cost record. Never raises on disk error."""
+    """Atomically append one cost record. Never raises.
+
+    The append runs under the same sidecar lock the reservation triad
+    (``reserve_cost`` / ``settle_reservation`` / ``rollback_reservation``)
+    holds. Without it, an unlocked append landing inside the read window
+    of a locked settle/rollback rewrite was destroyed by the rewrite's
+    ``os.replace`` — a committed charge would vanish and ``month_to_date_
+    spend`` would under-count, the unsafe direction for a cost cap.
+
+    Failure stays soft: disk errors (``OSError``) are suppressed inside
+    the lock, and a lock-acquisition ``TimeoutError`` returns without
+    raising, preserving the original "never raises" contract.
+    """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
         "kind": kind,
@@ -87,10 +99,17 @@ def append_cost(
         "host": host,
     }
     try:
-        ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        with ledger_path.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError:
+        with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
+            try:
+                ledger_path.parent.mkdir(parents=True, exist_ok=True)
+                with ledger_path.open("a", encoding="utf-8") as fp:
+                    fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+            except OSError:
+                return
+    except (OSError, TimeoutError):
+        # OSError here can only come from the lockfile setup itself; a
+        # TimeoutError means another worker held the lock past the deadline.
+        # Both are soft per the never-raises contract.
         return
 
 
@@ -212,24 +231,22 @@ def _lock_path_for(ledger_path: Path) -> Path:
 def _rewrite_ledger_atomic(
     ledger_path: Path, kept_lines: list[str], appended: dict[str, Any] | None
 ) -> None:
-    """Atomically replace the ledger contents.
+    """Atomically replace the ledger contents with a durable write.
 
-    Writes to a sibling temp file then ``os.replace``. On POSIX the
-    replace is atomic; on Windows it succeeds because temp and target
-    live on the same filesystem. Used by settle and rollback so a
-    crash in the middle of rewrite cannot lose committed records.
+    Delegates to :func:`mneme_core.vault.atomic_write.atomic_write_text`,
+    which fsyncs the file descriptor and (on POSIX) the parent directory
+    before/after the rename. The plain ``os.replace`` this used to do was
+    atomic but not durable: a crash after the rename but before the page
+    cache flushed could still lose just-settled records. Callers hold the
+    ledger lock, so the read-modify-write is already serialized.
     """
-    tmp = ledger_path.with_suffix(ledger_path.suffix + ".tmp")
     payload_lines = list(kept_lines)
     if appended is not None:
-        payload_lines.append(
-            json.dumps(appended, ensure_ascii=False)
-        )
+        payload_lines.append(json.dumps(appended, ensure_ascii=False))
     content = "\n".join(payload_lines)
     if content:
         content += "\n"
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, ledger_path)
+    atomic_write_text(ledger_path, content)
 
 
 def reserve_cost(
