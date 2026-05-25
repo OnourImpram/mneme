@@ -8,6 +8,8 @@ mneme is built on three convictions:
 
 1. **Markdown is ground truth.** All durable memory lives as plain markdown files in a user-owned directory called the vault. Shipped indexes such as FTS5, and gated or roadmap artifacts such as knowledge graph and dense indexes, are derived artifacts that can be rebuilt at any time. The user owns the data, not the tool.
 
+   **Vault independence.** A vault is a plain directory of markdown files — nothing more. mneme requires no specific editor, no external application, and no Obsidian installation. The term "vault" is borrowed convention, not an Obsidian dependency; the same directory works equally well with `grep`, `git`, VS Code, or any text editor. Obsidian is fully optional: users who already use it can point it at the vault directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes, but Obsidian is a viewer and navigator, not part of mneme's capture, indexing, or retrieval path. The two tools are designed to coexist without interference: mneme stores all derived state in a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing. Obsidian is not a system requirement and must not appear as an installation prerequisite.
+
 2. **Determinism on the critical path.** The Stop hook must finish in under one second p95 and must never depend on a network call or an LLM API. Compression and AI processing happen in the background, opt-in, with cost caps.
 
 3. **Hybrid-ready retrieval beats single-leg retrieval.** No one signal is sufficient. mneme ships BM25 lexical recall and an RRF-ready protocol at `k=60`. Full-profile KG enrichment is gated. Packaged dense retrieval is roadmap.
