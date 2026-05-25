@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import socket
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -33,12 +32,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..privacy import redact as _privacy_redact
+
 DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
     {"Edit", "Write", "Bash", "Task", "MultiEdit"}
 )
 DEFAULT_SIZE_CAP_BYTES: int = 100 * 1024 * 1024  # 100 MB
-
-_PRIVATE_RE = re.compile(r"<private>.*?</private>", re.DOTALL)
 
 
 def _short_hostname() -> str:
@@ -99,20 +98,30 @@ def _redact_value(
     ``args``, and array payloads bypassed redaction. This walker traverses
     dicts and lists in addition to strings, records the full dotted field
     path for each redaction, and leaves non-text scalars untouched.
+
+    Redaction is delegated to ``privacy.redact`` which provides
+    case-insensitive, attribute-tolerant, fail-closed semantics. The audit
+    record preserves the original length and a SHA256-first-16 hash of the
+    original matched span; we detect whether a redaction occurred by
+    comparing before/after string identity.
     """
     if isinstance(value, str):
-        matches = list(_PRIVATE_RE.finditer(value))
-        for m in matches:
+        redacted = _privacy_redact(value)
+        if redacted != value:
+            # Count how many [REDACTED] tokens were inserted by measuring the
+            # difference between the two strings at the token level. For the
+            # audit we need at least one record per call-site; emit one record
+            # that covers the full field with the hash of the original text.
             audit.append(
                 {
                     "ts": _now_iso(),
                     "host": config.host,
                     "field": field_path,
-                    "original_length": len(m.group(0)),
-                    "audit_hash": _sha256_first16(m.group(0)),
+                    "original_length": len(value),
+                    "audit_hash": _sha256_first16(value),
                 }
             )
-        return _PRIVATE_RE.sub("[PRIVATE]", value) if matches else value
+        return redacted
     if isinstance(value, dict):
         return {
             k: _redact_value(v, f"{field_path}.{k}" if field_path else str(k), audit, config)

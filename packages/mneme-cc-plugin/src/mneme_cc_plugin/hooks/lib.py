@@ -26,12 +26,35 @@ from typing import Any
 from mneme_core.vault.config import VaultConfig, VaultNotFoundError
 
 KILL_SWITCH_ENV = "MNEME_DISABLED"
+SKIP_HOOKS_ENV = "MNEME_SKIP_HOOKS"
+
+_SKIP_ALL_VALUES = {"all", "1", "true"}
 
 
 def is_disabled() -> bool:
     """Return True if the kill switch env var is set to a truthy value."""
     raw = os.environ.get(KILL_SWITCH_ENV, "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_skipped(hook_event_name: str) -> bool:
+    """Return True if *hook_event_name* should be skipped via MNEME_SKIP_HOOKS.
+
+    ``MNEME_SKIP_HOOKS`` accepts:
+
+    * A comma-separated, case-insensitive list of hook event names, e.g.
+      ``Stop,SessionStart`` — only those events are skipped.
+    * The literal values ``all``, ``1``, or ``true`` — every event is skipped.
+    * Unset or empty string — nothing is skipped.
+    """
+    raw = os.environ.get(SKIP_HOOKS_ENV, "").strip()
+    if not raw:
+        return False
+    normalized = raw.lower()
+    if normalized in _SKIP_ALL_VALUES:
+        return True
+    skipped = {part.strip().lower() for part in raw.split(",")}
+    return hook_event_name.lower() in skipped
 
 
 def read_event() -> dict[str, Any]:
@@ -113,7 +136,7 @@ def run_hook(
         as a block by some Claude Code versions.
     """
     try:
-        if is_disabled():
+        if is_disabled() or is_skipped(hook_event_name):
             emit(hook_event_name=hook_event_name)
             return 0
         event = read_event()

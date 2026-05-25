@@ -38,7 +38,7 @@ DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "/.mneme/",
 )
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents(
@@ -47,13 +47,14 @@ CREATE TABLE IF NOT EXISTS documents(
     title_normalized TEXT,
     path TEXT UNIQUE NOT NULL,
     content_raw TEXT,
+    body_text TEXT,
     content_size INTEGER,
     mtime REAL,
     tags TEXT,
     frontmatter_type TEXT,
     session_id TEXT,
     linked_notes TEXT,
-    schema_version TEXT DEFAULT '1',
+    schema_version TEXT DEFAULT '2',
     language TEXT DEFAULT 'en',
     indexed_at TEXT
 );
@@ -144,8 +145,32 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create the ``documents`` and ``documents_fts`` tables if needed."""
+    """Create the ``documents`` and ``documents_fts`` tables if needed.
+
+    Also runs ``migrate_schema`` so that pre-existing databases receive
+    any new columns added after their initial creation.
+    """
     conn.executescript(SCHEMA)
+    migrate_schema(conn)
+
+
+def migrate_schema(conn: sqlite3.Connection) -> None:
+    """Apply lightweight in-place migrations to an existing database.
+
+    Currently handles:
+    * ``body_text TEXT`` column added in schema version 2.  The column
+      stores the document body with YAML frontmatter stripped and is
+      populated on the next full index pass.
+
+    Safe to call on a brand-new database (the column already exists
+    there, so the ALTER is skipped).
+    """
+    existing_cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(documents)")
+    }
+    if "body_text" not in existing_cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN body_text TEXT")
 
 
 def _should_index(
@@ -257,20 +282,31 @@ def index_vault(
     paths = list(config.vault_root.rglob("*.md"))
     stats.total_seen = len(paths)
 
+    # Collect relative paths for every eligible file seen this pass so that
+    # we can prune stale rows at the end of a full (non-incremental) run.
+    live_paths: set[str] = set()
+
     for md_path in paths:
         if not _should_index(md_path, config.vault_root, config.exclude_patterns):
             stats.skipped_excluded += 1
             continue
 
+        rel_path = str(md_path.relative_to(config.vault_root)).replace("\\", "/")
+
         try:
             mtime = md_path.stat().st_mtime
             if since_mtime > 0 and mtime <= since_mtime:
                 stats.skipped_unchanged += 1
+                # Still track the path so a full-pass prune never removes
+                # unchanged-but-still-present files.
+                live_paths.add(rel_path)
                 continue
             content = md_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             stats.skipped_error += 1
             continue
+
+        live_paths.add(rel_path)
 
         fm, body = _parse_frontmatter(content)
         title = _extract_title(content, md_path)
@@ -280,18 +316,19 @@ def index_vault(
         tags_normalized = config.normalize(tags)
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
-        rel_path = str(md_path.relative_to(config.vault_root)).replace("\\", "/")
         now_iso = datetime.now(UTC).isoformat()
 
         conn.execute(
             """INSERT INTO documents
-               (title, title_normalized, path, content_raw, content_size, mtime,
-                tags, frontmatter_type, session_id, linked_notes, indexed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (title, title_normalized, path, content_raw, body_text,
+                content_size, mtime, tags, frontmatter_type, session_id,
+                linked_notes, indexed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(path) DO UPDATE SET
                  title=excluded.title,
                  title_normalized=excluded.title_normalized,
                  content_raw=excluded.content_raw,
+                 body_text=excluded.body_text,
                  content_size=excluded.content_size,
                  mtime=excluded.mtime,
                  tags=excluded.tags,
@@ -304,6 +341,7 @@ def index_vault(
                 title_normalized,
                 rel_path,
                 content,
+                body,
                 len(content),
                 mtime,
                 tags,
@@ -332,6 +370,23 @@ def index_vault(
         )
 
         stats.indexed += 1
+
+    # P0-2: prune rows whose files no longer exist on disk.
+    # Only performed on a full pass (since_mtime == 0.0) to keep incremental
+    # runs cheap and to avoid deleting files that were simply older than the
+    # since_mtime threshold.
+    if since_mtime == 0.0 and live_paths:
+        placeholders = ",".join("?" * len(live_paths))
+        live_list = list(live_paths)
+        conn.execute(
+            f"DELETE FROM documents_fts WHERE rowid IN ("
+            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+            live_list,
+        )
+        conn.execute(
+            f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
+            live_list,
+        )
 
     conn.commit()
     return stats

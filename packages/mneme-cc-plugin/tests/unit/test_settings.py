@@ -159,7 +159,7 @@ class TestAddHook:
                         {
                             "type": "command",
                             "command": "echo stop",
-                            "timeout": 5000,
+                            "timeout": 10,
                             "_mneme_tag": "mneme",
                         }
                     ]
@@ -195,7 +195,7 @@ class TestAddHook:
             "PostToolUse",
             "py -3 hook.py",
             matcher="Edit|Write",
-            timeout_ms=1234,
+            timeout_s=1234,
         )
         entry = data["hooks"]["PostToolUse"][0]  # type: ignore[index]
         assert entry["matcher"] == "Edit|Write"

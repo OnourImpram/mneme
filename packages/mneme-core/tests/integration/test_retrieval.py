@@ -72,9 +72,15 @@ class TestBuildFts5Query:
         q = build_fts5_query("the hello world", stopwords=frozenset({"the"}))
         assert q == '"hello" OR "world"'
 
-    def test_strips_fts5_reserved_chars(self) -> None:
+    def test_splits_reserved_chars_into_phrases(self) -> None:
+        # Reserved/separator chars split a word into a phrase rather than
+        # fusing it, so the query matches the adjacent tokens unicode61
+        # indexed instead of the unmatchable fused form.
         q = build_fts5_query("foo-bar baz:qux")
-        assert q == '"foobar" OR "bazqux"'
+        assert q == '"foo bar" OR "baz qux"'
+
+    def test_hyphenated_identifier_becomes_phrase(self) -> None:
+        assert build_fts5_query("claude-mem") == '"claude mem"'
 
     def test_returns_empty_on_all_dropped(self) -> None:
         q = build_fts5_query("a b c")

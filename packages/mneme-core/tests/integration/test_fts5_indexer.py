@@ -475,10 +475,233 @@ class TestFrontmatterDequote:
 
 
 class TestConstants:
-    def test_schema_version_is_string_one(self) -> None:
-        assert SCHEMA_VERSION == "1"
+    def test_schema_version_is_string_two(self) -> None:
+        assert SCHEMA_VERSION == "2"
 
     def test_default_excludes_include_critical_dirs(self) -> None:
         assert "/.git/" in DEFAULT_EXCLUDE_PATTERNS
         assert "/.mneme/" in DEFAULT_EXCLUDE_PATTERNS
         assert "/node_modules/" in DEFAULT_EXCLUDE_PATTERNS
+
+
+class TestPruneOnDelete:
+    """P0-2: full-pass pruning removes rows for deleted markdown files."""
+
+    def test_deleted_file_not_searchable_after_full_reindex(
+        self, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        keep = vault / "keep.md"
+        keep.write_text(
+            "---\nid: keep\ntype: topic\n---\n# Keeper\nbody keeper\n",
+            encoding="utf-8",
+        )
+        gone = vault / "gone.md"
+        gone.write_text(
+            "---\nid: gone\ntype: topic\n---\n# Gone\nbody uniquegonetoken\n",
+            encoding="utf-8",
+        )
+
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        cfg = IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+
+        stats1 = index_vault(conn, cfg)
+        assert stats1.indexed == 2
+
+        # Verify the about-to-be-deleted file is searchable before deletion.
+        hits_before = conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("uniquegonetoken",),
+        ).fetchall()
+        assert len(hits_before) == 1
+
+        # Delete the file from disk and re-index (full pass).
+        gone.unlink()
+        stats2 = index_vault(conn, cfg)
+        assert stats2.indexed == 1
+
+        # Row must be gone from documents.
+        row = conn.execute(
+            "SELECT id FROM documents WHERE path='gone.md'"
+        ).fetchone()
+        assert row is None
+
+        # Content must no longer be searchable via FTS.
+        hits_after = conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("uniquegonetoken",),
+        ).fetchall()
+        assert len(hits_after) == 0
+
+        conn.close()
+
+    def test_incremental_pass_does_not_prune(self, tmp_path: Path) -> None:
+        """An incremental (since_mtime > 0) pass must NOT prune stale rows."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        keep = vault / "keep.md"
+        keep.write_text("---\nid: k\ntype: topic\n---\n# K\nbody\n", encoding="utf-8")
+        gone = vault / "gone.md"
+        gone.write_text(
+            "---\nid: g\ntype: topic\n---\n# G\nbody uniqueincrtoken\n",
+            encoding="utf-8",
+        )
+
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        cfg = IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        index_vault(conn, cfg)
+
+        gone.unlink()
+        # Run incremental pass with since_mtime in the future so nothing
+        # gets re-indexed; deleted file must remain in the index.
+        import time as _time
+        future = _time.time() + 60
+        index_vault(conn, cfg, since_mtime=future)
+
+        row = conn.execute(
+            "SELECT id FROM documents WHERE path='gone.md'"
+        ).fetchone()
+        assert row is not None, "incremental pass must not prune deleted rows"
+
+        conn.close()
+
+
+class TestBodyText:
+    """P1-7: body_text column stores document body without YAML frontmatter."""
+
+    def test_body_text_excludes_frontmatter_keys(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text(
+            "---\n"
+            "id: secret-id\n"
+            "session_id: sess-private\n"
+            "type: session\n"
+            "tags: alpha\n"
+            "---\n"
+            "# Real Title\n\n"
+            "This is the actual body content.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        cfg = IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        index_vault(conn, cfg)
+
+        row = conn.execute(
+            "SELECT body_text FROM documents WHERE path='doc.md'"
+        ).fetchone()
+        assert row is not None
+        body = row[0]
+
+        # Frontmatter keys and values must not appear in body_text.
+        assert "secret-id" not in body
+        assert "sess-private" not in body
+        assert "session_id" not in body
+
+        # Body content must be present.
+        assert "actual body content" in body
+
+        conn.close()
+
+    def test_body_text_equals_full_content_when_no_frontmatter(
+        self, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "plain.md").write_text(
+            "# Plain\n\nNo frontmatter here.\n", encoding="utf-8"
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        cfg = IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        index_vault(conn, cfg)
+
+        row = conn.execute(
+            "SELECT body_text, content_raw FROM documents WHERE path='plain.md'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == row[1], "body_text should equal content_raw when no frontmatter"
+
+        conn.close()
+
+
+class TestMigrateSchema:
+    """G-5: old-schema databases (without body_text) are migrated in place."""
+
+    def _build_old_schema_db(self, db_path: Path) -> None:
+        """Create a v1-style database without the body_text column."""
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS documents(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                title_normalized TEXT,
+                path TEXT UNIQUE NOT NULL,
+                content_raw TEXT,
+                content_size INTEGER,
+                mtime REAL,
+                tags TEXT,
+                frontmatter_type TEXT,
+                session_id TEXT,
+                linked_notes TEXT,
+                schema_version TEXT DEFAULT '1',
+                language TEXT DEFAULT 'en',
+                indexed_at TEXT
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                title, content, tags, linked_notes,
+                tokenize='unicode61 remove_diacritics 2'
+            );
+            """
+        )
+        conn.close()
+
+    def test_old_schema_missing_body_text_gets_column_added(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "old.sqlite"
+        self._build_old_schema_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        # Verify the column is absent before migration.
+        cols_before = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+        assert "body_text" not in cols_before
+
+        ensure_schema(conn)
+
+        cols_after = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+        assert "body_text" in cols_after
+        conn.close()
+
+    def test_old_schema_db_indexes_correctly_after_migration(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "old.sqlite"
+        self._build_old_schema_db(db_path)
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text(
+            "---\nid: x\ntype: topic\n---\n# Migrated\nbody migratedtoken\n",
+            encoding="utf-8",
+        )
+
+        conn = sqlite3.connect(db_path)
+        ensure_schema(conn)
+        cfg = IndexerConfig(vault_root=vault, db_path=db_path)
+        stats = index_vault(conn, cfg)
+        assert stats.indexed == 1
+
+        row = conn.execute(
+            "SELECT body_text FROM documents WHERE path='doc.md'"
+        ).fetchone()
+        assert row is not None
+        assert "migratedtoken" in row[0]
+        assert "id: x" not in row[0]
+
+        conn.close()

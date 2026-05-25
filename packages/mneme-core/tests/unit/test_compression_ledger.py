@@ -10,9 +10,11 @@ import pytest
 
 from mneme_core.compression.ledger import (
     CapCheck,
+    LedgerCorruptError,
     append_cost,
     check_cap,
     month_to_date_spend,
+    reserve_cost,
     rolling_30d_spend,
 )
 
@@ -161,3 +163,88 @@ class TestCheckCap:
         payload = json.loads(pause_flag.read_text(encoding="utf-8"))
         assert payload["reason"] == "cost_cap_exceeded"
         assert payload["spend_usd"] >= 10.0
+
+
+class TestCorruptLedgerFailClosed:
+    """Verify fail-closed semantics when the ledger file is corrupt.
+
+    A corrupt ledger (file exists, no parseable records) must NEVER be
+    silently treated as zero spend. Each entry point that reads spend must
+    surface the corruption so the operator can intervene rather than letting
+    LLM compression proceed unchecked past the cost cap.
+    """
+
+    def test_month_to_date_spend_raises_on_corrupt_ledger(
+        self, ledger_path: Path
+    ) -> None:
+        ledger_path.write_text("not-json\nalso-not-json\n", encoding="utf-8")
+        with pytest.raises(LedgerCorruptError, match="no parseable records"):
+            month_to_date_spend(ledger_path)
+
+    def test_rolling_30d_spend_raises_on_corrupt_ledger(
+        self, ledger_path: Path
+    ) -> None:
+        ledger_path.write_text("<<<garbage>>>\n", encoding="utf-8")
+        with pytest.raises(LedgerCorruptError):
+            rolling_30d_spend(ledger_path)
+
+    def test_check_cap_raises_on_corrupt_ledger(
+        self, ledger_path: Path, pause_flag: Path
+    ) -> None:
+        ledger_path.write_text("bad-line\n", encoding="utf-8")
+        with pytest.raises(LedgerCorruptError):
+            check_cap(
+                ledger_path,
+                cap_usd_monthly=10.0,
+                pause_flag_path=pause_flag,
+            )
+
+    def test_reserve_cost_raises_oserror_on_corrupt_ledger(
+        self, ledger_path: Path
+    ) -> None:
+        """reserve_cost wraps LedgerCorruptError as OSError for the pipeline handler."""
+        ledger_path.write_text("not-json\n", encoding="utf-8")
+        with pytest.raises(OSError, match="ledger_corrupt"):
+            reserve_cost(
+                ledger_path,
+                estimated_cost_usd=0.10,
+                host="test-host",
+                cap_usd_monthly=10.0,
+            )
+
+    def test_missing_ledger_still_yields_zero_spend(
+        self, ledger_path: Path
+    ) -> None:
+        """A missing ledger file is not corrupt — 0.0 spend is correct."""
+        assert not ledger_path.exists()
+        assert month_to_date_spend(ledger_path) == 0.0
+        assert rolling_30d_spend(ledger_path) == 0.0
+
+    def test_missing_ledger_reserve_cost_proceeds(
+        self, ledger_path: Path
+    ) -> None:
+        """A missing ledger allows reservation (0.0 spend, well below cap)."""
+        assert not ledger_path.exists()
+        _rid, ok = reserve_cost(
+            ledger_path,
+            estimated_cost_usd=0.10,
+            host="test-host",
+            cap_usd_monthly=10.0,
+        )
+        assert ok is True
+
+    def test_partial_corruption_skips_bad_lines_gracefully(
+        self, ledger_path: Path
+    ) -> None:
+        """A file with mixed good/bad lines uses only the parseable records."""
+        now = datetime(2026, 6, 15, tzinfo=UTC)
+        cur = now.strftime("%Y-%m")
+        ledger_path.write_text(
+            json.dumps({"ts": f"{cur}-01T00:00:00+00:00", "cost_usd": 3.0, "kind": "compression"})
+            + "\nnot-json\n"
+            + json.dumps({"ts": f"{cur}-02T00:00:00+00:00", "cost_usd": 2.0, "kind": "compression"})
+            + "\n",
+            encoding="utf-8",
+        )
+        # Should not raise — at least one good record exists.
+        assert month_to_date_spend(ledger_path, now=now) == pytest.approx(5.0)

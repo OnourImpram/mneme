@@ -138,10 +138,21 @@ export async function createDriverFromVault(
 	};
 	try {
 		// Use a variable so the bundler does not pre-resolve the spec.
+		// neo4j-driver is listed in optionalDependencies; it is absent in
+		// lite/standard installs. When the import fails we throw an
+		// actionable error so the operator knows exactly what is missing,
+		// rather than silently returning null and leaving the KG inactive
+		// with no explanation.
 		const moduleSpecifier: string = "neo4j-driver";
 		neo4j = (await import(moduleSpecifier)) as typeof neo4j;
 	} catch {
-		return null;
+		throw new Error(
+			"[mneme-mcp] neo4j-driver is not installed. " +
+				"The full-profile KG leg requires it: " +
+				"run `npm install neo4j-driver` (or the equivalent for your " +
+				"package manager) in the mneme-mcp package directory, then restart " +
+				"the MCP server.",
+		);
 	}
 
 	try {

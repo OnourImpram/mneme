@@ -155,13 +155,16 @@ def add_hook(
     command: str,
     *,
     matcher: str | None = None,
-    timeout_ms: int = 5_000,
+    timeout_s: int = 10,
     tag: str = "mneme",
 ) -> bool:
     """Append a hook entry to ``data['hooks'][event]`` if not present.
 
     The mutation is in-place. Returns True if the entry was added,
     False if an identical command was already wired.
+
+    ``timeout_s`` is written verbatim into the entry's ``timeout`` field,
+    which the Claude Code hook schema interprets in SECONDS.
 
     `tag` is stamped into the entry as `_mneme_tag` so a future
     ``remove_hooks`` pass can identify mneme entries even after the
@@ -187,7 +190,7 @@ def add_hook(
             {
                 "type": "command",
                 "command": command,
-                "timeout": timeout_ms,
+                "timeout": timeout_s,
                 "_mneme_tag": tag,
             }
         ]

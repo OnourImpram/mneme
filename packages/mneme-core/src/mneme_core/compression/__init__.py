@@ -28,6 +28,7 @@ from .config import (
 )
 from .ledger import (
     CapCheck,
+    LedgerCorruptError,
     append_cost,
     check_cap,
     month_to_date_spend,
@@ -81,6 +82,7 @@ __all__ = [
     "write_config",
     # Phase F ledger
     "CapCheck",
+    "LedgerCorruptError",
     "append_cost",
     "check_cap",
     "month_to_date_spend",

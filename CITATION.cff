@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: mneme
+abstract: >-
+  Vault-native memory plugin for Claude Code and Codex. Markdown is the
+  source of truth and the index is a rebuildable artifact. Ships SQLite
+  FTS5 BM25 retrieval with an RRF-ready architecture, opt-in background
+  compression with a cost cap, and a gated Graphiti knowledge graph.
+type: software
+authors:
+  - family-names: Impram
+    given-names: Onour
+repository-code: "https://github.com/TheGoatPsy/mneme"
+url: "https://github.com/TheGoatPsy/mneme"
+license: MIT
+version: 1.0.2
+keywords:
+  - claude-code
+  - codex
+  - memory
+  - retrieval
+  - fts5
+  - rrf
+  - knowledge-graph
+  - mcp

@@ -167,7 +167,7 @@ describe("redact", () => {
 
   it("replaces a single private block with REDACTED", () => {
     const r = redact("before <private>secret</private> after");
-    expect(r.text).toBe("before <REDACTED> after");
+    expect(r.text).toBe("before [REDACTED] after");
     expect(r.count).toBe(1);
   });
 
@@ -175,7 +175,7 @@ describe("redact", () => {
     const text = "<private>a\nb</private> mid <private>c</private>";
     const r = redact(text);
     expect(r.count).toBe(2);
-    expect(r.text).toBe("<REDACTED> mid <REDACTED>");
+    expect(r.text).toBe("[REDACTED] mid [REDACTED]");
   });
 
   it("treats null and empty string as zero-substitution passthrough", () => {
@@ -369,7 +369,7 @@ describe("migrate (full integration)", () => {
       join(stats.exportRoot, "2026-04-02", "cm-obs-2.md"),
       "utf8",
     );
-    expect(second).toContain("<REDACTED>");
+    expect(second).toContain("[REDACTED]");
     expect(second).not.toContain("<private>");
     expect(second).not.toContain("sensitive");
   });
@@ -585,7 +585,7 @@ describe("regression: code-review fixes", () => {
       expect(file).not.toContain("SECRETFACT");
       expect(file).not.toContain("SECRETCONCEPT");
       expect(file).not.toContain("<private>");
-      expect(file).toContain("<REDACTED>");
+      expect(file).toContain("[REDACTED]");
     } finally {
       rmSync(workDir, { recursive: true, force: true });
     }

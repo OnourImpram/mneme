@@ -61,12 +61,32 @@ PROFILE_EXTRAS: dict[str, list[str]] = {
     "full": ["mneme-core[full]"],
 }
 
-HOOK_TIMEOUTS_MS: dict[str, int] = {
-    "PostToolUse": 1_000,
-    "SessionStart": 800,
-    "Stop": 2_000,
-    "PreCompact": 500,
-    "SessionEnd": 800,
+# Hook timeouts are SECONDS, matching the Claude Code settings.json hook
+# schema. A prior version stored these as milliseconds, which the schema
+# then read as 1000-2000 SECONDS and could hang the editor on a wedged
+# hook. The values are safety ceilings above each hook's internal
+# deadlines, not p95 targets: Stop can legitimately wait on the
+# session-log lock (5s) plus a git status (3s), so its ceiling is 10s.
+# These must stay in sync with the native plugin manifest hooks/hooks.json
+# (enforced by tests/unit/test_hook_timeouts_consistent.py).
+HOOK_TIMEOUTS_S: dict[str, int] = {
+    "PostToolUse": 5,
+    "SessionStart": 5,
+    "Stop": 10,
+    "PreCompact": 5,
+    "SessionEnd": 10,
+}
+
+# Map PascalCase hook events to their `mneme hook <event>` console-script
+# subcommand. Wiring hooks through the installed console script rather
+# than `python3 -m ...` is what makes them work under a pipx isolated
+# venv, where a bare interpreter on PATH cannot import the plugin package.
+HOOK_EVENT_COMMAND: dict[str, str] = {
+    "PostToolUse": "post-tool-use",
+    "SessionStart": "session-start",
+    "Stop": "stop",
+    "PreCompact": "pre-compact",
+    "SessionEnd": "session-end",
 }
 
 HOOK_MODULES: dict[str, str] = {
@@ -199,8 +219,22 @@ class Installer:
             )
         self._say(f"vault: marker created at {marker}")
 
+    def _hook_command(self, event: str) -> str:
+        """Build the settings.json command string for a lifecycle hook.
+
+        Prefer the installed ``mneme`` console script (``mneme hook
+        <event>``) so hooks fire correctly under a pipx isolated venv,
+        where a bare ``python3``/``py`` on PATH resolves to a system
+        interpreter that cannot import the plugin package. Fall back to
+        the absolute install-time interpreter running the install CLI as
+        a module, which still resolves the right environment by path.
+        """
+        sub = HOOK_EVENT_COMMAND[event]
+        if shutil.which("mneme"):
+            return f"mneme hook {sub}"
+        return f'"{sys.executable}" -m mneme_cc_plugin.install.cli hook {sub}'
+
     def register_hooks(self) -> None:
-        interp = self.detect_interpreter()
         if not self.config.settings_path.exists():
             raise click.ClickException(
                 f"Claude Code settings.json not found at {self.config.settings_path}. "
@@ -208,14 +242,14 @@ class Installer:
             )
         data = read_settings(self.config.settings_path)
         added_count = 0
-        for event, module in HOOK_MODULES.items():
-            command = " ".join([*interp, "-m", module])
+        for event in HOOK_MODULES:
+            command = self._hook_command(event)
             added = add_hook(
                 data,
                 event,
                 command,
                 matcher=HOOK_MATCHERS.get(event),
-                timeout_ms=HOOK_TIMEOUTS_MS[event],
+                timeout_s=HOOK_TIMEOUTS_S[event],
                 tag=MNEME_TAG,
             )
             if added:

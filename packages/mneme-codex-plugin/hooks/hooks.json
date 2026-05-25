@@ -13,6 +13,7 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Edit|Write|Bash|Task|MultiEdit",
         "hooks": [
           { "type": "command", "command": "mneme hook post-tool-use" }
         ]

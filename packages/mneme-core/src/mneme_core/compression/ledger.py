@@ -45,6 +45,16 @@ RESERVATION_KIND_SUFFIX = "-reserved"
 _LOCK_TIMEOUT_S = 5.0
 
 
+class LedgerCorruptError(Exception):
+    """Raised when the ledger file exists but contains no parseable records.
+
+    This is the fail-closed sentinel: a corrupt ledger must not be silently
+    treated as empty (zero spend), which would let compression proceed past
+    the cost cap. Callers that catch this should block the operation and
+    surface the error to the operator for manual inspection.
+    """
+
+
 @dataclass(frozen=True)
 class CapCheck:
     """Outcome of a cap evaluation against the ledger."""
@@ -85,21 +95,38 @@ def append_cost(
 
 
 def _iter_records(ledger_path: Path) -> list[dict[str, Any]]:
+    """Parse ledger records, distinguishing missing from corrupt.
+
+    - File absent: return ``[]`` (0.0 spend is correct, proceed).
+    - File present, at least one parseable record: return good records
+      (partial corruption skips bad lines gracefully).
+    - File present, has non-empty lines, but *zero* parse: raise
+      ``LedgerCorruptError`` so callers fail closed rather than treating
+      a corrupt file as an empty ledger (which would zero out spend and
+      allow compression past the cap).
+    """
     if not ledger_path.is_file():
         return []
     out: list[dict[str, Any]] = []
+    nonempty_lines = 0
     try:
         with ledger_path.open("r", encoding="utf-8") as fp:
             for line in fp:
                 line = line.strip()
                 if not line:
                     continue
+                nonempty_lines += 1
                 try:
                     out.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
     except OSError:
         return []
+    if nonempty_lines > 0 and not out:
+        raise LedgerCorruptError(
+            f"Ledger file exists but contains no parseable records: {ledger_path}. "
+            "Inspect the file manually, then remove or repair it before retrying."
+        )
     return out
 
 
@@ -235,7 +262,13 @@ def reserve_cost(
     reservation_id = str(uuid.uuid4())
     now = now or datetime.now(UTC)
     with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
-        spend = month_to_date_spend(ledger_path, kind=kind, now=now)
+        try:
+            spend = month_to_date_spend(ledger_path, kind=kind, now=now)
+        except LedgerCorruptError as exc:
+            # Fail-closed: a corrupt ledger must not be treated as zero spend.
+            # Re-raise as OSError so the pipeline's reservation_failed handler
+            # surfaces the problem without allowing the provider call.
+            raise OSError(f"ledger_corrupt: {exc}") from exc
         if spend + float(estimated_cost_usd) >= cap_usd_monthly:
             return reservation_id, False
         record: dict[str, Any] = {

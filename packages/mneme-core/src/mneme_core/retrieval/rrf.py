@@ -18,6 +18,8 @@ that consumes ``retrieve``.
 
 from __future__ import annotations
 
+import contextlib
+import re
 import sqlite3
 import time
 from collections.abc import Callable
@@ -27,7 +29,10 @@ from typing import Any, Protocol
 
 DEFAULT_RRF_K: int = 60
 
-_FTS5_RESERVED = set('"-:^*()')
+# FTS5-reserved and unicode61 tokenizer-separator characters. A word
+# containing any of these is split into a phrase rather than fused, so a
+# hyphenated identifier matches the adjacent tokens the tokenizer indexed.
+_FTS5_TOKEN_SEP = re.compile(r'[-":\^*()]+')
 
 
 def _identity(s: str) -> str:
@@ -97,22 +102,27 @@ class RetrievalConfig:
 def build_fts5_query(prompt_norm: str, stopwords: frozenset[str] = frozenset()) -> str:
     """Tokenize, escape, and OR-join a normalized prompt for FTS5 MATCH.
 
-    Each token is wrapped in double quotes for phrase-mode safety so
-    that FTS5 operators inside the token are treated as literal text.
-    Tokens shorter than 2 characters and configured stopwords are
-    dropped to reduce false-positive recall.
+    Each whitespace-separated word is split on FTS5-reserved and
+    tokenizer-separator characters and rejoined as one quoted phrase, so
+    a hyphenated identifier like ``claude-mem`` becomes the phrase
+    ``"claude mem"``. That matches the adjacent ``claude`` and ``mem``
+    tokens the unicode61 tokenizer actually indexed; the previous
+    strip-and-fuse approach produced ``"claudemem"`` and matched nothing.
+    Quoting keeps any surviving FTS5 operator literal. Subtokens shorter
+    than 2 characters and configured stopwords are dropped.
 
     Returns the empty string if no tokens survive filtering.
     """
-    tokens: list[str] = []
+    phrases: list[str] = []
     for raw in prompt_norm.split():
-        t = "".join(c for c in raw if c not in _FTS5_RESERVED)
-        if len(t) < 2:
-            continue
-        if t in stopwords:
-            continue
-        tokens.append(f'"{t}"')
-    return " OR ".join(tokens)
+        parts = [
+            p
+            for p in _FTS5_TOKEN_SEP.split(raw)
+            if len(p) >= 2 and p not in stopwords
+        ]
+        if parts:
+            phrases.append('"' + " ".join(parts) + '"')
+    return " OR ".join(phrases)
 
 
 def fts5_search(
@@ -134,19 +144,20 @@ def fts5_search(
     if not fts_query:
         return []
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        conn.execute("PRAGMA query_only = ON")
-        rows = conn.execute(
-            """SELECT documents.id, documents.path, documents.title,
-                      documents_fts.rank
-               FROM documents_fts
-               JOIN documents ON documents_fts.rowid = documents.id
-               WHERE documents_fts MATCH ?
-               ORDER BY documents_fts.rank
-               LIMIT ?""",
-            (fts_query, limit),
-        ).fetchall()
-        conn.close()
+        with contextlib.closing(
+            sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        ) as conn:
+            conn.execute("PRAGMA query_only = ON")
+            rows = conn.execute(
+                """SELECT documents.id, documents.path, documents.title,
+                          documents_fts.rank
+                   FROM documents_fts
+                   JOIN documents ON documents_fts.rowid = documents.id
+                   WHERE documents_fts MATCH ?
+                   ORDER BY documents_fts.rank
+                   LIMIT ?""",
+                (fts_query, limit),
+            ).fetchall()
     except sqlite3.OperationalError:
         return []
     except Exception:

@@ -24,18 +24,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import socket
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..privacy import redact_value as _privacy_redact_value
+
 DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
     {"Edit", "Write", "Bash", "Task", "MultiEdit"}
 )
-
-_PRIVATE_RE = re.compile(r"<private>(.*?)</private>", re.DOTALL)
 
 
 def _short_hostname() -> str:
@@ -83,13 +82,6 @@ class KgConfig:
     host: str = field(default_factory=_short_hostname)
     capture_tools: frozenset[str] = DEFAULT_CAPTURE_TOOLS
 
-
-def _redact_private(text: str) -> str:
-    def _replace(m: re.Match[str]) -> str:
-        h = hashlib.sha256(m.group(1).encode("utf-8")).hexdigest()[:8]
-        return f"<REDACTED:{h}>"
-
-    return _PRIVATE_RE.sub(_replace, text)
 
 
 def _resolve_tool_name(event: dict[str, Any]) -> str:
@@ -151,8 +143,17 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / f"{now.strftime('%H')}-events.jsonl"
 
-        raw_blob = json.dumps(event, ensure_ascii=False, default=str)
-        safe_blob = _redact_private(raw_blob)
+        # Redact field-by-field before serialisation so that fail-closed
+        # redaction on an unbalanced <private> tag never corrupts the JSON
+        # structure (redacting the serialised blob could eat closing quotes).
+        redacted_event: dict[str, Any] = _privacy_redact_value(event)
+        # Replace canonical [REDACTED] tokens with the hash-tagged form the
+        # KG worker expects, so operators can correlate audit entries.
+        original_blob = json.dumps(event, ensure_ascii=False, default=str)
+        h = hashlib.sha256(original_blob.encode("utf-8")).hexdigest()[:8]
+        safe_blob = json.dumps(redacted_event, ensure_ascii=False, default=str).replace(
+            "[REDACTED]", f"<REDACTED:{h}>"
+        )
         content_hash = hashlib.sha256(safe_blob.encode("utf-8")).hexdigest()
 
         record = {

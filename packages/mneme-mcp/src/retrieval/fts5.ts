@@ -19,6 +19,7 @@ export interface Fts5Hit {
 	title: string;
 	rank: number;
 	contentRaw: string;
+	bodyText: string;
 	mtime: number;
 	frontmatterType: string;
 	sessionId: string;
@@ -40,9 +41,11 @@ export interface Fts5SearchOptions {
  * - Drops empty tokens.
  * - Filters by `minTokenLength` to skip noisy single letters.
  * - Drops tokens in the `stopwords` set.
- * - Quotes each token so reserved FTS5 syntax (`OR`, `NEAR`, `*`)
- *   never gets interpreted, and strips embedded double-quotes so the
- *   query cannot escape its own quoting.
+ * - Splits each word on FTS5-reserved and tokenizer-separator chars and
+ *   rejoins it as one quoted phrase, so `claude-mem` becomes
+ *   `"claude mem"` and matches the adjacent tokens unicode61 indexed
+ *   rather than the fused, unmatchable `"claudemem"`. Quoting keeps any
+ *   surviving operator literal and stops the query escaping its quoting.
  *
  * Returns an empty string when nothing survives filtering. Callers
  * MUST treat empty output as "no search" and short-circuit.
@@ -59,12 +62,16 @@ export function buildFts5Query(
 	const stopwords = opts.stopwords ?? EMPTY_STOPWORDS;
 	const norm = opts.normalize ?? identity;
 	if (typeof rawQuery !== "string" || rawQuery.length === 0) return "";
-	const tokens = rawQuery
-		.split(/\s+/)
-		.map((t) => norm(t.replace(/[":*]/g, "")))
-		.filter((t) => t.length >= minLen && !stopwords.has(t));
-	if (tokens.length === 0) return "";
-	return tokens.map((t) => `"${t}"`).join(" OR ");
+	const phrases: string[] = [];
+	for (const word of rawQuery.split(/\s+/)) {
+		const parts = word
+			.split(/[-":^*()]+/)
+			.map((p) => norm(p))
+			.filter((p) => p.length >= minLen && !stopwords.has(p));
+		if (parts.length > 0) phrases.push(`"${parts.join(" ")}"`);
+	}
+	if (phrases.length === 0) return "";
+	return phrases.join(" OR ");
 }
 
 /**
@@ -97,6 +104,7 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
         COALESCE(d.title, '') AS title,
         fts.rank AS rank,
         COALESCE(d.content_raw, '') AS content_raw,
+        COALESCE(d.body_text, '') AS body_text,
         COALESCE(d.mtime, 0) AS mtime,
         COALESCE(d.frontmatter_type, '') AS frontmatter_type,
         COALESCE(d.session_id, '') AS session_id
@@ -113,6 +121,7 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			title: string;
 			rank: number;
 			content_raw: string;
+			body_text: string;
 			mtime: number;
 			frontmatter_type: string;
 			session_id: string;
@@ -122,6 +131,7 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			title: r.title,
 			rank: r.rank,
 			contentRaw: r.content_raw,
+			bodyText: r.body_text,
 			mtime: r.mtime,
 			frontmatterType: r.frontmatter_type,
 			sessionId: r.session_id,

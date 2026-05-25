@@ -25,6 +25,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import { toMnemeError } from "./errors.js";
+import { isToolError } from "./tool_error.js";
 import { PrimeInputSchema, primeTool } from "./tools/prime.js";
 import { RecallInputSchema, recallTool } from "./tools/recall.js";
 import { SearchInputSchema, searchTool } from "./tools/search.js";
@@ -34,7 +35,7 @@ import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "1.0.1";
+const SERVER_VERSION = "1.0.2";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 
@@ -269,13 +270,9 @@ async function main(): Promise<void> {
 		try {
 			const result = await def.handler(args ?? {}, vault);
 			const payload = JSON.stringify(result, null, 2);
-			const isError =
-				typeof result === "object" &&
-				result !== null &&
-				(result as { ok?: boolean }).ok === false;
 			return {
 				content: [{ type: "text", text: payload }],
-				isError,
+				isError: isToolError(result),
 			};
 		} catch (err) {
 			const e = toMnemeError(err);

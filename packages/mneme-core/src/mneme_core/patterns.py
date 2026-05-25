@@ -36,7 +36,9 @@ from typing import Any
 
 import yaml
 
+from .privacy import redact as _privacy_redact
 from .vault.atomic_write import atomic_write_text
+from .vault.file_lock import file_lock
 
 PATTERN_TYPE = "pattern"
 PATTERN_SCHEMA_VERSION = "1.0.0"
@@ -137,12 +139,29 @@ def _parse_sections(body: str) -> dict[str, str]:
 
 
 def store_pattern(vault: Any, pattern: Pattern) -> Path:
-    """Write the pattern to the vault atomically. Returns the file path."""
+    """Write the pattern to the vault atomically. Returns the file path.
+
+    Redacts ``<private>`` content from all user-provided text fields
+    before serialisation, and serialises under an exclusive per-file
+    lock to prevent lost updates under concurrent writes.
+    """
     vault.patterns_dir.mkdir(parents=True, exist_ok=True)
     if not pattern.created_at:
         pattern.created_at = _now_iso()
+    # Redact all user-controlled text fields before writing to disk.
+    pattern = Pattern(
+        name=pattern.name,
+        signal=_privacy_redact(pattern.signal),
+        action=_privacy_redact(pattern.action),
+        outcome=_privacy_redact(pattern.outcome),
+        tags=pattern.tags,
+        created_at=pattern.created_at,
+        schema_version=pattern.schema_version,
+    )
     path = _pattern_path(vault, pattern.name)
-    atomic_write_text(path, to_markdown(pattern))
+    lock_path = path.with_suffix(".lock")
+    with file_lock(lock_path):
+        atomic_write_text(path, to_markdown(pattern))
     return path
 
 

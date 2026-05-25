@@ -1,0 +1,52 @@
+[
+  {
+    "id": "canonical",
+    "input": "before <private>secret</private> after",
+    "expected": "before [REDACTED] after"
+  },
+  {
+    "id": "uppercase",
+    "input": "text <PRIVATE>SECRET</PRIVATE> end",
+    "expected": "text [REDACTED] end"
+  },
+  {
+    "id": "mixed_case",
+    "input": "text <Private>Secret</Private> end",
+    "expected": "text [REDACTED] end"
+  },
+  {
+    "id": "attribute",
+    "input": "text <private reason=\"api key\">the-key</private> end",
+    "expected": "text [REDACTED] end"
+  },
+  {
+    "id": "inner_whitespace_open",
+    "input": "text < private >secret</ private > end",
+    "expected": "text [REDACTED] end"
+  },
+  {
+    "id": "unbalanced_open",
+    "input": "prefix <private>no closing tag here",
+    "expected": "prefix [REDACTED]"
+  },
+  {
+    "id": "multiple_tags",
+    "input": "<private>first</private> mid <private>second</private>",
+    "expected": "[REDACTED] mid [REDACTED]"
+  },
+  {
+    "id": "no_tag",
+    "input": "nothing sensitive here",
+    "expected": "nothing sensitive here"
+  },
+  {
+    "id": "multiline_body",
+    "input": "start <private>line1\nline2\nline3</private> end",
+    "expected": "start [REDACTED] end"
+  },
+  {
+    "id": "attribute_uppercase",
+    "input": "<PRIVATE reason=\"token\">secret</PRIVATE>",
+    "expected": "[REDACTED]"
+  }
+]
