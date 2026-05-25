@@ -26,6 +26,8 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 
 These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. Benchmark A uses a 500-document corpus. Benchmark E uses its default 300-document, 30-query fixture. Reproduce with `make bench-all`.
 
+**Note:** All figures below are deterministic regression anchors computed on a seeded synthetic corpus; they are not real-world quality measurements (see ADR-012).
+
 | Benchmark | Metric | Result |
 |---|---|---|
 | A. Retrieval quality | nDCG@5, RRF fused | **0.893** (FTS5 baseline 0.801, +9.2 points) |
