@@ -147,8 +147,8 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
 
     if _is_empty_session(vault.root):
         _touch_state(vault)
-        _request_kg_community_refresh(vault)
         emit(hook_event_name="Stop")
+        _request_kg_community_refresh(vault)
         return
 
     session_id = str(event.get("session_id") or "unknown")
@@ -158,8 +158,8 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
         _touch_state(vault)
     except OSError as exc:
         sys.stderr.write(f"[mneme:Stop] write failed: {exc}\n")
-    _request_kg_community_refresh(vault)
     emit(hook_event_name="Stop")
+    _request_kg_community_refresh(vault)
 
 
 def _request_kg_community_refresh(vault: VaultConfig) -> None:

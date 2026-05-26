@@ -120,6 +120,10 @@ Temporal query for a subject. Shipped default returns FTS5 hits sorted by mtime.
 }
 ```
 
+## Empty Results and Short Queries
+
+Very short or empty queries — for example `"hi"` or `"ok"` — return no results by design. The retrieval pipeline gates queries whose stripped length is below `min_query_length` (default 3 characters) **or** that contain fewer than `min_query_words` meaningful tokens after stopword removal (default 1). A blank result on a tiny query is therefore expected and explainable; send a more descriptive query to get hits.
+
 ## Error Handling
 
 All tools return a structured error envelope on failure rather than throwing a raw exception. The envelope is callable-by-Zod-schema and stable across v1.x.

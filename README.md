@@ -22,9 +22,17 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 - **Temporal reasoning.** Gated full-profile Graphiti support can enrich summarize and timeline queries when the KG active flag and local Neo4j are present. Lite installs fall back to FTS5 and mtime ordering.
 - **Pattern and trajectory memory.** First-class vault-markdown primitives for Signal/Action/Outcome patterns and per-session step recorders, queryable via the same retrieval pipeline.
 
+### On vaults and Obsidian
+
+A vault is simply a plain directory of markdown files. mneme requires no specific editor, no external application, and no Obsidian installation. You can work with your vault using `grep`, `git`, VS Code, or any text editor. The term "vault" is borrowed convention for a self-contained markdown directory, not a dependency on any particular tool.
+
+Obsidian is fully optional. Because the vault is plain markdown, a user who already uses Obsidian can point it at the same directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes. The two tools coexist cleanly: mneme stores all derived state (indexes, staging, audit logs) inside a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing, so neither tool disturbs the other. Obsidian is a convenient viewer and navigator for vault content — it is not part of mneme's capture, indexing, or retrieval path, and it must not be treated as an installation prerequisite.
+
 ## Reproducible Numbers
 
 These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. Benchmark A uses a 500-document corpus. Benchmark E uses its default 300-document, 30-query fixture. Reproduce with `make bench-all`.
+
+**Note:** All figures below are deterministic regression anchors computed on a seeded synthetic corpus; they are not real-world quality measurements (see ADR-012).
 
 | Benchmark | Metric | Result |
 |---|---|---|

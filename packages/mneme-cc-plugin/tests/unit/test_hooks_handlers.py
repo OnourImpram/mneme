@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -301,3 +302,115 @@ class TestStopHookKgWiring:
         buf = _capture(monkeypatch)
         stop_mod.handle({"session_id": "s-3"}, vault)
         assert json.loads(buf.getvalue())["continue"] is True
+
+
+class TestStopEmitBeforeKg:
+    """emit() must be called before any KG filesystem work on both paths.
+
+    The C2 constraint (Stop p95 < 1000 ms) requires that the user-visible
+    response is written to stdout before any post-session bookkeeping.
+    These tests use a call recorder to assert ordering, not just presence.
+    """
+
+    def _make_recorder(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> list[str]:
+        """Return a shared call log and patch emit + _request_kg_community_refresh."""
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        call_log: list[str] = []
+
+        real_emit = stop_mod.emit  # type: ignore[attr-defined]
+
+        def _recording_emit(**kwargs: Any) -> None:
+            call_log.append("emit")
+            real_emit(**kwargs)
+
+        def _recording_kg(v: object) -> None:
+            call_log.append("kg")
+
+        monkeypatch.setattr(stop_mod, "emit", _recording_emit)
+        monkeypatch.setattr(
+            stop_mod, "_request_kg_community_refresh", _recording_kg
+        )
+        return call_log
+
+    def test_emit_before_kg_on_non_empty_session(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        # Non-git vault always takes the non-empty path.
+        call_log = self._make_recorder(monkeypatch, vault)
+        buf = _capture(monkeypatch)
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        stop_mod.handle({"session_id": "s-order-nonempty"}, vault)
+
+        assert json.loads(buf.getvalue())["continue"] is True
+        assert call_log == ["emit", "kg"], (
+            f"Expected emit then kg, got: {call_log}"
+        )
+
+    def test_emit_before_kg_on_empty_session(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        call_log = self._make_recorder(monkeypatch, vault)
+        buf = _capture(monkeypatch)
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        monkeypatch.setattr(stop_mod, "_is_empty_session", lambda _root: True)
+        stop_mod.handle({"session_id": "s-order-empty"}, vault)
+
+        assert json.loads(buf.getvalue())["continue"] is True
+        assert call_log == ["emit", "kg"], (
+            f"Expected emit then kg, got: {call_log}"
+        )
+
+
+# C2 Stop timing budget: 1000 ms p95 on the full profile (KG active).
+# The budget covers the hot path up to and including emit(); the
+# post-emit KG marking runs after the result is already written so it
+# does not count against C2.  We measure only the emit-inclusive portion
+# by recording the timestamp at which emit() returns.
+_C2_BUDGET_MS = 1000
+
+
+class TestStopHandleTimingFullProfile:
+    """Micro-benchmark: Stop emit latency must stay under C2 budget.
+
+    Runs with KG active (full-profile proxy) so the number is no longer
+    a lite-profile proxy.  The KG mark_community_refresh is a fast
+    flag-file write gated by is_active(); its cost is post-emit and
+    therefore excluded from the C2 window by the reordering fix.
+    """
+
+    def test_stop_emit_latency_under_c2_budget_full_profile(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        _activate_kg(vault)
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        emit_elapsed_ms: list[float] = []
+
+        real_emit = stop_mod.emit  # type: ignore[attr-defined]
+
+        def _timed_emit(**kwargs: Any) -> None:
+            t0 = time.perf_counter()
+            real_emit(**kwargs)
+            emit_elapsed_ms.append((time.perf_counter() - t0) * 1000)
+
+        monkeypatch.setattr(stop_mod, "emit", _timed_emit)
+        buf = _capture(monkeypatch)
+
+        t_start = time.perf_counter()
+        stop_mod.handle({"session_id": "s-timing-full"}, vault)
+        total_to_emit_ms = (time.perf_counter() - t_start) * 1000
+
+        assert json.loads(buf.getvalue())["continue"] is True
+        assert emit_elapsed_ms, "emit was never called"
+        # The full wall time from handle() entry to emit() return must be
+        # under the C2 budget.  In practice this runs in <50 ms on any
+        # developer machine; the 1000 ms ceiling is the contractual limit.
+        assert total_to_emit_ms < _C2_BUDGET_MS, (
+            f"Stop emit latency {total_to_emit_ms:.1f} ms exceeds "
+            f"C2 budget of {_C2_BUDGET_MS} ms (full-profile run)"
+        )

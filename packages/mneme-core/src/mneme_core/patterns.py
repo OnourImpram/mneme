@@ -58,8 +58,16 @@ class Pattern:
 
 
 def _slug(name: str) -> str:
-    """Stable filename slug. Disallows traversal and unsafe characters."""
+    """Stable filename slug. Disallows traversal and unsafe characters.
+
+    Dot-runs (two or more consecutive dots) are collapsed to a single dot
+    so that ".." never survives as a slug component. Slashes are already
+    converted to hyphens by the first substitution, so path traversal is
+    blocked at that step; this rule removes the residual cosmetic issue
+    of inert ".." substrings in the output.
+    """
     s = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip())
+    s = re.sub(r"\.{2,}", ".", s)
     s = s.strip("-._") or "unnamed"
     return s.lower()
 

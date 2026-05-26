@@ -18,6 +18,7 @@ from mneme_core.fts5.locale.tr import (
 from mneme_core.retrieval.rrf import (
     DEFAULT_RRF_K,
     Hit,
+    RetrievalBackend,
     RetrievalConfig,
     build_fts5_query,
     fts5_search,
@@ -265,10 +266,10 @@ class TestRetrieve:
     def test_below_gate_returns_empty(self, indexed_db: Path) -> None:
         cfg = RetrievalConfig(
             fts5_db=indexed_db,
-            min_query_length=20,
+            min_query_length=10,
             normalize=normalize_tr,
         )
-        # Short query falls below the gate.
+        # "short" (5 chars) falls below the explicit 10-char gate.
         assert retrieve("short", cfg) == []
 
     def test_above_gate_returns_hits(self, indexed_db: Path) -> None:
@@ -332,3 +333,61 @@ class TestRetrieve:
 
     def test_default_rrf_k_constant(self) -> None:
         assert DEFAULT_RRF_K == 60
+
+
+class TestQueryGate:
+    """Truth-table acceptance tests for the word-aware query gate.
+
+    Defaults: min_query_length=3, min_query_words=1, stopwords=frozenset().
+    The gate fires (returns []) when the stripped length is below
+    min_query_length OR meaningful-token count is below min_query_words.
+
+    Strategy: point fts5_db at a nonexistent path so fts5_search always
+    returns [].  Inject a recording stub as dense_backend so we can
+    distinguish "gate fired" (stub never called) from "gate passed"
+    (stub called, returns [] because no real DB, but the call happened).
+    """
+
+    def _stub(self, calls: list[str]) -> RetrievalBackend:
+        def _backend(q: str, limit: int) -> list[Hit]:
+            calls.append(q)
+            return []
+
+        return _backend  # type: ignore[return-value]
+
+    def _cfg(self, missing_db: Path) -> RetrievalConfig:
+        return RetrievalConfig(
+            fts5_db=missing_db,
+            min_query_length=3,
+            min_query_words=1,
+        )
+
+    # ------------------------------------------------------------------ gated
+    @pytest.mark.parametrize("query", ["", "   ", "hi", "ok"])
+    def test_gated_queries_return_empty_and_skip_backend(
+        self, tmp_path: Path, query: str
+    ) -> None:
+        calls: list[str] = []
+        result = retrieve(
+            query,
+            self._cfg(tmp_path / "no.db"),
+            dense_backend=self._stub(calls),
+        )
+        assert result == [], f"{query!r} should be gated"
+        assert calls == [], f"{query!r} should not reach backend; calls={calls}"
+
+    # --------------------------------------------------------------- not gated
+    @pytest.mark.parametrize(
+        "query",
+        ["auth flow bug", "kg drain", "rrf k", "migration"],
+    )
+    def test_non_gated_queries_reach_backend(
+        self, tmp_path: Path, query: str
+    ) -> None:
+        calls: list[str] = []
+        retrieve(
+            query,
+            self._cfg(tmp_path / "no.db"),
+            dense_backend=self._stub(calls),
+        )
+        assert calls, f"{query!r} should reach backend but stub was never called"
