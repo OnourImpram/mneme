@@ -8,7 +8,7 @@
 
 FTS5 retrieval, RRF-ready core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
 
-**Status**: v1.0.1 repo hardening. Public package, plugin, runtime, and documentation version sources are aligned for the next GitHub release gate.
+**Status**: public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (12 sources, verified in CI), so no single declared version can drift.
 
 ## Why mneme
 
@@ -27,6 +27,26 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 A vault is simply a plain directory of markdown files. mneme requires no specific editor, no external application, and no Obsidian installation. You can work with your vault using `grep`, `git`, VS Code, or any text editor. The term "vault" is borrowed convention for a self-contained markdown directory, not a dependency on any particular tool.
 
 Obsidian is fully optional. Because the vault is plain markdown, a user who already uses Obsidian can point it at the same directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes. The two tools coexist cleanly: mneme stores all derived state (indexes, staging, audit logs) inside a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing, so neither tool disturbs the other. Obsidian is a convenient viewer and navigator for vault content — it is not part of mneme's capture, indexing, or retrieval path, and it must not be treated as an installation prerequisite.
+
+## Implementation Status
+
+An honest, at-a-glance map of what is shipped today versus what is gated behind optional infrastructure or still on the roadmap. **Shipped** means present in the default install path and covered by CI. **Gated** means implemented but inactive until you provide the optional dependency. **Roadmap** means designed (often with a seam or protocol already in place) but not yet packaged.
+
+| Capability | Status | Detail |
+|---|---|---|
+| FTS5 BM25 retrieval (`mneme_search`) | Shipped | default MCP search path |
+| RRF fusion protocol | Shipped | `mneme-core/retrieval/rrf.py`; FTS5-fed by default |
+| `<private>` redaction + SHA256 audit | Shipped | staging write, Python + TypeScript mirror |
+| Zero-LLM deterministic Stop capture | Shipped | `Stop` hook appends a typed session doc |
+| Adaptive context layer | Shipped | shell compress, injection dedup, adaptive top-k |
+| Pattern + trajectory memory | Shipped | vault-markdown primitives |
+| Claude Code plugin | Shipped (native) | 5 lifecycle hooks + 2 skills + MCP |
+| Codex plugin | Shipped (native) | 4 hooks + skills + MCP |
+| Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
+| KG temporal enrichment (summarize, timeline) | Gated | full profile only: Docker + Neo4j + Graphiti |
+| Dense / LEANN adapter | Roadmap | RRF seam shipped; adapter not packaged |
+| Default dense or KG leg inside `mneme_search` | Roadmap | search is FTS5-only by default |
+| Tree-sitter code priming | Roadmap (v1.2) | separate `mneme-code` package |
 
 ## Reproducible Numbers
 
