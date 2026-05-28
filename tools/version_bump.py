@@ -11,10 +11,11 @@ together:
 5. ``package.json`` (workspace root)              (SemVer)
 6. runtime constants, Codex plugin manifest, Claude plugin manifest,
    and Claude plugin marketplace entry.
+7. ``CITATION.cff`` (YAML ``version:`` field) for Zenodo/citation metadata.
 
 The script accepts a SemVer string (``1.0.0``, ``1.0.0-rc.1``,
 ``1.0.0-alpha.0``) and writes the PEP 440 equivalent to the
-mneme-core pyproject and the SemVer literal to the other four.
+mneme-core pyproject and the SemVer literal to the remaining sources.
 
 PEP 440 mapping:
 
@@ -169,6 +170,14 @@ SOURCES: tuple[VersionSource, ...] = (
         flavor="semver-tsconst",
         runtime_pattern=r'(const\s+SERVER_VERSION\s*=\s*)"([^"]+)"',
     ),
+    # Citation metadata. Kept in lockstep so the Zenodo/CITATION record never
+    # drifts from the package version again (the 1.0.2/1.0.3 split that the
+    # fifth review caught originated here, when CITATION.cff was not a source).
+    VersionSource(
+        label="CITATION.cff",
+        path=REPO_ROOT / "CITATION.cff",
+        flavor="semver-yaml",
+    ),
 )
 
 
@@ -248,6 +257,17 @@ def read_version(source: VersionSource) -> str:
         if not m:
             raise ValueError(f"No version field in {source.label}")
         return m.group(1)
+    if source.flavor == "semver-yaml":
+        # CITATION.cff: bare ``version: X.Y.Z`` YAML scalar (optionally quoted).
+        # The anchored ``^version:`` never matches line 1's ``cff-version:``.
+        m = re.search(
+            r"""^version:[ \t]*["']?([^"'\n]+)["']?[ \t]*$""",
+            text,
+            re.MULTILINE,
+        )
+        if not m:
+            raise ValueError(f"No version field in {source.label}")
+        return m.group(1)
     if source.flavor in {"semver-json"}:
         data = json.loads(text)
         if source.json_path is not None:
@@ -289,6 +309,16 @@ def write_version(source: VersionSource, new_semver: str) -> None:
             count=1,
             flags=re.MULTILINE,
         )
+    elif source.flavor == "semver-yaml":
+        updated = re.sub(
+            r"""^(version:[ \t]*)["']?[^"'\n]+["']?[ \t]*$""",
+            f"\\g<1>{new_semver}",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if updated == text:
+            raise ValueError(f"No replacement performed in {source.label}")
     elif source.flavor == "semver-json":
         data = json.loads(text)
         if source.json_path is not None:
