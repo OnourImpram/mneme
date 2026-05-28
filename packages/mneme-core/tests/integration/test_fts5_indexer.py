@@ -705,3 +705,100 @@ class TestMigrateSchema:
         assert "id: x" not in row[0]
 
         conn.close()
+
+
+class TestCanonicalFrontmatterParity:
+    """Phase A3: the indexer parses frontmatter through the canonical
+    ``vault.frontmatter.parse`` so the index can never disagree with the
+    reader about a document's type or tags. These guard the two real
+    divergences the hand-rolled line parser had: flow-style YAML sequences
+    and inline YAML comments.
+    """
+
+    def _index_one(
+        self, tmp_path: Path, doc: str
+    ) -> tuple[str, str] | None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text(doc, encoding="utf-8")
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(
+            conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        )
+        row = conn.execute(
+            "SELECT tags, frontmatter_type FROM documents WHERE path='doc.md'"
+        ).fetchone()
+        conn.close()
+        return row
+
+    def test_flow_style_tags_stored_as_clean_tokens(self, tmp_path: Path) -> None:
+        # Flow-style YAML sequence. The hand-rolled parser stored the literal
+        # "[alpha, beta]"; the canonical YAML parser yields a real list that
+        # the indexer joins to a clean token string.
+        row = self._index_one(
+            tmp_path,
+            "---\nid: a\ntype: session\ntags: [alpha, beta]\n---\n# T\nbody\n",
+        )
+        assert row is not None
+        assert row[0] == "alpha beta"
+        assert "[" not in row[0]
+
+    def test_flow_style_tags_are_searchable(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "doc.md").write_text(
+            "---\nid: a\ntype: session\ntags: [alpha, beta]\n---\n# T\nbody\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(
+            conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        )
+        hits = conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("alpha",),
+        ).fetchall()
+        conn.close()
+        assert len(hits) == 1
+
+    def test_inline_comment_on_type_is_stripped(self, tmp_path: Path) -> None:
+        # A YAML inline comment must not leak into frontmatter_type, or a
+        # ``WHERE frontmatter_type='session'`` query would miss the row.
+        row = self._index_one(
+            tmp_path,
+            "---\nid: a\ntype: session  # primary\n---\n# T\nbody\n",
+        )
+        assert row is not None
+        assert row[1] == "session"
+
+    def test_malformed_frontmatter_still_indexed_for_recall(
+        self, tmp_path: Path
+    ) -> None:
+        # A present-but-invalid frontmatter block (missing the required
+        # id/type/created keys) must not drop the file from the index:
+        # recall beats strictness for the indexer, which favors findability.
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "bad.md").write_text(
+            "---\nnote: just a stray key\n---\n# T\nbody uniquebadtoken\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        stats = index_vault(
+            conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        )
+        assert stats.indexed == 1
+        row = conn.execute(
+            "SELECT frontmatter_type FROM documents WHERE path='bad.md'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == ""
+        hits = conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("uniquebadtoken",),
+        ).fetchall()
+        conn.close()
+        assert len(hits) == 1
