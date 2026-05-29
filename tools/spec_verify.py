@@ -43,6 +43,11 @@ CRITICAL_HOOKS: frozenset[str] = frozenset(
         "session_start",
         "stop",
         "pre_compact",
+        # session_end and post_tool_use also execute on the live session path,
+        # so the C3 no-network import scan covers them too (defense in depth
+        # alongside the transitive runtime no-network test).
+        "session_end",
+        "post_tool_use",
     }
 )
 
