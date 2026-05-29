@@ -614,6 +614,140 @@ def _default_antigravity_extensions_dir() -> Path:
     return Path.home() / ".gemini" / "extensions"
 
 
+# ---------------------------------------------------------------------------
+# GenericMcpTarget — open, opt-in, model-agnostic MCP adapter
+# ---------------------------------------------------------------------------
+
+#: The server name written into the mcpServers object.
+_GENERIC_MCP_SERVER_NAME = "mneme"
+
+
+@dataclass
+class GenericMcpTarget:
+    """Write the mneme MCP server stanza into any MCP-capable client's config.
+
+    This is the **open adapter** surface: no lifecycle hooks, no auto-capture,
+    no skills.  The model calls ``mneme_*`` MCP tools when it chooses to.  Any
+    client that reads an ``mcpServers`` JSON object (Cline, Cursor, Claude
+    Desktop, and many others) can be wired here without client-specific code.
+
+    The config file is expected to be a JSON object (dict at the top level).
+    The installer merges exactly one key — ``mcpServers.mneme`` — and leaves
+    every other key and every other server entry intact.  Writes are atomic
+    (tmp + os.replace) to prevent truncation on a mid-write crash.
+
+    Idempotent: if ``mcpServers.mneme`` is already set to the identical stanza,
+    ``register`` returns an "already present" message without rewriting.
+
+    Error contract
+    --------------
+    - File does not exist → create it (with parent dirs).
+    - File exists, valid JSON object → merge.
+    - File exists, NOT valid JSON or not a JSON object → raise
+      ``click.ClickException`` (never clobber unknown content).
+    """
+
+    config_path: Path
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _atomic_write(self, content: str) -> None:
+        """Write *content* to ``config_path`` via a sibling tmp, then os.replace."""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.config_path.with_suffix(
+            self.config_path.suffix + ".mneme-tmp"
+        )
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, self.config_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    def _read_config(self) -> dict[str, object]:
+        """Read and parse the config file, raising ClickException on bad JSON."""
+        text = self.config_path.read_text(encoding="utf-8")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(
+                f"mcp: {self.config_path} is not valid JSON and will not be "
+                f"modified. Fix or remove it first. Parser error: {exc}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise click.ClickException(
+                f"mcp: {self.config_path} is valid JSON but its top level is "
+                f"{type(data).__name__}, not an object. "
+                "Cannot merge mcpServers into a non-object root."
+            )
+        return data
+
+    @staticmethod
+    def _mneme_stanza(vault_root: Path) -> dict[str, object]:
+        return {
+            "command": "mneme-mcp",
+            "env": {"MNEME_VAULT": str(vault_root)},
+        }
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def register(self, vault_root: Path) -> str:
+        """Merge ``mcpServers.mneme`` into the config and write atomically.
+
+        Returns a human-readable status string (suitable for ``click.echo``).
+        """
+        stanza = self._mneme_stanza(vault_root)
+
+        if self.config_path.exists():
+            data = self._read_config()
+        else:
+            data = {}
+
+        # Ensure mcpServers key exists.
+        if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+            data["mcpServers"] = {}
+
+        mcp_servers: dict[str, object] = data["mcpServers"]  # type: ignore[assignment]
+
+        # Idempotency check — skip write if stanza is already identical.
+        if mcp_servers.get(_GENERIC_MCP_SERVER_NAME) == stanza:
+            return (
+                f"mcp: mneme server already present in {self.config_path} "
+                "(no changes written)"
+            )
+
+        mcp_servers[_GENERIC_MCP_SERVER_NAME] = stanza
+        self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return f"mcp: mneme server registered in {self.config_path}"
+
+    def unregister(self) -> str:
+        """Remove ``mcpServers.mneme`` from the config if present.
+
+        Leaves all other keys and servers intact.  Returns a status string.
+        """
+        if not self.config_path.exists():
+            return (
+                f"mcp: {self.config_path} does not exist, nothing to remove"
+            )
+
+        data = self._read_config()
+        mcp_servers = data.get("mcpServers")
+
+        if not isinstance(mcp_servers, dict) or _GENERIC_MCP_SERVER_NAME not in mcp_servers:
+            return (
+                f"mcp: mneme server not found in {self.config_path}, "
+                "nothing to remove"
+            )
+
+        del mcp_servers[_GENERIC_MCP_SERVER_NAME]
+        self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return f"mcp: mneme server removed from {self.config_path}"
+
+
 @dataclass
 class AntigravityTarget:
     """Materialise the mneme Gemini extension into the Antigravity extensions dir.
@@ -726,7 +860,7 @@ def cli() -> None:  # pragma: no cover - dispatcher
 )
 @click.option(
     "--client",
-    type=click.Choice(["claude-code", "codex", "antigravity", "all"]),
+    type=click.Choice(["claude-code", "codex", "antigravity", "mcp", "all"]),
     default="claude-code",
     show_default=True,
     help="Which client(s) to wire mneme into.",
@@ -767,6 +901,16 @@ def cli() -> None:  # pragma: no cover - dispatcher
     help="Antigravity extensions dir. Defaults to ~/.gemini/extensions.",
 )
 @click.option(
+    "--config",
+    "mcp_config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to the MCP client's JSON config file (required for --client mcp). "
+        "Example: ~/.config/some-client/mcp.json"
+    ),
+)
+@click.option(
     "--skip-python", is_flag=True, help="Skip pip install (for editable monorepo dev)."
 )
 @click.option(
@@ -782,12 +926,21 @@ def install(
     codex_config: Path | None,
     backup_dir: Path | None,
     antigravity_extensions_dir: Path | None,
+    mcp_config: Path | None,
     skip_python: bool,
     skip_node: bool,
     dry_run: bool,
 ) -> None:
     if upgrade_profile is not None:
         profile = upgrade_profile
+
+    # --client mcp requires --config <path>; reject early with a clear message.
+    if client == "mcp" and mcp_config is None:
+        raise click.ClickException(
+            "--client mcp requires --config <path> pointing to your MCP "
+            "client's JSON config file (e.g. ~/.config/my-client/mcp.json)."
+        )
+
     cfg = InstallerConfig(
         profile=profile,
         vault_root=(vault_root or _default_vault_root()).expanduser().resolve(),
@@ -830,6 +983,12 @@ def install(
                 .resolve()
             )
             inst._say(ag_target.register(cfg.vault_root))
+        if client == "mcp":
+            # mcp_config is guaranteed non-None by the guard above.
+            mcp_target = GenericMcpTarget(
+                config_path=mcp_config.expanduser().resolve()  # type: ignore[union-attr]
+            )
+            inst._say(mcp_target.register(cfg.vault_root))
     inst._say(
         f"mneme install complete (profile={profile}, client={client}, "
         f"vault={cfg.vault_root})"
@@ -857,7 +1016,7 @@ def upgrade(profile: str) -> None:
 @cli.command(help="Remove mneme from Claude Code and/or Codex and/or Antigravity.")
 @click.option(
     "--client",
-    type=click.Choice(["claude-code", "codex", "antigravity", "all"]),
+    type=click.Choice(["claude-code", "codex", "antigravity", "mcp", "all"]),
     default="claude-code",
     show_default=True,
     help="Which client(s) to remove mneme from.",
@@ -887,13 +1046,31 @@ def upgrade(profile: str) -> None:
     default=None,
     help="Antigravity extensions dir. Defaults to ~/.gemini/extensions.",
 )
+@click.option(
+    "--config",
+    "mcp_config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to the MCP client's JSON config file (required for --client mcp). "
+        "Example: ~/.config/some-client/mcp.json"
+    ),
+)
 def uninstall(
     client: str,
     settings_path: Path | None,
     codex_config: Path | None,
     backup_dir: Path | None,
     antigravity_extensions_dir: Path | None,
+    mcp_config: Path | None,
 ) -> None:
+    # --client mcp requires --config <path>; reject early with a clear message.
+    if client == "mcp" and mcp_config is None:
+        raise click.ClickException(
+            "--client mcp requires --config <path> pointing to your MCP "
+            "client's JSON config file (e.g. ~/.config/my-client/mcp.json)."
+        )
+
     if client in ("claude-code", "all"):
         cfg = InstallerConfig(
             profile=DEFAULT_PROFILE,
@@ -923,6 +1100,12 @@ def uninstall(
             .resolve()
         )
         click.echo(ag_target.unregister())
+    if client == "mcp":
+        # mcp_config is guaranteed non-None by the guard above.
+        mcp_target = GenericMcpTarget(
+            config_path=mcp_config.expanduser().resolve()  # type: ignore[union-attr]
+        )
+        click.echo(mcp_target.unregister())
 
 
 @cli.command(help="Print environment diagnostic without mutation.")
