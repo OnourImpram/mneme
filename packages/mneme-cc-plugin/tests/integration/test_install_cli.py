@@ -8,6 +8,7 @@ an injected runner that records calls.
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -436,3 +437,120 @@ class TestCodexTarget:
         assert "already present" in target.register(tmp_path / "vault")
         target.unregister()
         assert CODEX_BLOCK_START not in cfg.read_text(encoding="utf-8")
+
+
+class TestHookCommandEscaping:
+    """F2: _hook_command must produce a well-formed command string.
+
+    On Windows the interpreter is wrapped in double-quotes.  On POSIX
+    shlex.quote is used, which correctly handles spaces and embedded
+    single-quotes.
+    """
+
+    def _make_installer(self, tmp_path: Path) -> Installer:
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}", encoding="utf-8")
+        cfg = InstallerConfig(
+            profile="lite",
+            vault_root=tmp_path / "vault",
+            settings_path=settings,
+            backup_dir=tmp_path / "bak",
+        )
+        return Installer(config=cfg)
+
+    def test_win32_path_with_space_is_double_quoted(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        inst = self._make_installer(tmp_path)
+        monkeypatch.setattr("sys.platform", "win32")
+        monkeypatch.setattr(
+            "mneme_cc_plugin.install.cli.shutil.which", lambda _: None
+        )
+        monkeypatch.setattr(sys, "executable", r"C:\Program Files\Python\python.exe")
+        cmd = inst._hook_command("Stop")
+        assert cmd.startswith('"C:\\Program Files\\Python\\python.exe"')
+        assert "mneme_cc_plugin.install.cli hook stop" in cmd
+
+    def test_posix_path_with_space_is_shell_quoted(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        inst = self._make_installer(tmp_path)
+        monkeypatch.setattr("sys.platform", "linux")
+        monkeypatch.setattr(
+            "mneme_cc_plugin.install.cli.shutil.which", lambda _: None
+        )
+        monkeypatch.setattr(sys, "executable", "/home/alice/my venv/bin/python")
+        cmd = inst._hook_command("Stop")
+        # shlex.quote wraps with single-quotes for paths containing spaces.
+        assert "'/home/alice/my venv/bin/python'" in cmd
+        assert "mneme_cc_plugin.install.cli hook stop" in cmd
+
+    def test_posix_path_with_single_quote_is_escaped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        inst = self._make_installer(tmp_path)
+        monkeypatch.setattr("sys.platform", "linux")
+        monkeypatch.setattr(
+            "mneme_cc_plugin.install.cli.shutil.which", lambda _: None
+        )
+        monkeypatch.setattr(sys, "executable", "/home/alice/it's/python")
+        cmd = inst._hook_command("Stop")
+        import shlex as _shlex
+
+        # Round-trip: splitting the produced command must not raise and
+        # the first token must resolve back to the original executable.
+        tokens = _shlex.split(cmd)
+        assert tokens[0] == "/home/alice/it's/python"
+
+
+class TestCodexTargetAtomicWrite:
+    """F3: CodexTarget.register / unregister must write atomically.
+
+    The original code called config_path.write_text() directly, which
+    leaves a truncated file on a mid-write crash.  The fix routes all
+    writes through _atomic_write (tmp-then-os.replace).
+
+    We verify atomicity indirectly by asserting:
+    - No leftover .mneme-tmp sibling after a normal register/unregister.
+    - The resulting file content is correct after register and unregister.
+    """
+
+    def test_register_no_tmp_leftover(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        target = CodexTarget(config_path=cfg)
+        target.register(tmp_path / "vault")
+        leftover = list(tmp_path.glob("*.mneme-tmp"))
+        assert leftover == [], f"tmp file not cleaned up: {leftover}"
+
+    def test_register_content_correct(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        target = CodexTarget(config_path=cfg)
+        target.register(tmp_path / "vault")
+        text = cfg.read_text(encoding="utf-8")
+        assert "[mcp_servers.mneme]" in text
+        assert 'command = "mneme-mcp"' in text
+
+    def test_unregister_no_tmp_leftover(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        target = CodexTarget(config_path=cfg)
+        target.register(tmp_path / "vault")
+        target.unregister()
+        leftover = list(tmp_path.glob("*.mneme-tmp"))
+        assert leftover == [], f"tmp file not cleaned up: {leftover}"
+
+    def test_unregister_removes_block(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        target = CodexTarget(config_path=cfg)
+        target.register(tmp_path / "vault")
+        target.unregister()
+        text = cfg.read_text(encoding="utf-8")
+        assert "[mcp_servers.mneme]" not in text
+
+    def test_register_preserves_existing_content(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.toml"
+        cfg.write_text('model = "gpt-5"\n', encoding="utf-8")
+        target = CodexTarget(config_path=cfg)
+        target.register(tmp_path / "vault")
+        text = cfg.read_text(encoding="utf-8")
+        assert 'model = "gpt-5"' in text
+        assert "[mcp_servers.mneme]" in text

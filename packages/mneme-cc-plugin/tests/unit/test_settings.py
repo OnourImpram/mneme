@@ -146,6 +146,31 @@ class TestWriteSettings:
         )
         assert file_has_bom(target) is False
 
+    # F1: backup_path must be None when the target did not exist beforehand
+    def test_backup_path_is_none_when_target_missing(self, tmp_path: Path) -> None:
+        target = tmp_path / "new.json"
+        result = write_settings(
+            target,
+            {"k": "v"},
+            backup_dir=tmp_path / "bak",
+            preserve_bom=False,
+        )
+        assert result.backup_path is None
+
+    # F1: backup_path must point to an actually created file when target existed
+    def test_backup_path_exists_when_target_present(self, tmp_path: Path) -> None:
+        target = tmp_path / "s.json"
+        _write_without_bom(target, {"k": "v"})
+        result = write_settings(
+            target,
+            {"k": "v2"},
+            backup_dir=tmp_path / "bak",
+            reason="test-backup",
+        )
+        assert result.backup_path is not None
+        assert result.backup_path.exists()
+        assert "test-backup" in result.backup_path.name
+
 
 class TestAddHook:
     def test_appends_new_event_handler(self) -> None:

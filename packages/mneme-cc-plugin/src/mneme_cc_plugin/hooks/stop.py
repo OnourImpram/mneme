@@ -146,7 +146,10 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
         return
 
     if _is_empty_session(vault.root):
-        _touch_state(vault)
+        try:
+            _touch_state(vault)
+        except OSError as exc:
+            sys.stderr.write(f"[mneme:Stop] state touch failed: {exc}\n")
         emit(hook_event_name="Stop")
         _request_kg_community_refresh(vault)
         return

@@ -62,4 +62,4 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing"
+addopts = "-ra --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing --cov-fail-under=80"

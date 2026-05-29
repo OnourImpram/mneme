@@ -28,6 +28,8 @@ argument lists so user-supplied data is never shell-interpolated.
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -232,7 +234,15 @@ class Installer:
         sub = HOOK_EVENT_COMMAND[event]
         if shutil.which("mneme"):
             return f"mneme hook {sub}"
-        return f'"{sys.executable}" -m mneme_cc_plugin.install.cli hook {sub}'
+        # On Windows, double-quoting the interpreter path is correct shell
+        # syntax for paths with spaces; quotes inside the path are not
+        # supported by cmd.exe so we accept that limitation. On POSIX we
+        # use shlex.quote which handles both spaces and embedded quotes.
+        if sys.platform == "win32":
+            quoted = f'"{sys.executable}"'
+        else:
+            quoted = shlex.quote(sys.executable)
+        return f"{quoted} -m mneme_cc_plugin.install.cli hook {sub}"
 
     def register_hooks(self) -> None:
         if not self.config.settings_path.exists():
@@ -370,6 +380,22 @@ class CodexTarget:
             f"{CODEX_BLOCK_END}\n"
         )
 
+    def _atomic_write(self, content: str) -> None:
+        """Write ``content`` to ``config_path`` via a sibling tmp file.
+
+        Uses ``os.replace`` for an atomic overwrite so a crash mid-write
+        cannot truncate the user's Codex config. Mirrors the discipline
+        in ``settings.write_settings`` / ``atomic_write_text``.
+        """
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.config_path.with_suffix(self.config_path.suffix + ".mneme-tmp")
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, self.config_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
     def register(self, vault_root: Path) -> str:
         existing = (
             self.config_path.read_text(encoding="utf-8")
@@ -378,13 +404,12 @@ class CodexTarget:
         )
         if CODEX_BLOCK_START in existing:
             return "codex: mneme MCP block already present in config.toml"
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         prefix = existing
         if prefix and not prefix.endswith("\n"):
             prefix += "\n"
         if prefix:
             prefix += "\n"
-        self.config_path.write_text(prefix + self._block(vault_root), encoding="utf-8")
+        self._atomic_write(prefix + self._block(vault_root))
         return "codex: mneme MCP server registered in config.toml"
 
     def unregister(self) -> str:
@@ -393,9 +418,8 @@ class CodexTarget:
         text = self.config_path.read_text(encoding="utf-8")
         if CODEX_BLOCK_START not in text:
             return "codex: no mneme block present in config.toml"
-        self.config_path.write_text(
-            _strip_managed_block(text, CODEX_BLOCK_START, CODEX_BLOCK_END),
-            encoding="utf-8",
+        self._atomic_write(
+            _strip_managed_block(text, CODEX_BLOCK_START, CODEX_BLOCK_END)
         )
         return "codex: mneme MCP block removed from config.toml"
 
