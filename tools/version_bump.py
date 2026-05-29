@@ -178,6 +178,19 @@ SOURCES: tuple[VersionSource, ...] = (
         path=REPO_ROOT / "CITATION.cff",
         flavor="semver-yaml",
     ),
+    # Antigravity (Gemini extension) manifest. Keeps the install surface
+    # aligned with the rest of the release sources.
+    VersionSource(
+        label="mneme-antigravity-plugin manifest",
+        path=(
+            REPO_ROOT
+            / "packages"
+            / "mneme-antigravity-plugin"
+            / "gemini-extension.json"
+        ),
+        flavor="semver-json",
+        json_key="version",
+    ),
 )
 
 

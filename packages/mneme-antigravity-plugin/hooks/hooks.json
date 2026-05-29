@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mneme hook session-start",
+            "statusMessage": "Priming mneme vault context"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|Task|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "mneme hook post-tool-use" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook stop" }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook pre-compact" }
+        ]
+      }
+    ]
+  }
+}

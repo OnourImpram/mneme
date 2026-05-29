@@ -59,6 +59,9 @@ jobs:
       - name: Codex plugin manifest verifier
         run: python3 tools/validate_codex_plugin.py packages/mneme-codex-plugin
 
+      - name: Antigravity plugin manifest verifier
+        run: python3 tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin
+
       - name: Public repo integrity verifier
         run: python3 tools/repo_integrity.py
 
