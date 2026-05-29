@@ -59,15 +59,27 @@ sys.path.insert(0, str(_REPO_ROOT / "packages" / "mneme-core" / "src"))
 # local run, or a platform without a wheel) this falls back to the stdlib
 # silently. Local numbers may then differ from the pinned baseline, but the
 # guard only penalises drops, so a higher local number still passes.
+_PINNED_SQLITE = False
 try:
     import pysqlite3  # type: ignore[import-not-found]
 
     sys.modules["sqlite3"] = pysqlite3
     sys.modules["sqlite3.dbapi2"] = pysqlite3.dbapi2
+    _PINNED_SQLITE = True
 except ImportError:
     pass
 
 import sqlite3  # noqa: E402  (resolves to pysqlite3 when pinned, else stdlib)
+
+# Surface the effective SQLite build on stderr so a CI run records which
+# library produced the numbers; the locked baseline is anchored to the pinned
+# build, and a silent stdlib fallback (pinned=False) would otherwise be hard to
+# tell apart from a real regression.
+print(
+    f"[bench] sqlite3={sqlite3.sqlite_version} pinned={_PINNED_SQLITE} "
+    f"exe={sys.executable}",
+    file=sys.stderr,
+)
 
 from mneme_core.bench import (  # noqa: E402
     SyntheticCorpus,
