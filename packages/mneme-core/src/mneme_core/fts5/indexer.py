@@ -326,12 +326,31 @@ def index_vault(
     paths = sorted(config.vault_root.rglob("*.md"))
     stats.total_seen = len(paths)
 
+    # Resolve the vault root once so every file's realpath can be checked
+    # against it below (vault-escape containment).
+    vault_root_resolved = config.vault_root.resolve()
+
     # Collect relative paths for every eligible file seen this pass so that
     # we can prune stale rows at the end of a full (non-incremental) run.
     live_paths: set[str] = set()
 
     for md_path in paths:
         if not _should_index(md_path, config.vault_root, config.exclude_patterns):
+            stats.skipped_excluded += 1
+            continue
+
+        # rglob follows symlinks, and ``_should_index`` only checks the lexical
+        # relative path. Reject any file whose realpath escapes the vault root,
+        # so a symlink planted inside the vault that points outside it (e.g.
+        # ``vault/private.md`` -> ``~/.ssh/id_rsa``) is not read and indexed,
+        # which would otherwise leak out-of-vault file contents through search.
+        # Mirrors the TypeScript ``assertWithinVault`` write-path guard.
+        try:
+            resolved = md_path.resolve()
+        except OSError:
+            stats.skipped_error += 1
+            continue
+        if not resolved.is_relative_to(vault_root_resolved):
             stats.skipped_excluded += 1
             continue
 
