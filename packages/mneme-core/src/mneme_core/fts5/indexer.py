@@ -30,6 +30,7 @@ from typing import Any
 
 import yaml
 
+from ..retrieval.rrf import build_fts5_query
 from ..vault.frontmatter import load_yaml_block
 
 DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
@@ -435,23 +436,31 @@ def index_vault(
     # Only performed on a full pass (since_mtime == 0.0) to keep incremental
     # runs cheap and to avoid deleting files that were simply older than the
     # since_mtime threshold.
-    if since_mtime == 0.0 and live_paths:
-        placeholders = ",".join("?" * len(live_paths))
-        live_list = list(live_paths)
-        conn.execute(
-            f"DELETE FROM documents_fts WHERE rowid IN ("
-            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-            live_list,
-        )
-        conn.execute(
-            f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
-            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-            live_list,
-        )
-        conn.execute(
-            f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
-            live_list,
-        )
+    # When live_paths is empty every eligible file was excluded — delete ALL
+    # rows so stale entries from a previously indexed vault do not survive.
+    if since_mtime == 0.0:
+        if live_paths:
+            placeholders = ",".join("?" * len(live_paths))
+            live_list = list(live_paths)
+            conn.execute(
+                f"DELETE FROM documents_fts WHERE rowid IN ("
+                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+                live_list,
+            )
+            conn.execute(
+                f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
+                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+                live_list,
+            )
+            conn.execute(
+                f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
+                live_list,
+            )
+        else:
+            # No eligible files survived the pass — wipe all rows.
+            conn.execute("DELETE FROM documents_fts")
+            conn.execute("DELETE FROM documents_ascii_fts")
+            conn.execute("DELETE FROM documents")
 
     conn.commit()
     return stats
@@ -486,12 +495,19 @@ def benchmark_queries(
     result_counts: list[int] = []
     for q in queries:
         q_norm = normalize(q)
-        q_escaped = '"' + q_norm.replace('"', '""') + '"'
+        # Use the same production query builder so benchmark latencies reflect
+        # the OR-of-phrases form actually executed at retrieval time, not a
+        # single-phrase query that diverges from production behavior.
+        q_fts = build_fts5_query(q_norm)
+        if not q_fts:
+            latencies_ms.append(-1.0)
+            result_counts.append(0)
+            continue
         try:
             t0 = time.perf_counter()
             rows = conn.execute(
                 "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? LIMIT 50",
-                (q_escaped,),
+                (q_fts,),
             ).fetchall()
             elapsed = (time.perf_counter() - t0) * 1000
             latencies_ms.append(elapsed)

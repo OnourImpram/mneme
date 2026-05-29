@@ -42,6 +42,7 @@ from typing import Any
 from ..vault.atomic_write import atomic_write_text
 from .config import CompressionConfig
 from .ledger import (
+    LedgerCorruptError,
     append_cost,
     check_cap,
     reserve_cost,
@@ -235,9 +236,14 @@ def _append_to_daily_log(
 
 
 def _truncate_payload(payload: str, limit: int) -> str:
-    if len(payload.encode("utf-8")) <= limit:
+    encoded = payload.encode("utf-8")
+    if len(encoded) <= limit:
         return payload
-    return payload[:limit] + "\n...[TRUNCATED]"
+    # Truncate in bytes to respect the byte-level limit, then decode with
+    # errors="ignore" to drop any incomplete multibyte sequence at the cut
+    # point rather than producing an invalid character or raising.
+    truncated = encoded[:limit].decode("utf-8", errors="ignore")
+    return truncated + "\n...[TRUNCATED]"
 
 
 # Pricing-per-million-tokens lookup uses ``DEFAULT_PRICING_PER_MTOK`` from
@@ -387,11 +393,17 @@ def run_compression(
     if not reserved:
         # Mirror the legacy check_cap behavior: stamp the pause flag
         # so other entrypoints honor the breach.
-        cap = check_cap(
-            config.ledger_path,
-            cap_usd_monthly=config.compression.cost_cap_usd_monthly,
-            pause_flag_path=config.pause_flag_path,
-        )
+        try:
+            cap = check_cap(
+                config.ledger_path,
+                cap_usd_monthly=config.compression.cost_cap_usd_monthly,
+                pause_flag_path=config.pause_flag_path,
+            )
+        except LedgerCorruptError as exc:
+            return RunReport(
+                status="ledger_corrupt",
+                reason=str(exc),
+            )
         return RunReport(
             status="cost_cap_exceeded",
             reason=(

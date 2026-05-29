@@ -898,12 +898,13 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
                 return []
             yaml_block = "\n".join(lines[1:closing])
             try:
-                data = _yaml.safe_load(yaml_block) or {}
-            except _yaml.YAMLError:
+                from .vault.frontmatter import _parse_dt
+                from .vault.frontmatter import load_yaml_block as _load_yaml_block
+                data = _load_yaml_block(yaml_block) or {}
+            except (_yaml.YAMLError, ValueError):
                 return []
             if not isinstance(data, dict):
                 return []
-            from .vault.frontmatter import _parse_dt
 
             bad: list[str] = []
             for field_name in ("created", "modified"):
@@ -917,7 +918,10 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
             rel = "/" + str(md_path.relative_to(vault.root)).replace("\\", "/") + "/"
             if any(p in rel for p in _EXCLUDE):
                 continue
-            bad_fields = _has_bad_date(md_path)
+            try:
+                bad_fields = _has_bad_date(md_path)
+            except Exception:  # noqa: BLE001 - one bad file must not abort the walk
+                bad_fields = []
             if bad_fields:
                 bad_notes.append(
                     f"{md_path.relative_to(vault.root).as_posix()}"

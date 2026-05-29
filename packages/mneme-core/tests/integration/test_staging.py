@@ -134,17 +134,39 @@ class TestEnforceSizeCap:
     def test_archives_oldest_when_over_cap(
         self, config: StagingConfig, tmp_path: Path
     ) -> None:
-        # Reduce cap so we can trigger archival cheaply.
-        config.size_cap_bytes = 200
-        # Write two events at different mtimes.
-        capture_event({"tool_name": "Write", "data": "x" * 150}, config)
+        # enforce_size_cap archives the oldest staging files until usage falls
+        # below 90% of the cap. Write the files directly rather than via
+        # capture_event: with accurate byte accounting capture_event now
+        # enforces the cap eagerly on write, so driving archival through it
+        # would leave nothing for the explicit call to do. Writing files lets
+        # us test enforce_size_cap's archival contract in isolation.
+        import os
         import time
 
-        time.sleep(0.05)
-        capture_event({"tool_name": "Write", "data": "y" * 150}, config)
+        config.size_cap_bytes = 200
+        host_dir = config.staging_dir / config.host / "2026-01-01"
+        host_dir.mkdir(parents=True)
+        oldest = host_dir / "00-00-events.jsonl"
+        oldest.write_text("x" * 150, encoding="utf-8")
+        newest = host_dir / "00-05-events.jsonl"
+        newest.write_text("y" * 150, encoding="utf-8")
+        # Make ``oldest`` strictly older so it is archived first.
+        past = time.time() - 100
+        os.utime(oldest, (past, past))
+
         archived = enforce_size_cap(config)
         assert archived >= 1
         assert (config.staging_dir / "archive").exists()
+        # The oldest file must be the one moved into archive/.
+        assert not oldest.exists()
+        archived_oldest = (
+            config.staging_dir
+            / "archive"
+            / config.host
+            / "2026-01-01"
+            / "00-00-events.jsonl"
+        )
+        assert archived_oldest.is_file()
 
     def test_handles_missing_directory(self, tmp_path: Path) -> None:
         cfg = StagingConfig(

@@ -251,10 +251,14 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
     ``rrf_score`` and the deduplicated list of source backends that
     produced it.
     """
-    scores: dict[int | str, dict[str, Any]] = {}
+    scores: dict[str, dict[str, Any]] = {}
     for ranking in rankings:
         for rank_idx, hit in enumerate(ranking, start=1):
-            key = hit.id if hit.id is not None else hit.path
+            # Key unconditionally on path so hits from backends that use
+            # integer ids (FTS5) and backends that use None ids (dense/KG)
+            # for the same document collapse to a single entry and produce
+            # a correctly summed RRF score instead of two half-scored rows.
+            key = hit.path
             if key not in scores:
                 scores[key] = {
                     "hit": hit,

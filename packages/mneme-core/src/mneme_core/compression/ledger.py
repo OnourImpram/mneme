@@ -297,8 +297,17 @@ def reserve_cost(
             "host": host,
         }
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        with ledger_path.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # Route through the atomic rewrite path (read existing + append) so
+        # the reservation is written with the same fsync-and-rename durability
+        # guarantee as settle_reservation and rollback_reservation, closing the
+        # crash window where a plain open("a") write survives neither fsync
+        # nor rename.
+        existing_lines = _read_lines_dropping_reservation(
+            ledger_path,
+            reservation_id="__nonexistent__",
+            target_kind=kind + RESERVATION_KIND_SUFFIX,
+        )
+        _rewrite_ledger_atomic(ledger_path, existing_lines, appended=record)
     return reservation_id, True
 
 

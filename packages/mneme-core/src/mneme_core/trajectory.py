@@ -35,6 +35,7 @@ import yaml
 from .privacy import redact as _privacy_redact
 from .vault.atomic_write import atomic_write_text
 from .vault.file_lock import file_lock
+from .vault.frontmatter import load_yaml_block as _load_yaml_block
 
 TRAJECTORY_TYPE = "trajectory"
 TRAJECTORY_SCHEMA_VERSION = "1.0.0"
@@ -196,8 +197,8 @@ def _load_from_path(path: Path) -> Trajectory | None:
     if match is None:
         return None
     try:
-        fm = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
+        fm = _load_yaml_block(match.group(1)) or {}
+    except (yaml.YAMLError, ValueError):
         return None
     if not isinstance(fm, dict) or fm.get("type") != TRAJECTORY_TYPE:
         return None
@@ -277,7 +278,10 @@ def list_trajectories(
         if date_to and d_name > date_to:
             continue
         for md in sorted(date_dir.glob("*.md")):
-            traj = _load_from_path(md)
+            try:
+                traj = _load_from_path(md)
+            except Exception:  # noqa: BLE001 - one bad file must not abort listing
+                continue
             if traj is not None:
                 out.append(traj)
     return out
