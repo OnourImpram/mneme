@@ -1,8 +1,9 @@
 {
   "benchmark": "retrieval-quality",
   "seed": 42,
-  "recorded_at": "2026-05-25",
-  "notes": "Locked baseline for Benchmark A. Pinned MNEME_BENCH_SEED=42. The pipeline_rrf_fts5_plus_bow ndcg_at_5 is the primary headline; recall_at_10 and negative_probe_all_passed are also enforced by regression_guard.py. The bag-of-words backend is a synthetic surrogate for the roadmap dense leg.",
+  "recorded_at": "2026-05-29",
+  "sqlite_version": "3.51.1",
+  "notes": "Locked baseline for Benchmark A. Pinned seed=42 and pinned SQLite 3.51.1 via pysqlite3-binary==0.5.4.post2 (run.py routes the sqlite3 module through it). SQLite is pinned because FTS5 BM25 ranking shifts across SQLite versions: this corpus yields nDCG@5 of 0.8657 / 0.8934 / 0.9111 under SQLite 3.46 / 3.50 / 3.51, a spread wider than the 0.02 regression threshold, so an unpinned baseline drifts whenever a CI runner image bumps its bundled SQLite. Re-locked 2026-05-29 against the pinned build (was 0.8934 under an older runner SQLite; the retrieval algorithm is unchanged). The pipeline_rrf_fts5_plus_bow ndcg_at_5 is the primary headline; recall_at_10 and negative_probe_all_passed are also enforced by regression_guard.py. The bag-of-words backend is a synthetic surrogate for the roadmap dense leg.",
   "corpus": {
     "docs": 500,
     "queries": 50,
@@ -10,19 +11,19 @@
   },
   "conditions": {
     "baseline_fts5_only": {
-      "ndcg_at_5": 0.800629245381261,
+      "ndcg_at_5": 0.8111500691819181,
       "recall_at_10": 1.0,
-      "mrr": 0.7336666666666667
+      "mrr": 0.7473333333333333
     },
     "pipeline_fts5_only": {
-      "ndcg_at_5": 0.800629245381261,
+      "ndcg_at_5": 0.8111500691819181,
       "recall_at_10": 1.0,
-      "mrr": 0.7336666666666667
+      "mrr": 0.7473333333333333
     },
     "pipeline_rrf_fts5_plus_bow": {
-      "ndcg_at_5": 0.8934129995344666,
+      "ndcg_at_5": 0.9111500556791574,
       "recall_at_10": 1.0,
-      "mrr": 0.6708571428571426
+      "mrr": 0.6866031746031744
     }
   },
   "negative_probe": {

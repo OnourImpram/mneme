@@ -192,18 +192,31 @@ Enforced by `regression_guard.py` against `baseline.json`:
 | Recall@10 | Fresh value must not drop more than **0.05** below baseline |
 | Negative probe | `negative_probe.all_passed` must be `true` in the fresh result |
 
-Baseline values (measured 2026-05-25, seed 42, 500 docs, 50 queries):
+Baseline values (re-locked 2026-05-29 under pinned SQLite 3.51.1, seed 42,
+500 docs, 50 queries):
 
 | Condition | nDCG@5 | Recall@10 |
 |---|---|---|
-| baseline\_fts5\_only | 0.8006 | 1.0000 |
-| pipeline\_fts5\_only | 0.8006 | 1.0000 |
-| pipeline\_rrf\_fts5\_plus\_bow | **0.8934** | **1.0000** |
+| baseline\_fts5\_only | 0.8112 | 1.0000 |
+| pipeline\_fts5\_only | 0.8112 | 1.0000 |
+| pipeline\_rrf\_fts5\_plus\_bow | **0.9112** | **1.0000** |
 
 The guard compares the `pipeline_rrf_fts5_plus_bow` condition. Baseline
 values are locked in `baseline.json`; they are not updated automatically.
 A deliberate improvement to the retriever that raises metrics above the
 baseline is welcome — the guard does not penalize upward movement.
+
+**SQLite is pinned.** FTS5 BM25 ranking shifts across SQLite versions — this
+corpus scores nDCG@5 of 0.8657 / 0.8934 / 0.9112 under SQLite 3.46 / 3.50 /
+3.51, a spread wider than the 0.02 threshold. So `run.py` routes the `sqlite3`
+module through `pysqlite3-binary==0.5.4.post2` (bundled SQLite 3.51.1) and the
+benchmark CI job installs that wheel. The baseline above is anchored to that
+pinned build; a runner image bumping its bundled SQLite can no longer drift it.
+The original 0.8934 figure was measured under an older runner SQLite; the
+retrieval algorithm is unchanged. To reproduce the locked values locally,
+`pip install pysqlite3-binary==0.5.4.post2` (Linux; on platforms without a
+wheel the benchmark falls back to the stdlib `sqlite3` and may report a
+slightly different number, which the drop-only guard still accepts).
 
 ---
 
