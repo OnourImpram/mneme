@@ -8,7 +8,7 @@
 
 FTS5 retrieval, RRF-ready core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
 
-**Status**: public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (12 sources, verified in CI), so no single declared version can drift.
+**Status**: public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (13 sources, verified in CI), so no single declared version can drift.
 
 ## Why mneme
 
@@ -42,6 +42,8 @@ An honest, at-a-glance map of what is shipped today versus what is gated behind 
 | Pattern + trajectory memory | Shipped | vault-markdown primitives |
 | Claude Code plugin | Shipped (native) | 5 lifecycle hooks + 2 skills + MCP |
 | Codex plugin | Shipped (native) | 4 hooks + skills + MCP |
+| Antigravity plugin | Shipped (native) | Gemini-CLI extension: hooks + 2 skills + MCP |
+| Open MCP adapter (Kimi, Qwen, any MCP client) | Shipped (non-native) | MCP tools only, no auto-capture |
 | Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
 | KG temporal enrichment (summarize, timeline) | Gated | full profile only: Docker + Neo4j + Graphiti |
 | Dense / LEANN adapter | Roadmap | RRF seam shipped; adapter not packaged |
@@ -107,6 +109,26 @@ mneme install --client=codex
 ```
 
 Codex gets the same six MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+
+## Using mneme with Antigravity
+
+Antigravity (Google's agentic IDE) uses the Gemini-CLI extension model, and mneme ships a native extension for it.
+
+```bash
+mneme install --client=antigravity
+```
+
+This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same six MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
+
+## Other MCP clients (open adapter)
+
+Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the six MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
+
+```bash
+mneme install --client=mcp --config <path-to-your-clients-mcp-config.json>
+```
+
+mneme merges only its own server entry and leaves every other server in the config untouched. See `docs/INTEGRATIONS.md` for the client-tiering details and `examples/` for a config snippet and a portable AGENTS.md template.
 
 ## What v1.0 Ships
 

@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "repository": {
