@@ -188,7 +188,7 @@ function topicMatches(
 	return hits.map((h) => ({
 		path: h.path,
 		title: h.title,
-		snippet: h.contentRaw.slice(0, PER_DOC_SNIPPET_CHARS),
+		snippet: h.bodyText.slice(0, PER_DOC_SNIPPET_CHARS),
 	}));
 }
 

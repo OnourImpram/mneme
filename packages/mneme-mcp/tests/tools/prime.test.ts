@@ -129,4 +129,39 @@ describe("primeTool runtime", () => {
       );
     }
   });
+
+  // F4: topic snippet must use bodyText, not contentRaw
+  it("topic snippet excludes frontmatter (uses bodyText, not contentRaw)", () => {
+    const frontmatter = "---\ntype: reference\nauthor: alice\n---\n";
+    const body = "Rank fusion algorithm body content here.";
+    const docs = [
+      {
+        path: "reference/rrf-frontmatter.md",
+        title: "Rank Fusion With Frontmatter",
+        titleNormalized: "rank fusion with frontmatter",
+        contentRaw: `${frontmatter}${body}`,
+        bodyText: body,
+        contentNormalized: "rank fusion with frontmatter algorithm body content here.",
+        mtime: 1_717_100_000,
+        frontmatterType: "reference",
+      },
+    ];
+    const { vault } = makeTempVault("prime-snippet-body", docs);
+    const res = primeTool(
+      PrimeInputSchema.parse({
+        task_description: "rank fusion algorithm",
+        topic_doc_count: 5,
+        recent_session_count: 0,
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // The preamble must not carry raw frontmatter delimiters from contentRaw.
+      expect(res.data.preamble).not.toMatch(/^---/m);
+      expect(res.data.preamble).not.toContain("type: reference");
+      // The body text must appear.
+      expect(res.data.preamble).toContain(body);
+    }
+  });
 });
