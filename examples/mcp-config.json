@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mneme": {
+      "command": "mneme-mcp",
+      "env": {
+        "MNEME_VAULT": "/path/to/your/vault"
+      }
+    }
+  }
+}

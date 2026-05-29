@@ -26,6 +26,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+import yaml
+
+from ..retrieval.rrf import build_fts5_query
+from ..vault.frontmatter import load_yaml_block
 
 DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "/.git/",
@@ -230,65 +236,49 @@ def _should_index(
     return not any(p in s for p in exclude_patterns)
 
 
-def _dequote(value: str) -> str:
-    """Strip outer YAML single or double quotes from a scalar value.
+def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
+    """Parse frontmatter using mneme's canonical date-safe YAML loader.
 
-    Phase J Day 3 surfaced a drift: the migration tool emits YAML-correct
-    single-quoted scalars like ``type: 'observation'`` but the prior
-    parser stored the literal including the quotes. Type-based filters
-    then matched nothing because the stored value was ``'observation'``
-    rather than ``observation``. This helper handles the single- and
-    double-quoted cases plus YAML's single-quote double-escape for
-    apostrophes inside single-quoted scalars (``'it''s fine'`` ->
-    ``it's fine``). Other escape sequences are out of scope; this is a
-    lightweight parser, not a full YAML implementation.
+    Loads the block with :func:`mneme_core.vault.frontmatter.load_yaml_block`
+    (the same loader the canonical reader uses), so the index and the reader
+    can never disagree about how YAML is parsed: flow-style sequences
+    (``tags: [a, b]``), inline comments (``type: session  # note``), quoted
+    scalars, and multiline values all resolve identically. This closes the
+    drift the previous hand-rolled line splitter introduced.
+
+    Unlike the strict reader, the indexer is deliberately lenient about *which*
+    fields are present: it reads whatever ``type``/``tags``/``session_id``
+    exist and never drops a file for missing structural keys, because the index
+    favors recall. Returns ``({}, content)`` when there is no frontmatter block
+    and ``({}, body)`` (block stripped) when the block is present but
+    unparseable or not a mapping.
     """
-    s = value.strip()
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
-        inner = s[1:-1]
-        if s[0] == "'":
-            inner = inner.replace("''", "'")
-        return inner
-    return s
-
-
-def _parse_frontmatter(content: str) -> tuple[dict[str, str], str]:
     m = FRONTMATTER_RE.match(content)
     if not m:
         return {}, content
-    fm: dict[str, str] = {}
-    list_key: str | None = None
-    list_items: list[str] = []
+    body = content[m.end() :]
+    try:
+        data = load_yaml_block(m.group(1))
+    except yaml.YAMLError:
+        return {}, body
+    if not isinstance(data, dict):
+        return {}, body
+    return data, body
 
-    def _flush() -> None:
-        nonlocal list_key, list_items
-        if list_key is not None:
-            fm[list_key] = " ".join(list_items)
-            list_key = None
-            list_items = []
 
-    for line in m.group(1).splitlines():
-        stripped = line.strip()
-        # Continuation of a YAML block sequence under the pending key
-        # ("  - item"). Without this, block-style values such as
-        # "tags:\n  - a\n  - b" (what the migration tool and yaml.safe_dump
-        # both emit) collapse to an empty scalar and never reach the index.
-        if list_key is not None and stripped.startswith("- "):
-            list_items.append(_dequote(stripped[2:]))
-            continue
-        _flush()
-        if ":" in line:
-            k, v = line.split(":", 1)
-            key = k.strip()
-            if v.strip() == "":
-                # Empty value may head a block sequence; defer until the
-                # following lines are seen. Defaults to "" if none follow.
-                list_key = key
-                fm[key] = ""
-            else:
-                fm[key] = _dequote(v)
-    _flush()
-    return fm, content[m.end() :]
+def _frontmatter_tags(fm: dict[str, Any]) -> str:
+    """Render the frontmatter ``tags`` field as a space-joined token string.
+
+    YAML may yield a list (flow ``[a, b]`` or block ``- a``) or a bare scalar
+    (``tags: a b``); both collapse to a single FTS-friendly token string so a
+    flow-style sequence is never stored as the literal ``"[a, b]"``.
+    """
+    raw = fm.get("tags")
+    if isinstance(raw, list):
+        return " ".join(str(t) for t in raw)
+    if raw is None:
+        return ""
+    return str(raw)
 
 
 def _extract_title(content: str, path: Path) -> str:
@@ -327,7 +317,13 @@ def index_vault(
         errored, and total-seen files.
     """
     stats = IndexStats()
-    paths = list(config.vault_root.rglob("*.md"))
+    # Sort the walk so document rowids are assigned in a filesystem-independent
+    # order. ``rglob`` yields entries in directory order, which differs across
+    # filesystems (e.g. ext4 vs NTFS); since FTS5 breaks equal-BM25 ties by
+    # rowid, an unsorted walk makes ranking — and therefore the retrieval
+    # benchmark's nDCG — depend on the host filesystem. Sorting makes indexing
+    # deterministic and reproducible everywhere.
+    paths = sorted(config.vault_root.rglob("*.md"))
     stats.total_seen = len(paths)
 
     # Collect relative paths for every eligible file seen this pass so that
@@ -360,8 +356,10 @@ def index_vault(
         title = _extract_title(content, md_path)
         title_normalized = config.normalize(title)
         content_normalized = config.normalize_for_fts(body)
-        tags = fm.get("tags", "")
+        tags = _frontmatter_tags(fm)
         tags_normalized = config.normalize(tags)
+        fm_type = str(fm.get("type") or "")
+        fm_session_id = str(fm.get("session_id") or "")
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
         now_iso = datetime.now(UTC).isoformat()
@@ -393,8 +391,8 @@ def index_vault(
                 len(content),
                 mtime,
                 tags,
-                fm.get("type", ""),
-                fm.get("session_id", ""),
+                fm_type,
+                fm_session_id,
                 wikilinks,
                 now_iso,
             ),
@@ -444,23 +442,31 @@ def index_vault(
     # Only performed on a full pass (since_mtime == 0.0) to keep incremental
     # runs cheap and to avoid deleting files that were simply older than the
     # since_mtime threshold.
-    if since_mtime == 0.0 and live_paths:
-        placeholders = ",".join("?" * len(live_paths))
-        live_list = list(live_paths)
-        conn.execute(
-            f"DELETE FROM documents_fts WHERE rowid IN ("
-            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-            live_list,
-        )
-        conn.execute(
-            f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
-            f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-            live_list,
-        )
-        conn.execute(
-            f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
-            live_list,
-        )
+    # When live_paths is empty every eligible file was excluded — delete ALL
+    # rows so stale entries from a previously indexed vault do not survive.
+    if since_mtime == 0.0:
+        if live_paths:
+            placeholders = ",".join("?" * len(live_paths))
+            live_list = list(live_paths)
+            conn.execute(
+                f"DELETE FROM documents_fts WHERE rowid IN ("
+                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+                live_list,
+            )
+            conn.execute(
+                f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
+                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
+                live_list,
+            )
+            conn.execute(
+                f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
+                live_list,
+            )
+        else:
+            # No eligible files survived the pass — wipe all rows.
+            conn.execute("DELETE FROM documents_fts")
+            conn.execute("DELETE FROM documents_ascii_fts")
+            conn.execute("DELETE FROM documents")
 
     conn.commit()
     return stats
@@ -495,12 +501,19 @@ def benchmark_queries(
     result_counts: list[int] = []
     for q in queries:
         q_norm = normalize(q)
-        q_escaped = '"' + q_norm.replace('"', '""') + '"'
+        # Use the same production query builder so benchmark latencies reflect
+        # the OR-of-phrases form actually executed at retrieval time, not a
+        # single-phrase query that diverges from production behavior.
+        q_fts = build_fts5_query(q_norm)
+        if not q_fts:
+            latencies_ms.append(-1.0)
+            result_counts.append(0)
+            continue
         try:
             t0 = time.perf_counter()
             rows = conn.execute(
                 "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ? LIMIT 50",
-                (q_escaped,),
+                (q_fts,),
             ).fetchall()
             elapsed = (time.perf_counter() - t0) * 1000
             latencies_ms.append(elapsed)

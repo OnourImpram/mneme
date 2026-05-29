@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -414,3 +415,114 @@ class TestStopHandleTimingFullProfile:
             f"Stop emit latency {total_to_emit_ms:.1f} ms exceeds "
             f"C2 budget of {_C2_BUDGET_MS} ms (full-profile run)"
         )
+
+
+class TestStopEmitOnTouchStateFailure:
+    """F4: emit() must be called even when _touch_state raises OSError.
+
+    The non-empty-session path already had this guarantee. The empty-session
+    path did not — a read-only or full filesystem would suppress the hook
+    response entirely.  The fix wraps _touch_state in try/except OSError in
+    the empty-session branch and calls emit() unconditionally afterwards.
+    """
+
+    def test_empty_session_emit_despite_touch_state_oserror(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        # Force the empty-session branch.
+        monkeypatch.setattr(stop_mod, "_is_empty_session", lambda _root: True)
+
+        # Make _touch_state raise OSError to simulate a read-only filesystem.
+        def _raise_oserror(_vault: object) -> None:
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(stop_mod, "_touch_state", _raise_oserror)
+
+        buf = _capture(monkeypatch)
+        stop_mod.handle({"session_id": "s-ro"}, vault)
+
+        # emit() must still have produced a valid Stop response on stdout.
+        out = json.loads(buf.getvalue())
+        assert out["continue"] is True
+
+    def test_empty_session_oserror_written_to_stderr(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        vault: VaultConfig,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from mneme_cc_plugin.hooks import stop as stop_mod
+
+        monkeypatch.setattr(stop_mod, "_is_empty_session", lambda _root: True)
+
+        def _raise_oserror(_vault: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(stop_mod, "_touch_state", _raise_oserror)
+
+        _capture(monkeypatch)
+        stop_mod.handle({"session_id": "s-err"}, vault)
+
+        # The error message must land on stderr (captured by capsys before
+        # monkeypatch replaced sys.stdout).
+        captured = capsys.readouterr()
+        assert "disk full" in captured.err or "state touch failed" in captured.err
+
+
+class TestSessionStartReadOnlyDb:
+    """F5: _block_recent_sessions must open the FTS5 db in read-only URI mode.
+
+    The fix changes ``sqlite3.connect(vault.fts5_db)`` to
+    ``sqlite3.connect("file:...?mode=ro", uri=True)`` and removes the
+    advisory PRAGMA.  We verify two properties:
+
+    1. A write attempt on the connection raises OperationalError (the
+       connection is genuinely read-only, not just advisory).
+    2. When the db file does not exist the function degrades gracefully
+       (returns "" without raising) — same as before the fix.
+    """
+
+    def test_connection_is_read_only(self, vault: VaultConfig) -> None:
+        from tests.unit.fts5_test_db import build_minimal_db
+
+        build_minimal_db(
+            vault.fts5_db,
+            docs=[{"path": "s1.md", "title": "T1", "type": "session", "mtime": 1.0}],
+        )
+
+        # Open the same db the hook would open and attempt a write.
+        conn = sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
+        try:
+            with pytest.raises(sqlite3.OperationalError):
+                conn.execute("INSERT INTO documents (path) VALUES ('x')")
+        finally:
+            conn.close()
+
+    def test_missing_db_degrades_gracefully(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        # vault.fts5_db does not exist — _block_recent_sessions must return "".
+        from mneme_cc_plugin.hooks import session_start as ss_mod
+
+        assert not vault.fts5_db.exists()
+        result = ss_mod._block_recent_sessions(vault)
+        assert result == ""
+
+    def test_session_docs_still_returned_after_fix(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        from mneme_cc_plugin.hooks import session_start as ss_mod
+        from tests.unit.fts5_test_db import build_minimal_db
+
+        build_minimal_db(
+            vault.fts5_db,
+            docs=[
+                {"path": "a.md", "title": "Alpha", "type": "session", "mtime": 2.0},
+                {"path": "b.md", "title": "Beta", "type": "session", "mtime": 1.0},
+            ],
+        )
+        result = ss_mod._block_recent_sessions(vault)
+        assert "Alpha" in result
+        assert "Beta" in result

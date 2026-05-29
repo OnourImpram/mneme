@@ -59,6 +59,22 @@ _StringDateLoader.yaml_implicit_resolvers = {
     for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
 }
 
+
+def load_yaml_block(yaml_text: str) -> Any:
+    """Load a frontmatter YAML block with mneme's date-safe loader.
+
+    This is the single canonical way to load frontmatter YAML across the
+    codebase. It uses :class:`_StringDateLoader`, so every date-like scalar
+    loads as a plain string instead of an auto-constructed ``datetime``: an
+    out-of-range value such as ``2026-13-99`` loads as a string for downstream
+    validation (see :func:`_parse_dt`) rather than raising inside PyYAML's
+    timestamp constructor and aborting a whole-vault walk. Returns the parsed
+    object (typically a ``dict``) or ``None`` for an empty document; callers
+    guard with ``or {}``. Raises ``yaml.YAMLError`` on genuinely invalid YAML.
+    """
+    return yaml.load(yaml_text, Loader=_StringDateLoader)  # noqa: S506
+
+
 KNOWN_TYPES: frozenset[str] = frozenset(
     {
         "session",
@@ -235,7 +251,7 @@ def parse(
     body = "\n".join(lines[closing_idx + 1 :])
     if body.startswith("\n"):
         body = body[1:]
-    data = yaml.load(yaml_block, Loader=_StringDateLoader) or {}  # noqa: S506
+    data = load_yaml_block(yaml_block) or {}
     fm = Frontmatter.from_dict(data, file_path=file_path, mtime=mtime)
     return fm, body
 

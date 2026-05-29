@@ -21,6 +21,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..vault.atomic_write import atomic_write_text
+
 TRACKER_SUBDIR = "injection-tracker"
 
 
@@ -75,7 +77,12 @@ def load_tracker(state_dir: Path, session_id: str) -> InjectionTracker:
 
 
 def save_tracker(state_dir: Path, tracker: InjectionTracker) -> bool:
-    """Persist tracker to JSON. Returns True on write, False on disk error."""
+    """Persist tracker to JSON atomically. Returns True on write, False on disk error.
+
+    Uses :func:`mneme_core.vault.atomic_write.atomic_write_text` so a torn
+    file from a concurrent Stop hook does not silently reset dedup state on
+    the next load.
+    """
     try:
         path = _tracker_path(state_dir, tracker.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,9 +92,9 @@ def save_tracker(state_dir: Path, tracker: InjectionTracker) -> bool:
             "hits": tracker.hits,
             "skips": tracker.skips,
         }
-        path.write_text(
+        atomic_write_text(
+            path,
             json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
         )
         return True
     except OSError:

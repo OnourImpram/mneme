@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [1.1.0] - 2026-05-29
+
+### Added
+
+- **Antigravity native client.** A new `mneme-antigravity-plugin` package ships
+  a Gemini-CLI extension (`gemini-extension.json` declaring the mneme MCP
+  server, a Claude-Code-compatible `hooks/hooks.json` for SessionStart,
+  PostToolUse, Stop, and PreCompact, two skills, and a `GEMINI.md` rules file).
+  `mneme install --client antigravity` materializes it into the Antigravity
+  extensions directory. Claude Code, Codex, and Antigravity are now all
+  first-class native clients reusing the same MCP server and the
+  `mneme hook <event>` shim. A `validate_antigravity_plugin` gate runs in CI.
+- **Open model-agnostic MCP adapter.** `mneme install --client mcp --config
+  <path>` merges the mneme MCP stanza into any MCP-capable client's config
+  (Kimi, Qwen, Cline, Cursor, and others), preserving all other servers. This
+  is the non-native tier: MCP tools only, no lifecycle hooks, no auto-capture.
+  See `docs/INTEGRATIONS.md` and `examples/`.
+
+### Fixed
+
+- **Retrieval correctness.** A full-pass index prune clears all rows when every
+  file is excluded, so a fully-excluded vault no longer leaves stale index
+  entries. `benchmark_queries` uses the production OR-of-phrases query builder
+  so benchmark numbers reflect the retrieval path actually executed.
+- **Deterministic indexing.** The indexer now sorts the `*.md` walk before
+  assigning document rowids. `rglob` yields directory order, which differs
+  across filesystems (ext4 vs NTFS); because FTS5 breaks equal-BM25 ties by
+  rowid, the unsorted walk made ranking — and the retrieval benchmark's nDCG —
+  depend on the host filesystem. Sorting makes indexing reproducible
+  everywhere and keeps the locked benchmark baseline stable across runners.
+- **Durability and atomicity.** `reserve_cost` writes the cost ledger through
+  the same fsync-and-rename atomic path as settlement and rollback; the
+  injection-dedup tracker and the Codex config are written atomically; staging
+  events are written LF-only so the rolling size counter matches on-disk bytes
+  on every OS.
+- **Resilience.** The `doctor` frontmatter-date check, trajectory loading, and
+  pattern loading parse frontmatter through the date-safe loader, so a single
+  out-of-range date in one file no longer aborts the whole walk or listing. The
+  compression pipeline's cap check is guarded against a corrupt ledger and
+  returns a structured report instead of raising. Payload truncation is
+  byte-accurate. The knowledge-graph drain loop archives per file and survives a
+  cross-device move.
+- **Python and TypeScript parity.** The MCP write tool uses the canonical
+  case-insensitive, attribute-tolerant, fail-closed `<private>` redactor;
+  `mneme_prime` snippets are built from the frontmatter-stripped body; the MCP
+  vault-config reader accepts single-quoted TOML paths; `redact(None)` returns
+  an empty string. The write tool rejects section bodies containing a bare H2
+  heading and emits exactly one blank line between appended sections.
+- **Fail-soft hooks.** The Stop hook emits its response even when the
+  empty-session state touch fails; SessionStart opens the FTS5 index read-only.
+- **Metadata drift.** `CITATION.cff` and the Antigravity manifest are tracked
+  by `version_bump`, raising the cross-checked version-source count to 13. The
+  README banner no longer names a single drift-prone version string.
+
+### Changed
+
+- The C3 no-network import scan (`spec_verify`) now also covers the
+  `session_end` and `post_tool_use` hooks, which run on the live session path.
+- `mneme-cc-plugin` pytest enforces an 80 percent coverage floor, matching
+  `mneme-core`.
+
 ## [1.0.3] - 2026-05-25
 
 ### Added

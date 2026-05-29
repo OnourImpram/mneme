@@ -49,17 +49,21 @@ _PRIVATE_OPEN_RE = re.compile(
 _REPLACEMENT = "[REDACTED]"
 
 
-def redact(text: str) -> str:
+def redact(text: str | None) -> str:
     """Replace every ``<private>...</private>`` section with ``[REDACTED]``.
 
     Semantics:
 
+    * ``None`` returns ``""`` (mirrors the TypeScript counterpart that
+      returns ``""`` for null input).
     * Closed pairs are replaced first (case-insensitive, attribute-tolerant).
     * Any remaining unbalanced opening tag causes everything from the
       tag to end-of-text to be replaced (fail-closed).
 
     Returns the redacted string. The input is not mutated.
     """
+    if text is None:
+        return ""
     result = _PRIVATE_RE.sub(_REPLACEMENT, text)
     match = _PRIVATE_OPEN_RE.search(result)
     if match is not None:

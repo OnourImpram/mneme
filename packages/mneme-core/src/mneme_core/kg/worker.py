@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -84,7 +85,16 @@ def _archive_file(queue_file: Path, config: KgConfig) -> None:
         return
     dest = config.processed_dir / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
-    queue_file.replace(dest)
+    try:
+        queue_file.replace(dest)
+    except OSError:
+        # Cross-device move (EXDEV): fall back to copy-then-unlink so the
+        # drain loop can continue rather than aborting on a tmpfs/NFS edge case.
+        try:
+            shutil.copy2(str(queue_file), str(dest))
+            queue_file.unlink()
+        except OSError:
+            return
 
 
 def _episode_text(event: dict[str, Any]) -> str:
@@ -216,6 +226,10 @@ def drain_live(
     cap = config.cost_cap_usd_monthly
 
     for f in files:
+        # Per-file counters: archive only when THIS file's episodes all
+        # succeeded so a failing file does not prevent archiving clean files.
+        file_added = 0
+        file_failed = 0
         events = _read_events(f)
         for e in events:
             reservation_id: str | None = None
@@ -255,12 +269,15 @@ def drain_live(
                         reference_time=ref_time,
                     )
                 )
+                file_added += 1
                 added += 1
                 _record_episode_cost(config, per_episode_usd_estimate, reservation_id)
             except Exception:  # noqa: BLE001 - third-party surface
+                file_failed += 1
                 failed += 1
                 _release_reservation(config, reservation_id)
-        if added > 0 and failed == 0:
+        # Archive only when all episodes in this specific file succeeded.
+        if file_added > 0 and file_failed == 0:
             _archive_file(f, config)
 
     result = {

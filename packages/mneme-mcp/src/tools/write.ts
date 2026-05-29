@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
+import { redact } from "../privacy.js";
 import {
 	VaultPathError,
 	assertWithinVault,
@@ -25,16 +26,9 @@ import {
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
-const PRIVATE_RE = /<private>[\s\S]*?<\/private>/g;
-const PRIVATE_REPLACEMENT = "[PRIVATE]";
-
 function redactString(s: string): { redacted: string; count: number } {
-	const matches = s.match(PRIVATE_RE);
-	if (!matches) return { redacted: s, count: 0 };
-	return {
-		redacted: s.replace(PRIVATE_RE, PRIVATE_REPLACEMENT),
-		count: matches.length,
-	};
+	const r = redact(s);
+	return { redacted: r.text, count: r.count };
 }
 
 function redactFrontmatter(fm: Record<string, string | number> | undefined): {
@@ -46,8 +40,8 @@ function redactFrontmatter(fm: Record<string, string | number> | undefined): {
 	let count = 0;
 	for (const [k, v] of Object.entries(fm)) {
 		if (typeof v === "string") {
-			const r = redactString(v);
-			out[k] = r.redacted;
+			const r = redact(v);
+			out[k] = r.text;
 			count += r.count;
 		} else {
 			out[k] = v;
@@ -113,6 +107,10 @@ export function writeTool(
 		}
 	}
 
+	// F2: reject content whose body contains a bare H2 heading, which would
+	// corrupt the section-boundary scanner in replaceSection.
+	validateSectionBody(contentRed.redacted);
+
 	let finalContent: string;
 	let operation: "added" | "replaced";
 	if (args.replace && sectionExists(existing, sectionRed.redacted)) {
@@ -123,7 +121,7 @@ export function writeTool(
 		);
 		operation = "replaced";
 	} else {
-		const sep = existing.length > 0 && !existing.endsWith("\n\n") ? "\n\n" : "";
+		const sep = appendSeparator(existing);
 		finalContent = `${existing}${sep}${headingLine}\n\n${contentRed.redacted}\n`;
 		operation = "added";
 	}
@@ -164,6 +162,38 @@ export function writeTool(
 			redactions_applied: totalRedactions,
 		},
 	};
+}
+
+/**
+ * F2: Reject any section body that contains a bare H2 heading line.
+ * A `## ` line in the body would be misdetected as a section boundary
+ * by `replaceSection`, causing progressive file corruption on subsequent
+ * writes. H3+ sub-headings (`### `, `#### `, …) are permitted.
+ */
+function validateSectionBody(body: string): void {
+	for (const line of body.split("\n")) {
+		if (/^## /.test(line)) {
+			throw new Error(
+				"section body may not contain a '## ' H2 heading; use H3+ for sub-headings",
+			);
+		}
+	}
+}
+
+/**
+ * F3: Compute the separator to insert between the existing file content
+ * and the new section heading so exactly one blank line appears.
+ *
+ * - Empty file          → "" (heading starts at byte 0)
+ * - Ends with "\n\n"   → "" (blank line already present)
+ * - Ends with "\n"     → "\n" (one more newline = one blank line)
+ * - No trailing newline → "\n\n" (add a full blank line)
+ */
+function appendSeparator(existing: string): string {
+	if (existing.length === 0) return "";
+	if (existing.endsWith("\n\n")) return "";
+	if (existing.endsWith("\n")) return "\n";
+	return "\n\n";
 }
 
 function sectionExists(text: string, heading: string): boolean {

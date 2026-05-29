@@ -155,7 +155,7 @@ function readVaultFromTomlConfig(): string | null {
 	try {
 		const raw = readFileSync(configPath, "utf8");
 		for (const line of raw.split(/\r?\n/)) {
-			const m = line.match(/^\s*vault\s*=\s*"([^"]+)"\s*$/);
+			const m = line.match(/^\s*vault\s*=\s*["']([^"']+)["']\s*$/);
 			if (m) return m[1] ?? null;
 		}
 	} catch {

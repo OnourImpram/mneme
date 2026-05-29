@@ -8,7 +8,7 @@
 
 FTS5 retrieval, RRF-ready core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget.
 
-**Status**: v1.0.1 repo hardening. Public package, plugin, runtime, and documentation version sources are aligned for the next GitHub release gate.
+**Status**: public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (13 sources, verified in CI), so no single declared version can drift.
 
 ## Why mneme
 
@@ -27,6 +27,28 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 A vault is simply a plain directory of markdown files. mneme requires no specific editor, no external application, and no Obsidian installation. You can work with your vault using `grep`, `git`, VS Code, or any text editor. The term "vault" is borrowed convention for a self-contained markdown directory, not a dependency on any particular tool.
 
 Obsidian is fully optional. Because the vault is plain markdown, a user who already uses Obsidian can point it at the same directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes. The two tools coexist cleanly: mneme stores all derived state (indexes, staging, audit logs) inside a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing, so neither tool disturbs the other. Obsidian is a convenient viewer and navigator for vault content — it is not part of mneme's capture, indexing, or retrieval path, and it must not be treated as an installation prerequisite.
+
+## Implementation Status
+
+An honest, at-a-glance map of what is shipped today versus what is gated behind optional infrastructure or still on the roadmap. **Shipped** means present in the default install path and covered by CI. **Gated** means implemented but inactive until you provide the optional dependency. **Roadmap** means designed (often with a seam or protocol already in place) but not yet packaged.
+
+| Capability | Status | Detail |
+|---|---|---|
+| FTS5 BM25 retrieval (`mneme_search`) | Shipped | default MCP search path |
+| RRF fusion protocol | Shipped | `mneme-core/retrieval/rrf.py`; FTS5-fed by default |
+| `<private>` redaction + SHA256 audit | Shipped | staging write, Python + TypeScript mirror |
+| Zero-LLM deterministic Stop capture | Shipped | `Stop` hook appends a typed session doc |
+| Adaptive context layer | Shipped | shell compress, injection dedup, adaptive top-k |
+| Pattern + trajectory memory | Shipped | vault-markdown primitives |
+| Claude Code plugin | Shipped (native) | 5 lifecycle hooks + 2 skills + MCP |
+| Codex plugin | Shipped (native) | 4 hooks + skills + MCP |
+| Antigravity plugin | Shipped (native) | Gemini-CLI extension: hooks + 2 skills + MCP |
+| Open MCP adapter (Kimi, Qwen, any MCP client) | Shipped (non-native) | MCP tools only, no auto-capture |
+| Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
+| KG temporal enrichment (summarize, timeline) | Gated | full profile only: Docker + Neo4j + Graphiti |
+| Dense / LEANN adapter | Roadmap | RRF seam shipped; adapter not packaged |
+| Default dense or KG leg inside `mneme_search` | Roadmap | search is FTS5-only by default |
+| Tree-sitter code priming | Roadmap (v1.2) | separate `mneme-code` package |
 
 ## Reproducible Numbers
 
@@ -87,6 +109,26 @@ mneme install --client=codex
 ```
 
 Codex gets the same six MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+
+## Using mneme with Antigravity
+
+Antigravity (Google's agentic IDE) uses the Gemini-CLI extension model, and mneme ships a native extension for it.
+
+```bash
+mneme install --client=antigravity
+```
+
+This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same six MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
+
+## Other MCP clients (open adapter)
+
+Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the six MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
+
+```bash
+mneme install --client=mcp --config <path-to-your-clients-mcp-config.json>
+```
+
+mneme merges only its own server entry and leaves every other server in the config untouched. See `docs/INTEGRATIONS.md` for the client-tiering details and `examples/` for a config snippet and a portable AGENTS.md template.
 
 ## What v1.0 Ships
 

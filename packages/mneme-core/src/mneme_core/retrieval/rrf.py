@@ -254,6 +254,12 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
     scores: dict[int | str, dict[str, Any]] = {}
     for ranking in rankings:
         for rank_idx, hit in enumerate(ranking, start=1):
+            # Key on the backend id when present (the FTS5 rowid is a stable
+            # per-document key for the shipped FTS5-only path), falling back to
+            # path. Cross-backend identity normalization — fusing an integer-id
+            # hit with a None-id hit for the same document — is deferred to the
+            # dense/KG leg, which is roadmap and will carry a backend contract
+            # guaranteeing a consistent dedup key.
             key = hit.id if hit.id is not None else hit.path
             if key not in scores:
                 scores[key] = {

@@ -117,11 +117,17 @@ def _block_recent_sessions(vault: VaultConfig) -> str:
     if not vault.fts5_db.exists():
         return ""
     try:
-        conn = sqlite3.connect(vault.fts5_db)
+        conn = sqlite3.connect(
+            f"file:{vault.fts5_db}?mode=ro",
+            uri=True,
+        )
+    except sqlite3.OperationalError:
+        # mode=ro raises OperationalError when the file is missing or
+        # cannot be opened for reading; degrade gracefully.
+        return ""
     except sqlite3.Error:
         return ""
     try:
-        conn.execute("PRAGMA query_only = ON")
         rows = conn.execute(
             "SELECT path, COALESCE(title, '') AS title "
             "FROM documents "

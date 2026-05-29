@@ -154,7 +154,24 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
         safe_blob = json.dumps(redacted_event, ensure_ascii=False, default=str).replace(
             "[REDACTED]", f"<REDACTED:{h}>"
         )
-        content_hash = hashlib.sha256(safe_blob.encode("utf-8")).hexdigest()
+        # Dedup hash: computed over the redacted payload with capture-time
+        # fields excluded and WITHOUT the variable <REDACTED:h> correlation
+        # tag (we hash redacted_event, whose tokens are the stable [REDACTED]
+        # form, not safe_blob). Two captures of the same logical event that
+        # differ only in ephemeral fields therefore produce identical hashes
+        # and are not re-ingested into Graphiti. A full 64-char sha256 keeps
+        # the record schema contract intact.
+        _hash_exclude = frozenset(
+            {"captured_at", "host", "content_hash", "ts", "pid", "event_id"}
+        )
+        canonical = {
+            k: v for k, v in redacted_event.items() if k not in _hash_exclude
+        }
+        content_hash = hashlib.sha256(
+            json.dumps(
+                canonical, sort_keys=True, ensure_ascii=False, default=str
+            ).encode("utf-8")
+        ).hexdigest()
 
         record = {
             "event_id": f"{now.strftime('%H%M%S')}-{content_hash[:12]}",

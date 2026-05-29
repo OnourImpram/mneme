@@ -43,7 +43,7 @@ class SettingsMutationError(RuntimeError):
 class MutationResult:
     """Outcome of a settings.json mutation."""
 
-    backup_path: Path
+    backup_path: Path | None
     bom_preserved: bool
     operation: str
 
@@ -112,9 +112,12 @@ def write_settings(
 
     backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = backup_dir / f"{path.name}.bak-{reason}-{ts}"
+    backup_path: Path | None
     if path.exists():
+        backup_path = backup_dir / f"{path.name}.bak-{reason}-{ts}"
         shutil.copy2(path, backup_path)
+    else:
+        backup_path = None
 
     encoding = "utf-8-sig" if preserve_bom else "utf-8"
     tmp_path = path.with_suffix(path.suffix + f".tmp-{ts}")

@@ -162,3 +162,113 @@ describe("writeTool runtime", () => {
     expect(after2).not.toContain('id: "different"');
   });
 });
+
+// F1: canonical redact() — case-insensitive and attribute-tolerant
+describe("writeTool redaction (F1)", () => {
+  it("redacts uppercase <PRIVATE>secret</PRIVATE> before writing", () => {
+    const { vault, rootDir } = makeBareVault("write-redact-upper");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "redact-upper.md",
+        section: "Notes",
+        content: "Prefix <PRIVATE>secret</PRIVATE> suffix.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    const written = readFileSync(join(rootDir, "redact-upper.md"), "utf8");
+    expect(written).not.toContain("secret");
+    expect(written).toContain("[REDACTED]");
+    if (res.ok) expect(res.data.redactions_applied).toBeGreaterThanOrEqual(1);
+  });
+
+  it("redacts attribute-bearing <private reason=\"x\">secret</private> before writing", () => {
+    const { vault, rootDir } = makeBareVault("write-redact-attr");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "redact-attr.md",
+        section: "Notes",
+        content: 'Before <private reason="x">secret</private> after.',
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    const written = readFileSync(join(rootDir, "redact-attr.md"), "utf8");
+    expect(written).not.toContain("secret");
+    expect(written).toContain("[REDACTED]");
+    if (res.ok) expect(res.data.redactions_applied).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// F2: H2 heading guard
+describe("writeTool H2 body guard (F2)", () => {
+  it("throws when content contains a '## ' H2 line", () => {
+    const { vault } = makeBareVault("write-h2-guard");
+    expect(() =>
+      writeTool(
+        WriteInputSchema.parse({
+          path: "h2guard.md",
+          section: "Top",
+          content: "Some text.\n## Sub\nMore text.",
+        }),
+        vault,
+      ),
+    ).toThrow(/H2/i);
+  });
+
+  it("succeeds when content contains only H3+ headings", () => {
+    const { vault, rootDir } = makeBareVault("write-h3-ok");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "h3ok.md",
+        section: "Top",
+        content: "Some text.\n### Sub-heading\nMore text.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    const written = readFileSync(join(rootDir, "h3ok.md"), "utf8");
+    expect(written).toContain("### Sub-heading");
+  });
+});
+
+// F3: append separator
+describe("writeTool append separator (F3)", () => {
+  it("appending to a file ending in a single newline yields exactly one blank line before the new heading", () => {
+    const { vault, rootDir } = makeBareVault("write-sep-single-nl");
+    const target = join(rootDir, "sep.md");
+    writeFileSync(target, "Existing content.\n", "utf8");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "sep.md",
+        section: "New Section",
+        content: "New body.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    const written = readFileSync(target, "utf8");
+    // Exactly one blank line between old content and the new heading.
+    expect(written).toContain("Existing content.\n\n## New Section");
+    // Must NOT have two blank lines (three consecutive newlines).
+    expect(written).not.toContain("Existing content.\n\n\n");
+  });
+
+  it("appending to a file already ending in double newline adds no extra blank line", () => {
+    const { vault, rootDir } = makeBareVault("write-sep-double-nl");
+    const target = join(rootDir, "sep2.md");
+    writeFileSync(target, "Existing content.\n\n", "utf8");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "sep2.md",
+        section: "New Section",
+        content: "New body.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    const written = readFileSync(target, "utf8");
+    expect(written).toContain("Existing content.\n\n## New Section");
+    expect(written).not.toContain("Existing content.\n\n\n");
+  });
+});

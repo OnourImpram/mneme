@@ -305,12 +305,14 @@ def capture_event(event: dict[str, Any], config: StagingConfig) -> bool:
             return False
 
         event = redact_private(event, config)
-        _write_event(event, config)
+        written_bytes = _write_event(event, config)
 
         # --- counter-gated size cap enforcement ---
-        record_bytes = len(
-            json.dumps(event, ensure_ascii=False).encode("utf-8")
-        )
+        # Use the byte count returned by _write_event (which includes the
+        # ephemeral fields injected after redaction plus the trailing newline)
+        # so the counter reflects actual disk growth rather than the smaller
+        # pre-injection payload size.
+        record_bytes = written_bytes
         running_bytes, events_since_reconcile = _read_counter(config)
         running_bytes += record_bytes
         events_since_reconcile += 1
@@ -330,7 +332,14 @@ def capture_event(event: dict[str, Any], config: StagingConfig) -> bool:
         return False
 
 
-def _write_event(event: dict[str, Any], config: StagingConfig) -> None:
+def _write_event(event: dict[str, Any], config: StagingConfig) -> int:
+    """Write the event to the per-minute JSONL file.
+
+    Injects ``content_hash``, ``captured_at``, and ``host`` before
+    serialisation. Returns the number of bytes actually written so that
+    ``capture_event`` can credit the size counter with the real disk
+    growth rather than the smaller pre-injection payload size.
+    """
     now = _now()
     out_dir = config.staging_dir / config.host / now.strftime("%Y-%m-%d")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -344,5 +353,11 @@ def _write_event(event: dict[str, Any], config: StagingConfig) -> None:
     event["captured_at"] = now.isoformat()
     event["host"] = config.host
 
-    with out_file.open("a", encoding="utf-8") as fp:
-        fp.write(json.dumps(event, ensure_ascii=False) + "\n")
+    line = json.dumps(event, ensure_ascii=False) + "\n"
+    # newline="" disables platform newline translation so the bytes on disk
+    # exactly equal ``len(line.encode("utf-8"))`` on every OS (on Windows the
+    # default text mode would expand "\n" to "\r\n", making the returned count
+    # undercount real disk growth by one byte per event).
+    with out_file.open("a", encoding="utf-8", newline="") as fp:
+        fp.write(line)
+    return len(line.encode("utf-8"))

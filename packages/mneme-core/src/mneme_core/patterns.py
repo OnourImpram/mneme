@@ -39,6 +39,7 @@ import yaml
 from .privacy import redact as _privacy_redact
 from .vault.atomic_write import atomic_write_text
 from .vault.file_lock import file_lock
+from .vault.frontmatter import load_yaml_block as _load_yaml_block
 
 PATTERN_TYPE = "pattern"
 PATTERN_SCHEMA_VERSION = "1.0.0"
@@ -112,8 +113,8 @@ def from_markdown(text: str) -> Pattern | None:
     if match is None:
         return None
     try:
-        fm = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
+        fm = _load_yaml_block(match.group(1)) or {}
+    except (yaml.YAMLError, ValueError):
         return None
     if not isinstance(fm, dict) or fm.get("type") != PATTERN_TYPE:
         return None
@@ -190,7 +191,7 @@ def list_patterns(vault: Any) -> list[Pattern]:
     for md_path in sorted(vault.patterns_dir.glob("*.md")):
         try:
             pattern = from_markdown(md_path.read_text(encoding="utf-8"))
-        except OSError:
+        except Exception:  # noqa: BLE001 - one bad file must not abort listing
             continue
         if pattern is not None:
             out.append(pattern)

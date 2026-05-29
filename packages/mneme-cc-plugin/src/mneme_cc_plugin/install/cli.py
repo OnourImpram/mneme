@@ -28,6 +28,8 @@ argument lists so user-supplied data is never shell-interpolated.
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -232,7 +234,15 @@ class Installer:
         sub = HOOK_EVENT_COMMAND[event]
         if shutil.which("mneme"):
             return f"mneme hook {sub}"
-        return f'"{sys.executable}" -m mneme_cc_plugin.install.cli hook {sub}'
+        # On Windows, double-quoting the interpreter path is correct shell
+        # syntax for paths with spaces; quotes inside the path are not
+        # supported by cmd.exe so we accept that limitation. On POSIX we
+        # use shlex.quote which handles both spaces and embedded quotes.
+        if sys.platform == "win32":
+            quoted = f'"{sys.executable}"'
+        else:
+            quoted = shlex.quote(sys.executable)
+        return f"{quoted} -m mneme_cc_plugin.install.cli hook {sub}"
 
     def register_hooks(self) -> None:
         if not self.config.settings_path.exists():
@@ -327,6 +337,192 @@ def _default_codex_config_path() -> Path:
 CODEX_BLOCK_START = "# >>> mneme (managed) >>>"
 CODEX_BLOCK_END = "# <<< mneme (managed) <<<"
 
+# ---------------------------------------------------------------------------
+# Antigravity extension layout constants
+# ---------------------------------------------------------------------------
+
+#: Sub-directory within the Gemini extensions dir that mneme owns.
+ANTIGRAVITY_EXTENSION_NAME = "mneme"
+
+#: Relative paths written inside the extension directory.
+_AG_MANIFEST = "gemini-extension.json"
+_AG_HOOKS_DIR = "hooks"
+_AG_HOOKS_FILE = "hooks/hooks.json"
+_AG_SKILLS_DIR = "skills"
+_AG_GEMINI_MD = "GEMINI.md"
+
+# Hook command strings are reused verbatim from the Codex plugin.
+# SessionEnd folds into Stop because Antigravity has no SessionEnd event
+# (same coverage model as the Codex plugin).
+_AG_HOOKS_JSON: dict[str, object] = {
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "mneme hook session-start",
+                        "statusMessage": "Priming mneme vault context",
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Edit|Write|Bash|Task|MultiEdit",
+                "hooks": [
+                    {"type": "command", "command": "mneme hook post-tool-use"}
+                ],
+            }
+        ],
+        "Stop": [
+            {"hooks": [{"type": "command", "command": "mneme hook stop"}]}
+        ],
+        "PreCompact": [
+            {"hooks": [{"type": "command", "command": "mneme hook pre-compact"}]}
+        ],
+    }
+}
+
+_SKILL_PRIME_DESC = (
+    "Use when the user starts a new task that may have prior vault context"
+    " worth surfacing. Invokes the mneme_prime MCP tool to build a"
+    " token-budgeted preamble of recent sessions and topic matches."
+)
+_SKILL_SEARCH_DESC = (
+    "Use when the user asks a factual question whose answer might live in"
+    " the vault. Invokes mneme_search. v1.0 search is FTS5 BM25; dense"
+    " retrieval is roadmap, and KG enrichment is gated to summarize or"
+    " timeline when full-profile graph state is active."
+)
+
+_AG_SKILLS: dict[str, str] = {
+    "mneme-prime/SKILL.md": (
+        "---\n"
+        "name: mneme-prime\n"
+        f"description: {_SKILL_PRIME_DESC}\n"
+        "---\n"
+        "\n"
+        "# mneme-prime\n"
+        "\n"
+        "You are guiding the user into a new task. Before answering, retrieve\n"
+        "relevant prior context from their vault using the `mneme_prime` MCP\n"
+        "tool, served by the mneme MCP server.\n"
+        "\n"
+        "## When to invoke\n"
+        "\n"
+        "- The user starts the conversation with a task description that\n"
+        "  sounds like it continues prior work.\n"
+        '- The user explicitly says "remember what we did about X" or similar.\n'
+        "- The user invokes this skill directly.\n"
+        "\n"
+        "## How to invoke\n"
+        "\n"
+        "Call `mneme_prime` with the user's task description as\n"
+        "`task_description` and a budget no larger than 4000 tokens. Inspect\n"
+        "the returned `preamble` markdown and integrate the relevant pieces\n"
+        "into your reply. Cite paths from the `sources` array so the user can\n"
+        "navigate.\n"
+        "\n"
+        "## What not to do\n"
+        "\n"
+        "- Do not call `mneme_prime` on every message. The SessionStart hook\n"
+        "  already injects session-start context once per session.\n"
+        "- Do not include the full preamble verbatim in your reply. Summarize\n"
+        "  and cite. The preamble is for you, not the user.\n"
+        "- Do not call this with a `budget_tokens` higher than the user's\n"
+        "  remaining context window minus a safe reserve. Smaller is better.\n"
+    ),
+    "mneme-search/SKILL.md": (
+        "---\n"
+        "name: mneme-search\n"
+        f"description: {_SKILL_SEARCH_DESC}\n"
+        "---\n"
+        "\n"
+        "# mneme-search\n"
+        "\n"
+        "When the user asks a question that sounds like recall from prior work\n"
+        "or notes, search the vault first instead of guessing.\n"
+        "\n"
+        "## When to invoke\n"
+        "\n"
+        '- "Did we decide X?"\n'
+        '- "What was the conclusion about Y?"\n'
+        '- "Show me everything I have on Z."\n'
+        "- The user invokes this skill directly.\n"
+        "\n"
+        "## How to invoke\n"
+        "\n"
+        "Call the `mneme_search` MCP tool with:\n"
+        "\n"
+        "- `query`: the user's question in natural language.\n"
+        "- `top_k`: 5 by default. Raise to 10 only when the user asks for a\n"
+        "  broad sweep.\n"
+        "- Optional `filters.date_from` / `filters.date_to` when the user\n"
+        "  scopes their question to a specific time window.\n"
+        "\n"
+        "Inspect the returned `hits`. Each has `path`, `title`, `snippet`, and\n"
+        "a relevance `score`. Read the snippets first. If they answer the\n"
+        "question, cite the path and reply. If they only partially answer,\n"
+        "follow up with `mneme_recall` on the most promising paths to pull the\n"
+        "full body.\n"
+        "\n"
+        "## What not to do\n"
+        "\n"
+        "- Do not invoke this for the user's first hello or for questions whose\n"
+        "  answer is general knowledge.\n"
+        "- Do not search for the same query twice in a row. If the first pass\n"
+        "  returned nothing useful, refine the query terms or change the filter\n"
+        "  window.\n"
+        "- Do not present raw snippets in your reply unless the user explicitly\n"
+        "  asks for them. Summarize and link.\n"
+    ),
+}
+
+_AG_GEMINI_MD_CONTENT = (
+    "# mneme for Antigravity\n"
+    "\n"
+    "mneme adds vault-native memory to Antigravity via six MCP tools served\n"
+    "by `mneme-mcp`. Markdown files are the ground truth; the MCP server\n"
+    "is a read/write interface over that vault.\n"
+    "\n"
+    "## MCP tools\n"
+    "\n"
+    "| Tool | When to call |\n"
+    "|---|---|\n"
+    "| `mneme_prime` | Session start or before continuing prior work —"
+    " retrieves a token-budgeted preamble of relevant vault context. |\n"
+    "| `mneme_search` | User asks a recall question —"
+    " FTS5 BM25 search over the vault. |\n"
+    "| `mneme_recall` | Pull the full body of a specific vault note by path. |\n"
+    "| `mneme_write` | Persist a new note or append to an existing one. |\n"
+    "| `mneme_summarize` | Summarize a vault note or a set of search hits"
+    " into a compact digest. |\n"
+    "| `mneme_timeline` | Retrieve temporally ordered events from the"
+    " knowledge graph. |\n"
+    "\n"
+    "## Lifecycle hooks (automatic)\n"
+    "\n"
+    "Hooks fire without any agent action required:\n"
+    "\n"
+    "- **SessionStart** — runs `mneme hook session-start`;"
+    " primes context from the vault.\n"
+    "- **PostToolUse** — runs `mneme hook post-tool-use` after"
+    " Edit/Write/Bash/Task/MultiEdit; stages events for the session log.\n"
+    "- **Stop** — runs `mneme hook stop`; deterministic append to the"
+    " daily session log, no LLM call.\n"
+    "- **PreCompact** — runs `mneme hook pre-compact`; saves working state"
+    " before context compaction.\n"
+    "\n"
+    "Antigravity has no dedicated SessionEnd event. The Stop hook absorbs\n"
+    "session-end flushing, matching the Codex plugin's coverage model.\n"
+    "\n"
+    "## Ground truth rule\n"
+    "\n"
+    "Never invent vault content. If `mneme_search` returns no hits, say so.\n"
+    "Do not hallucinate note paths, titles, or prior decisions.\n"
+)
+
 
 def _strip_managed_block(text: str, start: str, end: str) -> str:
     """Drop the inclusive ``start``..``end`` marker block from ``text``."""
@@ -370,6 +566,22 @@ class CodexTarget:
             f"{CODEX_BLOCK_END}\n"
         )
 
+    def _atomic_write(self, content: str) -> None:
+        """Write ``content`` to ``config_path`` via a sibling tmp file.
+
+        Uses ``os.replace`` for an atomic overwrite so a crash mid-write
+        cannot truncate the user's Codex config. Mirrors the discipline
+        in ``settings.write_settings`` / ``atomic_write_text``.
+        """
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.config_path.with_suffix(self.config_path.suffix + ".mneme-tmp")
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, self.config_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
     def register(self, vault_root: Path) -> str:
         existing = (
             self.config_path.read_text(encoding="utf-8")
@@ -378,13 +590,12 @@ class CodexTarget:
         )
         if CODEX_BLOCK_START in existing:
             return "codex: mneme MCP block already present in config.toml"
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         prefix = existing
         if prefix and not prefix.endswith("\n"):
             prefix += "\n"
         if prefix:
             prefix += "\n"
-        self.config_path.write_text(prefix + self._block(vault_root), encoding="utf-8")
+        self._atomic_write(prefix + self._block(vault_root))
         return "codex: mneme MCP server registered in config.toml"
 
     def unregister(self) -> str:
@@ -393,11 +604,239 @@ class CodexTarget:
         text = self.config_path.read_text(encoding="utf-8")
         if CODEX_BLOCK_START not in text:
             return "codex: no mneme block present in config.toml"
-        self.config_path.write_text(
-            _strip_managed_block(text, CODEX_BLOCK_START, CODEX_BLOCK_END),
-            encoding="utf-8",
+        self._atomic_write(
+            _strip_managed_block(text, CODEX_BLOCK_START, CODEX_BLOCK_END)
         )
         return "codex: mneme MCP block removed from config.toml"
+
+
+def _default_antigravity_extensions_dir() -> Path:
+    return Path.home() / ".gemini" / "extensions"
+
+
+# ---------------------------------------------------------------------------
+# GenericMcpTarget — open, opt-in, model-agnostic MCP adapter
+# ---------------------------------------------------------------------------
+
+#: The server name written into the mcpServers object.
+_GENERIC_MCP_SERVER_NAME = "mneme"
+
+
+@dataclass
+class GenericMcpTarget:
+    """Write the mneme MCP server stanza into any MCP-capable client's config.
+
+    This is the **open adapter** surface: no lifecycle hooks, no auto-capture,
+    no skills.  The model calls ``mneme_*`` MCP tools when it chooses to.  Any
+    client that reads an ``mcpServers`` JSON object (Cline, Cursor, Claude
+    Desktop, and many others) can be wired here without client-specific code.
+
+    The config file is expected to be a JSON object (dict at the top level).
+    The installer merges exactly one key — ``mcpServers.mneme`` — and leaves
+    every other key and every other server entry intact.  Writes are atomic
+    (tmp + os.replace) to prevent truncation on a mid-write crash.
+
+    Idempotent: if ``mcpServers.mneme`` is already set to the identical stanza,
+    ``register`` returns an "already present" message without rewriting.
+
+    Error contract
+    --------------
+    - File does not exist → create it (with parent dirs).
+    - File exists, valid JSON object → merge.
+    - File exists, NOT valid JSON or not a JSON object → raise
+      ``click.ClickException`` (never clobber unknown content).
+    """
+
+    config_path: Path
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _atomic_write(self, content: str) -> None:
+        """Write *content* to ``config_path`` via a sibling tmp, then os.replace."""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.config_path.with_suffix(
+            self.config_path.suffix + ".mneme-tmp"
+        )
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, self.config_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    def _read_config(self) -> dict[str, object]:
+        """Read and parse the config file, raising ClickException on bad JSON."""
+        text = self.config_path.read_text(encoding="utf-8")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(
+                f"mcp: {self.config_path} is not valid JSON and will not be "
+                f"modified. Fix or remove it first. Parser error: {exc}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise click.ClickException(
+                f"mcp: {self.config_path} is valid JSON but its top level is "
+                f"{type(data).__name__}, not an object. "
+                "Cannot merge mcpServers into a non-object root."
+            )
+        return data
+
+    @staticmethod
+    def _mneme_stanza(vault_root: Path) -> dict[str, object]:
+        return {
+            "command": "mneme-mcp",
+            "env": {"MNEME_VAULT": str(vault_root)},
+        }
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def register(self, vault_root: Path) -> str:
+        """Merge ``mcpServers.mneme`` into the config and write atomically.
+
+        Returns a human-readable status string (suitable for ``click.echo``).
+        """
+        stanza = self._mneme_stanza(vault_root)
+
+        if self.config_path.exists():
+            data = self._read_config()
+        else:
+            data = {}
+
+        # Ensure mcpServers key exists.
+        if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+            data["mcpServers"] = {}
+
+        mcp_servers: dict[str, object] = data["mcpServers"]  # type: ignore[assignment]
+
+        # Idempotency check — skip write if stanza is already identical.
+        if mcp_servers.get(_GENERIC_MCP_SERVER_NAME) == stanza:
+            return (
+                f"mcp: mneme server already present in {self.config_path} "
+                "(no changes written)"
+            )
+
+        mcp_servers[_GENERIC_MCP_SERVER_NAME] = stanza
+        self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return f"mcp: mneme server registered in {self.config_path}"
+
+    def unregister(self) -> str:
+        """Remove ``mcpServers.mneme`` from the config if present.
+
+        Leaves all other keys and servers intact.  Returns a status string.
+        """
+        if not self.config_path.exists():
+            return (
+                f"mcp: {self.config_path} does not exist, nothing to remove"
+            )
+
+        data = self._read_config()
+        mcp_servers = data.get("mcpServers")
+
+        if not isinstance(mcp_servers, dict) or _GENERIC_MCP_SERVER_NAME not in mcp_servers:
+            return (
+                f"mcp: mneme server not found in {self.config_path}, "
+                "nothing to remove"
+            )
+
+        del mcp_servers[_GENERIC_MCP_SERVER_NAME]
+        self._atomic_write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        return f"mcp: mneme server removed from {self.config_path}"
+
+
+@dataclass
+class AntigravityTarget:
+    """Materialise the mneme Gemini extension into the Antigravity extensions dir.
+
+    Antigravity extensions live at ``<extensions_dir>/<name>/``. The
+    installer writes:
+
+    - ``gemini-extension.json`` — manifest with concrete MNEME_VAULT env.
+    - ``hooks/hooks.json`` — Claude-Code-compatible lifecycle hooks using the
+      same ``mneme hook <event>`` command strings as the Codex plugin.
+    - ``skills/mneme-prime/SKILL.md`` and ``skills/mneme-search/SKILL.md``.
+    - ``GEMINI.md`` — context rules injected at session start.
+
+    The installed manifest uses the resolved ``vault_root`` string for
+    ``env.MNEME_VAULT`` (concrete path, same discipline as CodexTarget).
+    The in-repo ``gemini-extension.json`` uses the ``${MNEME_VAULT}``
+    portability variable so operators can copy the extension dir without
+    running the installer.
+
+    Atomic writes via tmp-then-os.replace mirror CodexTarget._atomic_write.
+    SessionEnd folds into Stop because Antigravity has no SessionEnd event.
+    """
+
+    extensions_dir: Path
+
+    @property
+    def _ext_dir(self) -> Path:
+        return self.extensions_dir / ANTIGRAVITY_EXTENSION_NAME
+
+    def _atomic_write(self, path: Path, content: str) -> None:
+        """Write ``content`` to ``path`` via a sibling tmp, then os.replace."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".mneme-tmp")
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            os.replace(tmp_path, path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+    def _manifest(self, vault_root: Path) -> str:
+        """Return the installed gemini-extension.json with concrete vault path."""
+        manifest: dict[str, object] = {
+            "name": ANTIGRAVITY_EXTENSION_NAME,
+            "version": __version__,
+            "description": (
+                "Vault-native memory for Antigravity. "
+                "Markdown is ground truth. "
+                "Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop."
+            ),
+            "contextFileName": "GEMINI.md",
+            "mcpServers": {
+                "mneme": {
+                    "command": "mneme-mcp",
+                    "env": {"MNEME_VAULT": str(vault_root)},
+                }
+            },
+        }
+        return json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+
+    def register(self, vault_root: Path) -> str:
+        """Write the extension directory; idempotent if already present."""
+        if self._ext_dir.exists() and (self._ext_dir / _AG_MANIFEST).exists():
+            return "antigravity: mneme extension already present"
+
+        # Manifest (concrete vault path in env)
+        self._atomic_write(self._ext_dir / _AG_MANIFEST, self._manifest(vault_root))
+
+        # Hooks
+        self._atomic_write(
+            self._ext_dir / _AG_HOOKS_FILE,
+            json.dumps(_AG_HOOKS_JSON, indent=2, ensure_ascii=False) + "\n",
+        )
+
+        # Skills
+        for rel_path, content in _AG_SKILLS.items():
+            self._atomic_write(self._ext_dir / _AG_SKILLS_DIR / rel_path, content)
+
+        # Context rules
+        self._atomic_write(self._ext_dir / _AG_GEMINI_MD, _AG_GEMINI_MD_CONTENT)
+
+        return "antigravity: mneme extension registered"
+
+    def unregister(self) -> str:
+        """Remove the managed extension directory."""
+        if not self._ext_dir.exists():
+            return "antigravity: extension directory not found, nothing to remove"
+        shutil.rmtree(self._ext_dir)
+        return "antigravity: mneme extension removed"
 
 
 @click.group(help="mneme install + lifecycle CLI.")
@@ -421,7 +860,7 @@ def cli() -> None:  # pragma: no cover - dispatcher
 )
 @click.option(
     "--client",
-    type=click.Choice(["claude-code", "codex", "all"]),
+    type=click.Choice(["claude-code", "codex", "antigravity", "mcp", "all"]),
     default="claude-code",
     show_default=True,
     help="Which client(s) to wire mneme into.",
@@ -455,6 +894,23 @@ def cli() -> None:  # pragma: no cover - dispatcher
     help="Where to keep settings.json backups. Defaults to ~/.claude/mneme-backups.",
 )
 @click.option(
+    "--antigravity-extensions-dir",
+    "antigravity_extensions_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Antigravity extensions dir. Defaults to ~/.gemini/extensions.",
+)
+@click.option(
+    "--config",
+    "mcp_config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to the MCP client's JSON config file (required for --client mcp). "
+        "Example: ~/.config/some-client/mcp.json"
+    ),
+)
+@click.option(
     "--skip-python", is_flag=True, help="Skip pip install (for editable monorepo dev)."
 )
 @click.option(
@@ -469,12 +925,22 @@ def install(
     settings_path: Path | None,
     codex_config: Path | None,
     backup_dir: Path | None,
+    antigravity_extensions_dir: Path | None,
+    mcp_config: Path | None,
     skip_python: bool,
     skip_node: bool,
     dry_run: bool,
 ) -> None:
     if upgrade_profile is not None:
         profile = upgrade_profile
+
+    # --client mcp requires --config <path>; reject early with a clear message.
+    if client == "mcp" and mcp_config is None:
+        raise click.ClickException(
+            "--client mcp requires --config <path> pointing to your MCP "
+            "client's JSON config file (e.g. ~/.config/my-client/mcp.json)."
+        )
+
     cfg = InstallerConfig(
         profile=profile,
         vault_root=(vault_root or _default_vault_root()).expanduser().resolve(),
@@ -508,6 +974,21 @@ def install(
                 .resolve()
             )
             inst._say(target.register(cfg.vault_root))
+        if client in ("antigravity", "all"):
+            ag_target = AntigravityTarget(
+                extensions_dir=(
+                    antigravity_extensions_dir or _default_antigravity_extensions_dir()
+                )
+                .expanduser()
+                .resolve()
+            )
+            inst._say(ag_target.register(cfg.vault_root))
+        if client == "mcp":
+            # mcp_config is guaranteed non-None by the guard above.
+            mcp_target = GenericMcpTarget(
+                config_path=mcp_config.expanduser().resolve()  # type: ignore[union-attr]
+            )
+            inst._say(mcp_target.register(cfg.vault_root))
     inst._say(
         f"mneme install complete (profile={profile}, client={client}, "
         f"vault={cfg.vault_root})"
@@ -532,10 +1013,10 @@ def upgrade(profile: str) -> None:
     inst._say(f"upgraded to profile={profile}")
 
 
-@cli.command(help="Remove mneme from Claude Code and/or Codex.")
+@cli.command(help="Remove mneme from Claude Code and/or Codex and/or Antigravity.")
 @click.option(
     "--client",
-    type=click.Choice(["claude-code", "codex", "all"]),
+    type=click.Choice(["claude-code", "codex", "antigravity", "mcp", "all"]),
     default="claude-code",
     show_default=True,
     help="Which client(s) to remove mneme from.",
@@ -558,12 +1039,38 @@ def upgrade(profile: str) -> None:
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
+@click.option(
+    "--antigravity-extensions-dir",
+    "antigravity_extensions_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Antigravity extensions dir. Defaults to ~/.gemini/extensions.",
+)
+@click.option(
+    "--config",
+    "mcp_config",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to the MCP client's JSON config file (required for --client mcp). "
+        "Example: ~/.config/some-client/mcp.json"
+    ),
+)
 def uninstall(
     client: str,
     settings_path: Path | None,
     codex_config: Path | None,
     backup_dir: Path | None,
+    antigravity_extensions_dir: Path | None,
+    mcp_config: Path | None,
 ) -> None:
+    # --client mcp requires --config <path>; reject early with a clear message.
+    if client == "mcp" and mcp_config is None:
+        raise click.ClickException(
+            "--client mcp requires --config <path> pointing to your MCP "
+            "client's JSON config file (e.g. ~/.config/my-client/mcp.json)."
+        )
+
     if client in ("claude-code", "all"):
         cfg = InstallerConfig(
             profile=DEFAULT_PROFILE,
@@ -584,6 +1091,21 @@ def uninstall(
             .resolve()
         )
         click.echo(target.unregister())
+    if client in ("antigravity", "all"):
+        ag_target = AntigravityTarget(
+            extensions_dir=(
+                antigravity_extensions_dir or _default_antigravity_extensions_dir()
+            )
+            .expanduser()
+            .resolve()
+        )
+        click.echo(ag_target.unregister())
+    if client == "mcp":
+        # mcp_config is guaranteed non-None by the guard above.
+        mcp_target = GenericMcpTarget(
+            config_path=mcp_config.expanduser().resolve()  # type: ignore[union-attr]
+        )
+        click.echo(mcp_target.unregister())
 
 
 @cli.command(help="Print environment diagnostic without mutation.")
