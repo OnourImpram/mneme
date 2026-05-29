@@ -29,13 +29,10 @@ No unreleased changes yet.
 
 ### Fixed
 
-- **Retrieval correctness.** `rrf_fuse` deduplicates on document path so a
-  document returned by an integer-id backend (FTS5) and a `None`-id backend
-  fuses into one correctly-summed entry instead of two half-scored rows. A
-  full-pass index prune clears all rows when every file is excluded, so a
-  fully-excluded vault no longer leaves stale index entries. `benchmark_queries`
-  uses the production OR-of-phrases query builder so benchmark numbers reflect
-  the retrieval path actually executed.
+- **Retrieval correctness.** A full-pass index prune clears all rows when every
+  file is excluded, so a fully-excluded vault no longer leaves stale index
+  entries. `benchmark_queries` uses the production OR-of-phrases query builder
+  so benchmark numbers reflect the retrieval path actually executed.
 - **Durability and atomicity.** `reserve_cost` writes the cost ledger through
   the same fsync-and-rename atomic path as settlement and rollback; the
   injection-dedup tracker and the Codex config are written atomically; staging
