@@ -39,6 +39,14 @@ No unreleased changes yet.
   rowid, the unsorted walk made ranking — and the retrieval benchmark's nDCG —
   depend on the host filesystem. Sorting makes indexing reproducible
   everywhere and keeps the locked benchmark baseline stable across runners.
+- **Vault-escape containment (security).** The indexer resolves each `*.md`
+  file's realpath and skips any whose target escapes the vault root. `rglob`
+  follows symlinks and the exclusion check is purely lexical, so a symlink
+  planted inside the vault that points outside it (for example
+  `vault/private.md` → `~/.ssh/id_rsa`) would otherwise be read and stored in
+  the FTS5 index, leaking out-of-vault file contents through `mneme_search`
+  and `mneme_summarize`. This mirrors the existing TypeScript write-path
+  containment guard.
 - **Durability and atomicity.** `reserve_cost` writes the cost ledger through
   the same fsync-and-rename atomic path as settlement and rollback; the
   injection-dedup tracker and the Codex config are written atomically; staging

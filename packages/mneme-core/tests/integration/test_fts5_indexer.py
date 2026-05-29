@@ -855,3 +855,59 @@ class TestDeterministicWalkOrder:
             "charlie.md",
             "delta.md",
         ]
+
+
+class TestVaultEscapeContainment:
+    """A symlink inside the vault pointing outside it must not be indexed.
+
+    ``rglob`` follows symlinks and ``_should_index`` only checks the lexical
+    relative path, so without a realpath containment guard a symlink planted in
+    the vault (``vault/private.md`` -> ``~/.ssh/id_rsa``) would be read and its
+    contents stored in the FTS5 index, leaking out-of-vault files through
+    search.
+    """
+
+    def test_out_of_vault_symlink_is_skipped(
+        self,
+        in_memory_conn: sqlite3.Connection,
+        tmp_path: Path,
+    ) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        secret = outside / "secret.md"
+        secret.write_text(
+            "# secret\n\nuniquesecrettoken contents that must never be indexed.\n",
+            encoding="utf-8",
+        )
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "real.md").write_text(
+            "---\nid: real\ntype: note\n---\n# Real\n\nlegitvaulttoken body.\n",
+            encoding="utf-8",
+        )
+
+        link = vault / "escape.md"
+        try:
+            link.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation not permitted on this platform")
+
+        stats = index_vault(
+            in_memory_conn,
+            IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"),
+        )
+
+        # The legitimate in-vault file is indexed; the escaping symlink is not.
+        assert stats.indexed == 1
+        indexed_paths = {
+            r[0] for r in in_memory_conn.execute("SELECT path FROM documents").fetchall()
+        }
+        assert indexed_paths == {"real.md"}
+
+        # The out-of-vault content never reached the index.
+        leak = in_memory_conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("uniquesecrettoken",),
+        ).fetchall()
+        assert leak == []
