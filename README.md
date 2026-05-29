@@ -58,7 +58,7 @@ These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. 
 
 | Benchmark | Metric | Result |
 |---|---|---|
-| A. Retrieval quality | nDCG@5, RRF fused | **0.911** (FTS5 baseline 0.811, +10.0 points) |
+| A. Retrieval quality | nDCG@5, RRF fused | **0.893** (FTS5 baseline 0.801, +9.2 points) |
 | B. Stop hook latency | p95 | **2 ms** (constraint budget 1000 ms) |
 | B. Retrieve latency | p95 | **3 ms** on indexed 500-doc corpus |
 | C. Shell output compression | reduction | **88 percent** on redundant Bash logs |

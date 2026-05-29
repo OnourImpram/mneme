@@ -802,3 +802,56 @@ class TestCanonicalFrontmatterParity:
         ).fetchall()
         conn.close()
         assert len(hits) == 1
+
+
+class TestDeterministicWalkOrder:
+    """Rowids must be assigned in sorted-path order, not filesystem order.
+
+    ``rglob`` yields directory order, which differs across filesystems (ext4
+    vs NTFS). Because FTS5 breaks equal-BM25 ties by rowid, an unsorted walk
+    makes ranking depend on the host filesystem. The indexer sorts the walk so
+    document rowids are assigned deterministically everywhere.
+    """
+
+    def test_rowids_follow_sorted_path_order_regardless_of_walk_order(
+        self,
+        in_memory_conn: sqlite3.Connection,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        names = ["delta.md", "alpha.md", "charlie.md", "bravo.md"]
+        for name in names:
+            (vault / name).write_text(
+                f"---\nid: {name[:-3]}\ntype: note\n---\n# {name}\n\nBody.\n",
+                encoding="utf-8",
+            )
+
+        # Simulate a filesystem that returns entries in a non-sorted order.
+        real_rglob = Path.rglob
+        shuffled = [vault / n for n in ("charlie.md", "delta.md", "alpha.md", "bravo.md")]
+
+        def fake_rglob(self: Path, pattern: str) -> list[Path]:
+            if self == vault and pattern == "*.md":
+                return list(shuffled)
+            return list(real_rglob(self, pattern))
+
+        monkeypatch.setattr(Path, "rglob", fake_rglob)
+
+        index_vault(
+            in_memory_conn,
+            IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"),
+        )
+
+        rows = in_memory_conn.execute(
+            "SELECT path FROM documents ORDER BY id"
+        ).fetchall()
+        paths_in_rowid_order = [r[0] for r in rows]
+        assert paths_in_rowid_order == sorted(paths_in_rowid_order)
+        assert paths_in_rowid_order == [
+            "alpha.md",
+            "bravo.md",
+            "charlie.md",
+            "delta.md",
+        ]

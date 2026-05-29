@@ -33,12 +33,12 @@ No unreleased changes yet.
   file is excluded, so a fully-excluded vault no longer leaves stale index
   entries. `benchmark_queries` uses the production OR-of-phrases query builder
   so benchmark numbers reflect the retrieval path actually executed.
-- **Benchmark reproducibility.** Benchmark A now pins SQLite (the retrieval
-  benchmark routes `sqlite3` through `pysqlite3-binary`, installed in the
-  benchmark CI job), because FTS5 BM25 ranking shifts across SQLite versions
-  and was drifting the locked nDCG baseline when a CI runner image bumped its
-  bundled SQLite. The baseline is re-locked against the pinned build and now
-  records the SQLite version; the retrieval algorithm is unchanged.
+- **Deterministic indexing.** The indexer now sorts the `*.md` walk before
+  assigning document rowids. `rglob` yields directory order, which differs
+  across filesystems (ext4 vs NTFS); because FTS5 breaks equal-BM25 ties by
+  rowid, the unsorted walk made ranking — and the retrieval benchmark's nDCG —
+  depend on the host filesystem. Sorting makes indexing reproducible
+  everywhere and keeps the locked benchmark baseline stable across runners.
 - **Durability and atomicity.** `reserve_cost` writes the cost ledger through
   the same fsync-and-rename atomic path as settlement and rollback; the
   injection-dedup tracker and the Codex config are written atomically; staging

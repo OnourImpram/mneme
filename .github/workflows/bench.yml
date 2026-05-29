@@ -29,17 +29,6 @@ jobs:
       - name: Install mneme-core
         working-directory: packages/mneme-core
         run: pip install -e ".[dev]"
-      - name: Pin SQLite for reproducible BM25 (pysqlite3)
-        # FTS5 BM25 ranking shifts across SQLite versions, so the runner's
-        # bundled SQLite would otherwise drift the locked nDCG baseline. This
-        # wheel bundles a fixed SQLite (3.51.1); run.py routes sqlite3 through
-        # it. Linux-only, which matches this ubuntu-only job. Use `python -m
-        # pip` and verify the import with the same interpreter the benchmark
-        # runs, so a wrong-interpreter install fails loudly here instead of
-        # silently falling back to the stdlib SQLite downstream.
-        run: |
-          python -m pip install "pysqlite3-binary==0.5.4.post2"
-          python -c "import pysqlite3; print('pysqlite3 OK, SQLite', pysqlite3.sqlite_version)"
       - name: Run retrieval benchmark
         run: |
           mkdir -p benchmarks/_runs

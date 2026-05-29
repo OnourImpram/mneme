@@ -317,7 +317,13 @@ def index_vault(
         errored, and total-seen files.
     """
     stats = IndexStats()
-    paths = list(config.vault_root.rglob("*.md"))
+    # Sort the walk so document rowids are assigned in a filesystem-independent
+    # order. ``rglob`` yields entries in directory order, which differs across
+    # filesystems (e.g. ext4 vs NTFS); since FTS5 breaks equal-BM25 ties by
+    # rowid, an unsorted walk makes ranking — and therefore the retrieval
+    # benchmark's nDCG — depend on the host filesystem. Sorting makes indexing
+    # deterministic and reproducible everywhere.
+    paths = sorted(config.vault_root.rglob("*.md"))
     stats.total_seen = len(paths)
 
     # Collect relative paths for every eligible file seen this pass so that
