@@ -131,7 +131,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [preflight, pack-plugin]
     if: needs.preflight.outputs.is_dry_run != 'true'
+    # JUNE-1 PUBLISH DECISION (deferred). PyPI trusted publishing matches this
+    # `environment:` to the cc-plugin pending-publisher's Environment name.
+    # cc-plugin was registered as `pypi2` (PyPI rejected sharing one `pypi`
+    # environment across both projects). Before tagging:
+    #   - Open the PyPI trusted-publishing UI for mneme-cc-plugin. Confirm the
+    #     pending-publisher is still active (entries expire ~3 months) and read
+    #     its Environment name.
+    #   - If it is `pypi`  -> keep the active line below unchanged.
+    #   - If it is `pypi2` -> switch the active line to `pypi2` AND create a
+    #     matching GitHub `pypi2` Environment mirroring the `pypi` protections.
+    # This comment changes no runtime behavior; the active environment is `pypi`.
     environment: pypi
+    # environment: pypi2  # enable IN PLACE OF the line above only if the pypi2 branch applies
     permissions:
       id-token: write
     steps:
