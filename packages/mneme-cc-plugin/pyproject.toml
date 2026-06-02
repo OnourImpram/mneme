@@ -20,7 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "mneme-core>=1.0.0a0,<2",
+  "mneme-core>=2.0.0,<3",
   "click>=8.1,<9",
 ]
 
