@@ -199,9 +199,9 @@ class Installer:
 
     def install_node_deps(self) -> None:
         if self.config.dry_run:
-            self._say("npm (dry-run): would install -g mneme-mcp")
+            self._say("npm (dry-run): would install -g mneme-mcp-server")
             return
-        cmd = ["npm", "install", "-g", "mneme-mcp"]
+        cmd = ["npm", "install", "-g", "mneme-mcp-server"]
         self._say(f"npm: {' '.join(cmd)}")
         res = self.runner(cmd)
         if res.returncode != 0:

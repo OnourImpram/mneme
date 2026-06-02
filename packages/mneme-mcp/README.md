@@ -1,6 +1,6 @@
-# mneme-mcp
+# mneme-mcp-server
 
-TypeScript MCP server for [mneme](https://github.com/TheGoatPsy/mneme).
+TypeScript MCP server for [mneme](https://github.com/TheGoatPsy/mneme). The npm package is `mneme-mcp-server`; it installs the `mneme-mcp` command.
 
 Provides six tools to any MCP-compatible client (Claude Code, Cursor, Cline, Continue, Goose):
 
@@ -16,7 +16,7 @@ Provides six tools to any MCP-compatible client (Claude Code, Cursor, Cline, Con
 ## Installation
 
 ```bash
-npm install -g mneme-mcp
+npm install -g mneme-mcp-server   # installs the `mneme-mcp` command
 ```
 
 Or use via the Claude Code plugin (recommended): see `packages/mneme-cc-plugin`.

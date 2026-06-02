@@ -42,7 +42,7 @@ Claude-Code-native core:
 
 ```bash
 pipx install mneme-cc-plugin   # provides the `mneme` CLI (hook dispatch)
-npm install -g mneme-mcp       # provides the MCP server binary
+npm install -g mneme-mcp-server  # provides the mneme-mcp command
 ```
 
 These publish with mneme v1.0.0. Until then, install from source in this

@@ -1,5 +1,5 @@
 {
-  "name": "mneme-mcp",
+  "name": "mneme-mcp-server",
   "version": "2.0.0",
   "description": "MCP server for mneme: 6 tools for vault-native memory in Claude Code and MCP-compatible clients.",
   "type": "module",

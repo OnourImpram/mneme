@@ -28,7 +28,7 @@ The hooks and the MCP server reuse the shared `mneme` CLI and the
 
 ```bash
 pipx install mneme-cc-plugin   # provides the `mneme` CLI (hook dispatch)
-npm install -g mneme-mcp       # provides the MCP server binary
+npm install -g mneme-mcp-server  # provides the mneme-mcp command
 ```
 
 For source installs, build the Python and Node packages from this

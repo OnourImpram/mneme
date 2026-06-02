@@ -26,7 +26,7 @@ session-end flushing (same model as the Codex plugin).
 
 ```bash
 pipx install mneme-cc-plugin   # provides the `mneme` CLI (hook dispatch)
-npm install -g mneme-mcp       # provides the MCP server binary
+npm install -g mneme-mcp-server  # provides the mneme-mcp command
 ```
 
 ## Install

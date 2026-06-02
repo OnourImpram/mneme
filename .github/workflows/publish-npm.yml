@@ -1,0 +1,39 @@
+name: Publish npm (manual)
+
+# Manual, npm-only publish for packages/mneme-mcp (published as `mneme-mcp-server`).
+# Separate from release.yml so the npm package can be (re)published without
+# re-running the PyPI jobs, which reject re-uploading an already-published
+# version. Uses the same `npm` environment + NPM_TOKEN as release.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this manual npm publish is being run'
+        required: false
+        default: ''
+
+jobs:
+  publish-npm:
+    name: Publish mneme-mcp-server to npm
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install and build
+        run: pnpm install --frozen-lockfile && pnpm -r build
+      - name: Publish to npm with provenance
+        working-directory: packages/mneme-mcp
+        run: npm publish --access=public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
