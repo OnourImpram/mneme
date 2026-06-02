@@ -28,6 +28,10 @@ Please include:
 
 Only the latest minor release of mneme receives security patches. Older versions should upgrade.
 
+## Windows State Directory Permissions
+
+On Windows, the HMAC audit key (`<stateDir>/audit-hmac.key`) is created without NTFS ACL restrictions because Node.js `fs.openSync` mode bits have no effect on NTFS. Operators must manually restrict the state directory: `icacls "<stateDir>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"`. Full `icacls` automation is planned for a future release.
+
 ## Out of Scope
 
 - Third-party dependencies (please report upstream).

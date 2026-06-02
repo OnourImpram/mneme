@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
+import { appendAuditRecord } from "../audit.js";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
 import {
@@ -152,10 +153,18 @@ export function writeTool(
 		};
 	}
 
+	const relativePath = args.path.replace(/\\/g, "/");
+
+	// T4: append tamper-evident audit record whenever redaction occurred.
+	// Non-fatal: audit failure is warned but never blocks the write result.
+	if (totalRedactions > 0) {
+		appendAuditRecord(vault.stateDir, relativePath, totalRedactions);
+	}
+
 	return {
 		ok: true,
 		data: {
-			path: targetAbs,
+			path: relativePath,
 			bytes_written: Buffer.byteLength(finalContent, "utf8"),
 			operation,
 			created_new_file: createdNew,

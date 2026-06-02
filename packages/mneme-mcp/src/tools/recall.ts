@@ -12,6 +12,7 @@ import Database from "better-sqlite3";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
+import { redact } from "../privacy.js";
 import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
@@ -143,8 +144,12 @@ export function recallTool(
 			try {
 				assertWithinVault(vault.root, full);
 				// Full body is untrusted vault content returned on explicit
-				// request; fence it with the spotlighting guard (gap G-3).
-				e.body = wrapUntrusted(readFileSync(full, "utf8"), "vault-recall");
+				// request; redact <private> blocks first (same as prime.ts
+				// readBodySafe), then fence with the spotlighting guard (G-3).
+				e.body = wrapUntrusted(
+					redact(readFileSync(full, "utf8")).text,
+					"vault-recall",
+				);
 			} catch (err) {
 				// Leave body undefined and surface nothing to the caller about
 				// the suppressed row, so a poisoned index cannot probe what is

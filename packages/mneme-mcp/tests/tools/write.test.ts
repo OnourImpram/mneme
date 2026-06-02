@@ -1,6 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "../../src/errors.js";
 import { VaultConfig } from "../../src/vault/config.js";
@@ -163,6 +171,46 @@ describe("writeTool runtime", () => {
   });
 });
 
+// T9: write response path must be vault-relative, not absolute
+describe("writeTool path in response (T9)", () => {
+  it("returned path is the relative input path, not an absolute path", () => {
+    const { vault } = makeBareVault("write-t9-relpath");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "sessions/x.md",
+        section: "Notes",
+        content: "body",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.path).toBe("sessions/x.md");
+      // Must not be absolute: no drive letter (Windows) and no leading slash (Unix)
+      expect(res.data.path).not.toMatch(/^[A-Za-z]:[/\\]/);
+      expect(res.data.path).not.toMatch(/^\//);
+      // Must not contain the vault root prefix
+      expect(res.data.path).not.toContain(tmpdir());
+    }
+  });
+
+  it("returned path uses forward slashes regardless of OS path separator", () => {
+    const { vault } = makeBareVault("write-t9-fwdslash");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "a/b/c.md",
+        section: "S",
+        content: "x",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.path).toBe("a/b/c.md");
+    }
+  });
+});
+
 // F1: canonical redact() — case-insensitive and attribute-tolerant
 describe("writeTool redaction (F1)", () => {
   it("redacts uppercase <PRIVATE>secret</PRIVATE> before writing", () => {
@@ -270,5 +318,266 @@ describe("writeTool append separator (F3)", () => {
     const written = readFileSync(target, "utf8");
     expect(written).toContain("Existing content.\n\n## New Section");
     expect(written).not.toContain("Existing content.\n\n\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T4: audit log persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse all non-empty lines from a JSONL file into typed audit records.
+ */
+function readAuditRecords(jsonlPath: string): Array<{
+  timestamp_iso: string;
+  relative_path: string;
+  redactions_applied: number;
+  prev_hash: string;
+  hmac: string;
+}> {
+  const raw = readFileSync(jsonlPath, "utf8");
+  return raw
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => JSON.parse(l));
+}
+
+/**
+ * Recompute the expected HMAC for a record, matching audit.ts logic:
+ *   HMAC-SHA256(key, prevHash + JSON({timestamp_iso, relative_path,
+ *                                     redactions_applied, prev_hash}))
+ */
+function verifyHmac(
+  key: Buffer,
+  record: ReturnType<typeof readAuditRecords>[number],
+): boolean {
+  const { hmac: _hmac, ...withoutHmac } = record;
+  const serialized = JSON.stringify(withoutHmac);
+  const expected = createHmac("sha256", key)
+    .update(record.prev_hash + serialized)
+    .digest("hex");
+  return expected === record.hmac;
+}
+
+describe("writeTool audit log (T4)", () => {
+  it("a write with a private block appends exactly one audit record with correct fields", () => {
+    const { vault, rootDir } = makeBareVault("write-t4-single");
+
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "private-note.md",
+        section: "Secrets",
+        content: "Before <private>topsecret</private> after.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.redactions_applied).toBe(1);
+
+    // Locate the daily JSONL file.
+    const today = new Date().toISOString().slice(0, 10);
+    const auditDir = join(rootDir, ".mneme", "audit");
+    const jsonlPath = join(auditDir, `${today}.jsonl`);
+    expect(() => readFileSync(jsonlPath)).not.toThrow();
+
+    const records = readAuditRecords(jsonlPath);
+    expect(records).toHaveLength(1);
+
+    const rec = records[0]!;
+
+    // All five required fields are present.
+    expect(typeof rec.timestamp_iso).toBe("string");
+    expect(rec.timestamp_iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(rec.relative_path).toBe("private-note.md");
+    expect(rec.redactions_applied).toBe(1);
+    // First record chains off all-zeros.
+    expect(rec.prev_hash).toBe("0".repeat(64));
+    expect(typeof rec.hmac).toBe("string");
+    expect(rec.hmac).toHaveLength(64);
+  });
+
+  it("second write chains its prev_hash off the first record's hmac, and both HMACs verify", () => {
+    const { vault, rootDir } = makeBareVault("write-t4-chain");
+
+    // First write.
+    writeTool(
+      WriteInputSchema.parse({
+        path: "chain.md",
+        section: "First",
+        content: "Hello <private>secret-one</private> world.",
+      }),
+      vault,
+    );
+
+    // Second write (replace mode to keep single file, different content).
+    writeTool(
+      WriteInputSchema.parse({
+        path: "chain.md",
+        section: "Second",
+        content: "Another <private>secret-two</private> entry.",
+      }),
+      vault,
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    const jsonlPath = join(rootDir, ".mneme", "audit", `${today}.jsonl`);
+    const records = readAuditRecords(jsonlPath);
+    expect(records).toHaveLength(2);
+
+    const [first, second] = records as [typeof records[number], typeof records[number]];
+
+    // Chain: second.prev_hash === first.hmac.
+    expect(second.prev_hash).toBe(first.hmac);
+
+    // Read key and verify both HMACs.
+    const keyPath = join(rootDir, ".mneme", "audit-hmac.key");
+    const key = readFileSync(keyPath);
+    expect(verifyHmac(key, first)).toBe(true);
+    expect(verifyHmac(key, second)).toBe(true);
+  });
+
+  it("key file is created at the correct path", () => {
+    const { vault, rootDir } = makeBareVault("write-t4-keypath");
+
+    writeTool(
+      WriteInputSchema.parse({
+        path: "kp.md",
+        section: "S",
+        content: "<private>x</private>",
+      }),
+      vault,
+    );
+
+    const keyPath = join(rootDir, ".mneme", "audit-hmac.key");
+    const key = readFileSync(keyPath);
+    // Key must be exactly 32 bytes.
+    expect(key.length).toBe(32);
+  });
+
+  it("key file has restricted permissions on POSIX (mode 0o600)", () => {
+    // Skip on Windows where mode bits don't set NTFS ACLs.
+    if (process.platform === "win32") return;
+
+    const { vault, rootDir } = makeBareVault("write-t4-perms");
+
+    writeTool(
+      WriteInputSchema.parse({
+        path: "perm.md",
+        section: "S",
+        content: "<private>secret</private>",
+      }),
+      vault,
+    );
+
+    const keyPath = join(rootDir, ".mneme", "audit-hmac.key");
+    const mode = statSync(keyPath).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
+  it("a write with no private block does NOT create an audit record", () => {
+    const { vault, rootDir } = makeBareVault("write-t4-noredact");
+
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "plain.md",
+        section: "Notes",
+        content: "No private content here.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.redactions_applied).toBe(0);
+
+    // Audit dir must either not exist or contain no records for today.
+    const today = new Date().toISOString().slice(0, 10);
+    const jsonlPath = join(rootDir, ".mneme", "audit", `${today}.jsonl`);
+    // File should not exist (no redaction → no audit call).
+    expect(() => readFileSync(jsonlPath)).toThrow();
+  });
+
+  it("stale lock file (old mtime) is stolen and append still succeeds (Finding 3)", () => {
+    // A lock file whose mtime exceeds LOCK_STALE_MS (10s) simulates a lock
+    // left behind by a crashed process. acquireLock must steal it so the
+    // write does not time out and the audit record is written correctly.
+    // Backdated by 15s — safely past the 10s LOCK_STALE_MS threshold.
+    const { vault, rootDir } = makeBareVault("write-t4-stale-lock");
+
+    // Ensure the audit directory exists before planting the stale lock.
+    const auditDir = join(rootDir, ".mneme", "audit");
+    mkdirSync(auditDir, { recursive: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const lockPath = join(auditDir, `${today}.lock`);
+    const jsonlPath = join(auditDir, `${today}.jsonl`);
+
+    // Plant a stale lock file: create it, then back-date its mtime by 15 seconds
+    // (well beyond the 10s LOCK_STALE_MS threshold).
+    writeFileSync(lockPath, "stale", "utf8");
+    const staleTime = new Date(Date.now() - 15_000);
+    utimesSync(lockPath, staleTime, staleTime);
+
+    // The write must succeed despite the stale lock.
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "stale-lock-test.md",
+        section: "Secrets",
+        content: "Sensitive <private>stale-lock-secret</private> data.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.redactions_applied).toBe(1);
+
+    // The JSONL file must contain exactly one well-formed record.
+    const records = readAuditRecords(jsonlPath);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.relative_path).toBe("stale-lock-test.md");
+    expect(records[0]!.redactions_applied).toBe(1);
+
+    // The stale lock must have been removed (stolen).
+    expect(() => statSync(lockPath)).toThrow();
+  });
+
+  it("fresh lock file (recent mtime) is NOT stolen within acquisition window", () => {
+    // A lock whose mtime is well within LOCK_STALE_MS (10s) belongs to a
+    // live writer. acquireLock must NOT steal it; the audit append times out
+    // non-fatally, the write response still returns ok=true (audit is
+    // best-effort), and the JSONL file is never created.
+    const { vault, rootDir } = makeBareVault("write-t4-fresh-lock");
+
+    const auditDir = join(rootDir, ".mneme", "audit");
+    mkdirSync(auditDir, { recursive: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const lockPath = join(auditDir, `${today}.lock`);
+    const jsonlPath = join(auditDir, `${today}.jsonl`);
+
+    // Plant a fresh lock: mtime is "now", well inside LOCK_STALE_MS.
+    writeFileSync(lockPath, "held-by-live-writer", "utf8");
+    const freshTime = new Date(Date.now());
+    utimesSync(lockPath, freshTime, freshTime);
+
+    // The write itself must succeed (redaction happens); only the audit
+    // append fails non-fatally because the fresh lock is never stolen.
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "fresh-lock-test.md",
+        section: "Secrets",
+        content: "Sensitive <private>fresh-lock-secret</private> data.",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.redactions_applied).toBe(1);
+
+    // JSONL must NOT exist — the audit append timed out without writing.
+    expect(() => readFileSync(jsonlPath)).toThrow();
+
+    // The lock file must still exist (it was NOT stolen).
+    expect(() => statSync(lockPath)).not.toThrow();
   });
 });

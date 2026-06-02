@@ -32,7 +32,9 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      linked_notes TEXT,
      schema_version TEXT DEFAULT '2',
      language TEXT DEFAULT 'en',
-     indexed_at TEXT
+     indexed_at TEXT,
+     content_hash TEXT,
+     trust TEXT
    )`,
   `CREATE INDEX IF NOT EXISTS idx_documents_mtime ON documents(mtime)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path)`,
@@ -61,6 +63,10 @@ export interface TestDoc {
   sessionId?: string;
   linkedNotes?: string;
   linkedNotesNormalized?: string;
+  /** SHA-256 hex digest of raw file bytes (64-char hex). Empty string for legacy fixture rows. */
+  contentHash?: string;
+  /** Origin trust label. Defaults to 'user'. */
+  trust?: string;
 }
 
 export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
@@ -73,8 +79,9 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
     const insertDoc = db.prepare(
       `INSERT INTO documents
        (title, title_normalized, path, content_raw, body_text, content_size, mtime,
-        tags, frontmatter_type, session_id, linked_notes, indexed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        tags, frontmatter_type, session_id, linked_notes, indexed_at,
+        content_hash, trust)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = db.prepare(
       `INSERT INTO documents_fts (rowid, title, content, tags, linked_notes)
@@ -96,6 +103,8 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
           d.sessionId ?? "",
           d.linkedNotes ?? "",
           new Date().toISOString(),
+          d.contentHash ?? "",
+          d.trust ?? "user",
         );
         insertFts.run(
           info.lastInsertRowid,

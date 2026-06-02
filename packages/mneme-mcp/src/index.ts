@@ -35,7 +35,7 @@ import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "2.0.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 
@@ -62,7 +62,12 @@ const TOOLS: ToolDef[] = [
 		description:
 			"Retrieval over the vault. v1.0 ships FTS5 BM25 with " +
 			"Turkish casefold normalization. Optional date and frontmatter " +
-			"type filters. Returns ranked hits with snippets.",
+			"type filters. Returns ranked hits with snippets. " +
+			"The cards array (EvidenceCard) is the preferred output and carries " +
+			"content_hash, trust, and confidence_label. " +
+			"Each card carries a backend field identifying which retrieval leg produced it (fts5, dense, kg). " +
+			"The backends_used array lists every backend that returned at least one hit. " +
+			"hits is kept for backward compatibility.",
 		zodSchema: SearchInputSchema,
 		inputSchema: {
 			type: "object",
@@ -191,7 +196,10 @@ const TOOLS: ToolDef[] = [
 			"Preflight context bundle for a new session. Combines recent " +
 			"session-typed docs and topic-relevant matches inside a token " +
 			"budget. v1.0 uses the `full` injection format; Phase F.5 adds " +
-			"the keypoints/ref Adaptive Context Layer.",
+			"the keypoints/ref Adaptive Context Layer. " +
+			"Pass session_id (from CLAUDE_SESSION_ID) to activate per-session " +
+			"injection deduplication and progressive format selection " +
+			"(full → keypoints → ref as context fills).",
 		zodSchema: PrimeInputSchema,
 		inputSchema: {
 			type: "object",
@@ -200,6 +208,11 @@ const TOOLS: ToolDef[] = [
 				budget_tokens: { type: "integer", default: 4000, maximum: 20000 },
 				recent_session_count: { type: "integer", default: 3, maximum: 20 },
 				topic_doc_count: { type: "integer", default: 5, maximum: 20 },
+				session_id: {
+					type: "string",
+					description:
+						"Caller session identifier (e.g. CLAUDE_SESSION_ID). Enables per-session injection deduplication and progressive format selection (full to keypoints to ref).",
+				},
 			},
 			required: ["task_description"],
 		},

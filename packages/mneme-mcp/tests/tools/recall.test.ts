@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ERROR_CODES } from "../../src/errors.js";
+import { FENCE_CLOSE, FENCE_OPEN } from "../../src/injection.js";
 import { recallTool, RecallInputSchema } from "../../src/tools/recall.js";
 import { defaultDocs, makeTempVault } from "../helpers/vault_fixture.js";
 
@@ -99,6 +100,46 @@ describe("recallTool runtime", () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       for (const e of res.data.entries) expect(e.body).toBeUndefined();
+    }
+  });
+
+  it("body does not expose <private> content (privacy leak guard)", () => {
+    // Finding 1: a vault file with a <private> block must have its secret
+    // stripped before the body is returned, even with include_body true.
+    const { vault, rootDir } = makeTempVault("recall-private", defaultDocs());
+    writeBody(
+      rootDir,
+      "daily/2026-05-18.md",
+      "Public part.\n<private>SECRET_RECALL</private>\nAlso public.",
+    );
+    const res = recallTool(
+      RecallInputSchema.parse({ include_body: true }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const hit = res.data.entries.find((e) => e.path === "daily/2026-05-18.md");
+      expect(hit?.body).toBeDefined();
+      expect(hit?.body).not.toContain("SECRET_RECALL");
+      expect(hit?.body).toContain("[REDACTED]");
+    }
+  });
+
+  it("body is fenced with FENCE_OPEN and FENCE_CLOSE (Invariant 6 on recall path)", () => {
+    // Finding 2: the spotlighting guard must wrap the returned body so a
+    // model cannot be injected by crafted vault content (gap G-3).
+    const { vault, rootDir } = makeTempVault("recall-fence", defaultDocs());
+    writeBody(rootDir, "daily/2026-05-18.md", "# Daily Log\n\nFenced body.\n");
+    const res = recallTool(
+      RecallInputSchema.parse({ include_body: true }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const hit = res.data.entries.find((e) => e.path === "daily/2026-05-18.md");
+      expect(hit?.body).toBeDefined();
+      expect(hit?.body).toContain(FENCE_OPEN);
+      expect(hit?.body).toContain(FENCE_CLOSE);
     }
   });
 

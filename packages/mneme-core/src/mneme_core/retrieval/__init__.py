@@ -17,6 +17,12 @@ Public surface:
   and returns the top-N.
 """
 
+from mneme_core.retrieval.planner import (
+    RetrievalConfig as PlannerConfig,
+)
+from mneme_core.retrieval.planner import (
+    plan_retrieval,
+)
 from mneme_core.retrieval.rrf import (
     DEFAULT_RRF_K,
     Hit,
@@ -27,14 +33,22 @@ from mneme_core.retrieval.rrf import (
     retrieve,
     rrf_fuse,
 )
+from mneme_core.retrieval.telemetry import (
+    RetrievalEvent,
+    emit_retrieval_event,
+)
 
 __all__ = [
     "DEFAULT_RRF_K",
     "Hit",
+    "PlannerConfig",
     "RetrievalBackend",
     "RetrievalConfig",
+    "RetrievalEvent",
     "build_fts5_query",
+    "emit_retrieval_event",
     "fts5_search",
+    "plan_retrieval",
     "retrieve",
     "rrf_fuse",
 ]

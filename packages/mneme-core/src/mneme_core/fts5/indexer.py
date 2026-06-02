@@ -19,6 +19,8 @@ paths and normalizers.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 import time
@@ -30,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from ..privacy import redact
 from ..retrieval.rrf import build_fts5_query
 from ..vault.frontmatter import load_yaml_block
 
@@ -90,7 +93,47 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_ascii_fts USING fts5(
     linked_notes,
     tokenize='unicode61 remove_diacritics 2'
 );
+
+-- P6: locale profile persistence. Stores key/value pairs written at index
+-- time so the query side can detect normalizer mismatches.
+CREATE TABLE IF NOT EXISTS index_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
+
+# P6: map each normalizer callable to its canonical profile string.
+# The profile is stored in index_meta at index time so the TS query side
+# can detect when the query-time normalizer diverges from the index-time one.
+_NORMALIZER_PROFILE: dict[str, str] = {
+    "normalize_tr": "tr-cldr",
+    "normalize_tr_ascii_fold": "tr-ascii-fold",
+    "_identity": "identity",
+}
+
+
+def _profile_for_normalizer(fn: Callable[[str], str]) -> str:
+    """Return the canonical profile string for a normalizer callable.
+
+    Falls back to 'identity' for any callable not in the known set, so
+    third-party normalizers never crash the indexer — they simply store
+    'identity' as a conservative default.
+    """
+    return _NORMALIZER_PROFILE.get(fn.__name__, "identity")
+
+
+def read_index_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    """Read a single value from the index_meta table.
+
+    Returns the stored string value, or ``None`` if the table does not
+    exist or the key has no row. Safe to call on old databases that
+    predate the index_meta table: the OperationalError is caught and
+    treated as a missing key (soft-degrade, not hard error).
+    """
+    try:
+        row = conn.execute(
+            "SELECT value FROM index_meta WHERE key=?", (key,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return row[0] if row else None
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
@@ -185,6 +228,34 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     migrate_schema(conn)
 
 
+def _extract_keypoints(body: str, max_points: int = 5) -> list[str]:
+    """Extract up to *max_points* key-point strings from *body*.
+
+    Algorithm (per lane spec):
+    1. Split *body* on ``\\n\\n`` to obtain paragraphs.
+    2. For each paragraph, skip if the first non-space character is ``#``
+       (heading lines).
+    3. Take ``paragraph.split('.')[0].strip()[:80]`` as the candidate.
+    4. Append if non-empty.
+    5. Stop once *max_points* entries have been collected.
+
+    Returns a plain list of strings (no bullets, no markdown).
+    """
+    keypoints: list[str] = []
+    for paragraph in body.split("\n\n"):
+        if len(keypoints) >= max_points:
+            break
+        stripped = paragraph.lstrip()
+        if not stripped:
+            continue
+        if stripped[0] == "#":
+            continue
+        candidate = paragraph.split(".")[0].strip()[:80]
+        if candidate:
+            keypoints.append(candidate)
+    return keypoints
+
+
 # Mapping of every column that the current ``documents`` DDL expects, beyond
 # the original v1 set, to the SQL type used when ALTER-adding it.  Adding a
 # new column to the SCHEMA DDL above requires a matching entry here so that
@@ -193,6 +264,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 # from running on older databases that still lack the column.
 _MIGRATION_COLUMNS: dict[str, str] = {
     "body_text": "TEXT",
+    "content_hash": "TEXT",
+    "trust": "TEXT",
+    "key_points": "TEXT",
 }
 
 
@@ -330,6 +404,19 @@ def index_vault(
     # against it below (vault-escape containment).
     vault_root_resolved = config.vault_root.resolve()
 
+    # Prune-transaction fix: CREATE TEMP TABLE is a DDL statement that causes
+    # an implicit commit in SQLite, which would split the intended single
+    # transaction if it were placed after the upsert loop.  By issuing it
+    # (and immediately clearing it) here — before any upsert accumulates —
+    # the DDL auto-commit happens on an empty write set, so all upserts and
+    # the subsequent DELETE prune remain in the same implicit transaction.
+    # The table is local to the connection and dropped automatically on close.
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _mneme_live_paths"
+        "(path TEXT PRIMARY KEY)"
+    )
+    conn.execute("DELETE FROM _mneme_live_paths")
+
     # Collect relative paths for every eligible file seen this pass so that
     # we can prune stale rows at the end of a full (non-incremental) run.
     live_paths: set[str] = set()
@@ -364,13 +451,18 @@ def index_vault(
                 # unchanged-but-still-present files.
                 live_paths.add(rel_path)
                 continue
-            content = md_path.read_text(encoding="utf-8", errors="replace")
+            raw_bytes = md_path.read_bytes()
+            content = redact(raw_bytes.decode("utf-8", errors="replace"))
+            content_hash_val = hashlib.sha256(content.encode("utf-8")).hexdigest()
         except OSError:
             stats.skipped_error += 1
             continue
 
+        trust_val = "user"
         live_paths.add(rel_path)
 
+        # fm and body are both derived from the already-redacted `content`
+        # string (redact() ran above), so all downstream stores inherit redaction.
         fm, body = _parse_frontmatter(content)
         title = _extract_title(content, md_path)
         title_normalized = config.normalize(title)
@@ -382,13 +474,14 @@ def index_vault(
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
         now_iso = datetime.now(UTC).isoformat()
+        keypoints = _extract_keypoints(body)
 
         conn.execute(
             """INSERT INTO documents
                (title, title_normalized, path, content_raw, body_text,
                 content_size, mtime, tags, frontmatter_type, session_id,
-                linked_notes, indexed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                linked_notes, indexed_at, content_hash, trust, key_points)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(path) DO UPDATE SET
                  title=excluded.title,
                  title_normalized=excluded.title_normalized,
@@ -400,7 +493,10 @@ def index_vault(
                  frontmatter_type=excluded.frontmatter_type,
                  session_id=excluded.session_id,
                  linked_notes=excluded.linked_notes,
-                 indexed_at=excluded.indexed_at""",
+                 indexed_at=excluded.indexed_at,
+                 content_hash=excluded.content_hash,
+                 trust=excluded.trust,
+                 key_points=excluded.key_points""",
             (
                 title,
                 title_normalized,
@@ -414,6 +510,9 @@ def index_vault(
                 fm_session_id,
                 wikilinks,
                 now_iso,
+                content_hash_val,
+                trust_val,
+                json.dumps(keypoints),
             ),
         )
 
@@ -465,27 +564,42 @@ def index_vault(
     # rows so stale entries from a previously indexed vault do not survive.
     if since_mtime == 0.0:
         if live_paths:
-            placeholders = ",".join("?" * len(live_paths))
-            live_list = list(live_paths)
-            conn.execute(
-                f"DELETE FROM documents_fts WHERE rowid IN ("
-                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-                live_list,
+            # prune-overflow fix: the TEMP table was already created and
+            # cleared above (before the file-walk) so the DDL auto-commit
+            # happens before any upsert accumulates.  Populate it now with
+            # the live paths collected during this pass, then DELETE stale rows.
+            conn.executemany(
+                "INSERT OR IGNORE INTO _mneme_live_paths(path) VALUES (?)",
+                ((p,) for p in live_paths),
             )
             conn.execute(
-                f"DELETE FROM documents_ascii_fts WHERE rowid IN ("
-                f"  SELECT id FROM documents WHERE path NOT IN ({placeholders}))",
-                live_list,
+                "DELETE FROM documents_fts WHERE rowid IN ("
+                "  SELECT id FROM documents"
+                "  WHERE path NOT IN (SELECT path FROM _mneme_live_paths))"
             )
             conn.execute(
-                f"DELETE FROM documents WHERE path NOT IN ({placeholders})",
-                live_list,
+                "DELETE FROM documents_ascii_fts WHERE rowid IN ("
+                "  SELECT id FROM documents"
+                "  WHERE path NOT IN (SELECT path FROM _mneme_live_paths))"
+            )
+            conn.execute(
+                "DELETE FROM documents"
+                " WHERE path NOT IN (SELECT path FROM _mneme_live_paths)"
             )
         else:
             # No eligible files survived the pass — wipe all rows.
             conn.execute("DELETE FROM documents_fts")
             conn.execute("DELETE FROM documents_ascii_fts")
             conn.execute("DELETE FROM documents")
+
+    # P6: persist the normalizer profile so the query side can detect
+    # locale mismatches without re-reading every file.
+    profile = _profile_for_normalizer(config.normalize)
+    conn.execute(
+        "INSERT INTO index_meta(key, value) VALUES(?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("normalization_profile", profile),
+    )
 
     conn.commit()
     return stats

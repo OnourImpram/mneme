@@ -9,6 +9,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [2.0.0] - 2026-06-02
+
+Major release: the Full and Power profile advanced capabilities. Every module is
+local-first and gated, ships with redaction-before-store, provenance, and confidence
+labels, and never runs on the Stop or critical path.
+
+### Added
+
+- **Graph analytics + multi-language extraction (`mneme-graph` 0.2.0).** Community
+  detection, PR-impact analysis, and content-hash-discriminated ghost-duplicate
+  detection over the project graph; JavaScript and TypeScript extraction via
+  tree-sitter behind an extractor registry (`extract_any`).
+- **Code memory completion (`mneme-code` 0.2.0).** AGENTS.md procedural-memory
+  parsing, pytest/unittest output to failure memories, and a fix modelled as a
+  temporal claim that supersedes the failure.
+- **Vault-config domain modes (`mneme_core.modes`, `mneme-modes` CLI).** User modes
+  loaded from a vault config; user config can never weaken a built-in privacy mode
+  or disable redaction.
+- **Agent security (`mneme_core.capability` / `taint` / `approval` / `security_bench`).**
+  A capability firewall (retrieved or tainted content gets only non-mutating
+  capabilities), data-flow taint tracking, a human-approval gate for durable memory
+  edits, and a poisoned-vault benchmark with an Agent Security Bench adapter.
+- **Read-only console (`mneme_core.console`, `mneme-console`).** A self-contained,
+  offline, injection-safe HTML audit report. No server, no network.
+- **Dense retrieval (`mneme_core.retrieval.dense`).** A local-first
+  hashing-embedding backend fused with FTS5 via RRF on a shared document id;
+  sentence-transformers is an opt-in seam, never a default dependency.
+- **Temporal extraction + Graphiti export (`mneme_core.temporal.extract` /
+  `graphiti_export`).** Rule-based inferred claim extraction with an optional LLM
+  seam, and a Graphiti episode bridge.
+- **Network connectors (`mneme_core.connectors_net`).** Obsidian (local) and GitHub
+  (injected transport) external sources, default off, redaction-before-ingest,
+  revocation by disabling.
+- **Benchmark harness (`mneme_core.bench.harness`).** LongMemEval and LoCoMo dataset
+  adapters, a system-versus-system runner over recall/MRR/nDCG, and a head-to-head
+  comparator.
+
+### Notes
+
+- No head-to-head superiority claim is published; the harness measures, and the
+  operator runs and publishes the benchmark. All external or opt-in surfaces (dense
+  embeddings, LLM extraction, Graphiti, network connectors) are off by default and
+  never touch the Stop or critical path.
+
+## [1.2.0] - 2026-06-02
+
+### Added
+
+- **Temporal claim lifecycle (`mneme_core.temporal`).** A local, derived,
+  rebuildable SQLite claims index parsed from markdown frontmatter
+  (`valid_from`/`valid_to`/`observed_at`/`supersedes`/`claim_key`). Point-in-time
+  `as_of(t)` queries (inclusive-from, exclusive-to) with dynamic non-destructive
+  supersession, contradiction detection, an `AMBIGUOUS` query-time overlay, a
+  `RetrievalBackend`-compatible temporal leg (clean FTS5 fallback), and a
+  `mneme temporal index/as-of/current` CLI. New `claim` memory type. No LLM, no
+  network; redaction before every store; all datetimes normalized to UTC.
+- **`mneme-code` package.** Deterministic Python traceback parsing
+  (`parse_traceback`), redacted failure memories (`failure_from_traceback` /
+  `failure_to_markdown` with provenance + confidence), frame-to-graph
+  resolution, and a `mneme-code parse-trace` CLI. New `failure` memory type.
+- **Domain mode packs (`mneme_core.modes`).** Named policy bundles
+  (language + ontology + write/retrieval/privacy policy): `code`, `research`,
+  `clinical-research`, `security-review`. Privacy enforcement: clinical-research
+  and security-review block external extraction and artifact upload by default;
+  unknown modes deny.
+- **Defensive security scanner (`mneme_core.security`).** Detects secret-like
+  material and prompt-injection phrasing in the vault; findings never echo raw
+  secrets (masked / redacted). Includes a poisoned-vault test.
+- **Read-only audit aggregator (`mneme_core.audit`).** Vault note-type counts
+  plus a security summary; the v1 console surface (browser UI deferred).
+- **Opt-in connector framework (`mneme_core.connectors`).** A `Connector`
+  protocol with redaction-before-ingest and provenance (`trust='external'`),
+  disabled by default; bundled `LocalMarkdownConnector` reference (no network).
+
+### Changed
+
+- **`mneme-graph` completed and CI-gated.** `inherits` / `calls` / `variable`
+  extraction (`calls` is the first `INFERRED`-confidence producer); a
+  `mneme-graph build/report` CLI; node ids fold `line_start` for local nodes so
+  same-named symbols in one file stay distinct (externals remain
+  line-independent for cross-file dedup); ruff + mypy --strict + an 80% coverage
+  gate now run in CI.
+- **Retrieval fidelity.** TS/Python telemetry shape parity, a dense-seam RRF
+  integration test, and an official LongMemEval `--dataset-path` runner.
+
+### Fixed
+
+- **Provenance integrity.** `content_hash` now attests to the redacted stored
+  content rather than the raw bytes (the indexer previously hashed pre-redaction
+  bytes while storing the redacted form).
+
 ## [1.1.0] - 2026-05-29
 
 ### Added

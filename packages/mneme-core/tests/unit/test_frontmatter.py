@@ -21,10 +21,15 @@ from mneme_core.vault.frontmatter import (
 
 
 class TestKnownTypes:
-    """Phase J Day 6: soft validation against the canonical 9-type schema."""
+    """Phase J Day 6: soft validation against the canonical type schema.
+
+    Now 11 types: ``claim`` was added for the temporal claim lifecycle module
+    (mneme_core.temporal) and ``failure`` for the code-failure memory module
+    (mneme-code).
+    """
 
     def test_known_types_size_locked(self) -> None:
-        assert len(KNOWN_TYPES) == 9
+        assert len(KNOWN_TYPES) == 11
 
     def test_canonical_literals_present(self) -> None:
         canonical = {
@@ -37,6 +42,8 @@ class TestKnownTypes:
             "observation",
             "session_summary",
             "user_prompt",
+            "claim",
+            "failure",
         }
         assert canonical == KNOWN_TYPES
 

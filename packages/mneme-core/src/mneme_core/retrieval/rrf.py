@@ -19,13 +19,17 @@ that consumes ``retrieve``.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import re
 import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from ..vault.config import VaultConfig
 
 DEFAULT_RRF_K: int = 60
 
@@ -299,6 +303,7 @@ def retrieve(
     dense_backend: RetrievalBackend | None = None,
     kg_backend: RetrievalBackend | None = None,
     reranker: Callable[[str, list[Hit], int], list[Hit]] | None = None,
+    vault: VaultConfig | None = None,
 ) -> list[Hit]:
     """Run the full hybrid retrieval pipeline and return top-N hits.
 
@@ -312,6 +317,10 @@ def retrieve(
     4. Fuse with RRF at the configured ``k``.
     5. Apply the optional reranker, otherwise truncate to
        ``top_n_final``.
+    6. When ``vault`` is supplied, emit a RetrievalEvent to the daily
+       telemetry JSONL. The call is wrapped in try/except and never
+       raises. When ``vault`` is None, telemetry is silently skipped so
+       existing call sites with no vault arg are unaffected.
     """
     stripped = query.strip()
     tokens = [
@@ -328,6 +337,9 @@ def retrieve(
         if config.normalize_ascii is not None
         else None
     )
+
+    # --- FTS5 backend (always active) ---
+    _t0 = time.perf_counter()
     fts5_results = fts5_search(
         q_norm,
         config.fts5_db,
@@ -335,23 +347,58 @@ def retrieve(
         stopwords=config.stopwords,
         prompt_ascii=q_ascii,
     )
+    _fts5_ms = (time.perf_counter() - _t0) * 1000.0
+
     rankings: list[list[Hit]] = [fts5_results]
+    _backend_names: list[str] = ["fts5"]
+    _per_hits: dict[str, int] = {"fts5": len(fts5_results)}
+    _per_latency: dict[str, float] = {"fts5": _fts5_ms}
 
     if dense_backend is not None:
+        _t1 = time.perf_counter()
         try:
             dense_results = dense_backend(q_norm, config.top_k_per_backend)
         except Exception:
             dense_results = []
+        _dense_ms = (time.perf_counter() - _t1) * 1000.0
         rankings.append(dense_results)
+        _backend_names.append("dense")
+        _per_hits["dense"] = len(dense_results)
+        _per_latency["dense"] = _dense_ms
 
     if kg_backend is not None:
+        _t2 = time.perf_counter()
         try:
             kg_results = kg_backend(q_norm, config.top_k_per_backend)
         except Exception:
             kg_results = []
+        _kg_ms = (time.perf_counter() - _t2) * 1000.0
         rankings.append(kg_results)
+        _backend_names.append("kg")
+        _per_hits["kg"] = len(kg_results)
+        _per_latency["kg"] = _kg_ms
 
     fused = rrf_fuse(rankings, k=config.rrf_k)
+
+    # --- Emit telemetry (non-fatal, only when vault is provided) ---
+    if vault is not None:
+        try:
+            from datetime import UTC, datetime
+
+            from .telemetry import RetrievalEvent, emit_retrieval_event
+
+            event = RetrievalEvent(
+                query_hash=hashlib.sha256(q_norm.encode()).hexdigest(),
+                backends=_backend_names,
+                per_backend_hits=_per_hits,
+                per_backend_latency_ms=_per_latency,
+                fused_count=len(fused),
+                top1_source=fused[0].path if fused else None,
+                timestamp_iso=datetime.now(UTC).isoformat(),
+            )
+            emit_retrieval_event(vault, event)
+        except Exception:  # noqa: BLE001
+            pass
 
     if reranker is not None:
         try:

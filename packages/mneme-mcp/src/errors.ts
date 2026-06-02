@@ -23,6 +23,10 @@ export const ERROR_CODES = {
 	QUERY_TOO_SHORT: "QUERY_TOO_SHORT",
 	/** An unexpected I/O failure during read or write. */
 	IO_ERROR: "IO_ERROR",
+	/** The FTS5 index was built with a different normalizer profile than the
+	 *  query-time normalizer. Re-run `mneme index rebuild` with the correct
+	 *  --locale flag to realign the index. */
+	INDEX_STALE_OR_LOCALE_MISMATCH: "INDEX_STALE_OR_LOCALE_MISMATCH",
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

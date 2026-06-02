@@ -1,12 +1,29 @@
 # Competitive Landscape
 
-A living document tracking other memory tools in the Claude Code, MCP, and Python agent ecosystems. Updated monthly. **Last reviewed: 2026-05-19.**
+A living document tracking other memory tools in the Claude Code, MCP, and Python agent ecosystems. Updated monthly. **Last reviewed: 2026-06-02.**
 
 ## What Changed in the v1.0 Release Line
 
 - Phase H benchmark suite is in place and published. Concrete numbers in `docs/BENCHMARKS.md`: Benchmark A nDCG@5 = 0.893 on the shipped RRF path with a BoW surrogate, Stop hook p95 = 2 ms, shell_compress 88 percent reduction. Comparing tools without seeded reproducible numbers is now an apples-to-oranges conversation.
 - Phase G migration tool ships. Lossless one-command import from claude-mem v13.2.0 with tri-state archive and idempotent re-run. The switching cost from claude-mem to mneme is one command.
 - Phase F.6 adds pattern memory and trajectory recorder as vault-markdown primitives. Adds two axes that were previously implicit in the table.
+
+## What Changed in the 2.0 Advanced Line
+
+The 2.0 line builds out the Full and Power profile capabilities as gated, local-first modules. Every one ships with redaction-before-store, provenance, and confidence labels, and none runs on the Stop or critical path.
+
+- **Project graph**: tree-sitter extraction for Python, JavaScript, and TypeScript, plus community detection, PR-impact analysis, and content-hash-discriminated ghost-duplicate detection.
+- **Code memory**: AGENTS.md procedural parsing, test-runner output to failure memory, and a fix modelled as a temporal claim that supersedes the failure.
+- **Domain modes**: vault-config-loaded user modes with a CLI. Clinical and security-review modes block external extraction and artifact upload, and user config can never weaken a built-in privacy mode or disable redaction.
+- **Agent security**: a capability firewall (retrieved or tainted content gets only non-mutating capabilities), data-flow taint tracking, a human-approval gate for durable memory edits, and a poisoned-vault benchmark.
+- **Read-only console**: a self-contained, offline, injection-safe HTML audit report. No server, no network.
+- **Dense retrieval**: a local-first hashing-embedding backend fused with FTS5 via RRF on a shared document id. Sentence-transformers is an opt-in seam, never a default dependency.
+- **Temporal extraction and Graphiti export**: rule-based inferred claim extraction with an optional LLM seam, plus a Graphiti episode bridge.
+- **Connectors**: Obsidian (local) and GitHub (injected transport) external sources, default off, redaction-before-ingest, revocation by disabling.
+
+### Benchmark head-to-head
+
+The evaluation harness (`mneme_core.bench.harness`) is shipped. It provides LongMemEval and LoCoMo dataset adapters, a system-versus-system runner over the existing recall, MRR, and nDCG metrics, and a head-to-head comparator. The datasets and the claude-mem retrieval function are supplied by the operator at run time. No head-to-head superiority claim is published here. A public statement that mneme is best or beats another tool requires an operator-run, published benchmark with full experimental controls. The harness measures. It does not assert.
 
 ## How to Read This Document
 
@@ -15,17 +32,18 @@ We rate each competitor on the six axes mneme commits to (see `docs/ARCHITECTURE
 | Axis | mneme | claude-mem v13.2.0 | mem0 | letta | zep | supermemory | episodic-memory |
 |---|---|---|---|---|---|---|---|
 | Vault-native transparency | strong (markdown) | weak (SQLite) | weak (vectors) | medium | weak | weak (cloud) | weak |
-| Hybrid retrieval depth | medium now, strong roadmap (FTS5 shipped, RRF-ready, dense roadmap) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak |
-| Zero-LLM-Stop latency | strong (under 1s) | weak (120s timeout) | n/a | n/a | n/a | n/a | n/a |
+| Hybrid retrieval depth | strong (FTS5 plus local dense fused via RRF, shipped) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak |
+| Zero-LLM-Stop latency | strong (under 1s, seeded p95 ~3 ms) | weak (LLM summarization at session end) | n/a | n/a | n/a | n/a | n/a |
 | Privacy redaction | strong (built-in) | absent | absent | absent | absent | absent | absent |
-| Temporal reasoning | gated strong (Graphiti full profile) | absent | weak | medium | strong | weak | absent |
+| Temporal reasoning | gated strong (claim lifecycle plus rule/LLM extraction plus Graphiti export, shipped) | absent | weak | medium | strong | weak | absent |
 | Adaptive context layer | strong (built-in) | absent | absent | absent | absent | absent | absent |
+| Agent security (capability firewall, taint, approval gate) | strong (built-in) | absent | absent | absent | absent | absent | absent |
 
 ## Detailed Notes
 
 ### claude-mem (v13.2.0)
 
-Mature, well-known, AGPL-3.0 licensed. Strongest competitor on tree-sitter codebase priming, which mneme defers to a separate package at v1.2+. Different design philosophy: SQLite-blob storage, LLM-on-Stop with 120s timeout. Users who prefer auto-summarization and don't mind the latency may stay with claude-mem.
+Mature, well-known, Apache-2.0 licensed (relicensed from AGPL-3.0 in the v13.0 line, confirmed against the installed v13.2.0 package manifest). Strongest competitor on tree-sitter codebase priming, which mneme defers to a separate package at v1.2+. Different design philosophy: SQLite-blob storage, and LLM-based session-end summarization rather than a deterministic append. Users who prefer auto-summarization may stay with claude-mem.
 
 ### mem0
 
@@ -71,5 +89,5 @@ To balance the honest non-fit list, the dimensions where mneme is currently the 
 - **Zero LLM cost on Stop with seeded p95 = 2 ms**. Verifiable, not a marketing claim. CI gates the budget at 1000 ms.
 - **Markdown vault with `git diff` review**. Every other CC memory tool stores in opaque format.
 - **Adaptive Context Layer measured in `benchmarks/cost/`**. No other tool treats token efficiency as a first-class constraint.
-- **MIT license, three-tier install with 60-second lite path**. claude-mem's AGPL-3.0 and heavy default dependencies are real enterprise blockers.
+- **MIT license, three-tier install with 60-second lite path**. Both mneme and claude-mem are permissively licensed (MIT and Apache-2.0), so the differentiator is the lite install path with zero heavy default dependencies, which matters in constrained or enterprise environments.
 - **Public CI regression guards on retrieval quality and latency**. Locked baseline numbers committed to repo.

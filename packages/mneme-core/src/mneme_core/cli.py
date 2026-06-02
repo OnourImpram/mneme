@@ -649,6 +649,99 @@ def _audit_since_date(value: str | None) -> str | None:
     return value
 
 
+@cli.group("retrieval", help="Retrieval pipeline subcommands.")
+def retrieval_group() -> None:  # pragma: no cover - dispatcher
+    pass
+
+
+@retrieval_group.command("stats", help="Summarise per-backend retrieval telemetry from JSONL files.")  # noqa: E501
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="YYYY-MM-DD lower bound. Only files on or after this date are read.",
+)
+def retrieval_stats(vault_root: Path | None, since: str | None) -> None:
+    """Read retrieval-YYYY-MM-DD.jsonl files and print a summary JSON.
+
+    Summary includes: total_queries, per-backend hit counts, and p50/p95
+    latency per backend in milliseconds.
+    """
+    vault = _resolve_vault(vault_root)
+    telemetry_dir = vault.telemetry_dir
+
+    total_queries = 0
+    by_backend_hits: dict[str, int] = {}
+    by_backend_latencies: dict[str, list[float]] = {}
+
+    if telemetry_dir.is_dir():
+        for jsonl_path in sorted(telemetry_dir.glob("retrieval-*.jsonl")):
+            # Extract date from filename: retrieval-YYYY-MM-DD.jsonl
+            stem = jsonl_path.stem  # "retrieval-YYYY-MM-DD"
+            parts = stem.split("-", 1)
+            file_date = parts[1] if len(parts) == 2 else ""
+            if since is not None and file_date < since:
+                continue
+            try:
+                lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                total_queries += 1
+                backends = record.get("backends", [])
+                hits = record.get("per_backend_hits", {})
+                latencies = record.get("per_backend_latency_ms", {})
+                for backend in backends:
+                    if not isinstance(backend, str):
+                        continue
+                    hit_count = hits.get(backend, 0) if isinstance(hits, dict) else 0
+                    by_backend_hits[backend] = by_backend_hits.get(backend, 0) + hit_count
+                    lat = latencies.get(backend) if isinstance(latencies, dict) else None
+                    if isinstance(lat, (int, float)):
+                        by_backend_latencies.setdefault(backend, []).append(float(lat))
+
+    def _percentile(data: list[float], pct: float) -> float | None:
+        if not data:
+            return None
+        sorted_data = sorted(data)
+        idx = (pct / 100.0) * (len(sorted_data) - 1)
+        lo = int(idx)
+        hi = min(lo + 1, len(sorted_data) - 1)
+        return sorted_data[lo] + (idx - lo) * (sorted_data[hi] - sorted_data[lo])
+
+    latency_summary: dict[str, dict[str, float | None]] = {}
+    for backend, lats in by_backend_latencies.items():
+        latency_summary[backend] = {
+            "p50_ms": _percentile(lats, 50),
+            "p95_ms": _percentile(lats, 95),
+            "samples": len(lats),
+        }
+
+    report = {
+        "total_queries": total_queries,
+        "by_backend_hits": by_backend_hits,
+        "by_backend_latency_ms": latency_summary,
+        "telemetry_dir": str(telemetry_dir),
+        "since": since,
+    }
+    click.echo(json.dumps(report, indent=2, ensure_ascii=False))
+
+
 @cli.command("audit-log", help="Inspect privacy redaction audit JSONL entries.")
 @click.option(
     "--vault",
@@ -949,6 +1042,219 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
     except Exception as exc:  # noqa: BLE001
         checks.append(_check("frontmatter_dates", "warn", str(exc)))
 
+    # --- 7. privacy_index ---
+    # Verify that no <private> tag survived redaction into content_raw or body_text.
+    # A nonzero count is a P3-class violation.
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM documents"
+                    " WHERE instr(content_raw, '<private') > 0"
+                    " OR instr(body_text, '<private') > 0"
+                ).fetchone()
+                count = row[0] if row else 0
+            finally:
+                conn.close()
+            if count > 0:
+                checks.append(
+                    _check(
+                        "privacy_index",
+                        "fail",
+                        f"{count} row(s) contain raw <private> tag in content_raw or body_text"
+                        " — P3-class violation; rebuild index",
+                    )
+                )
+            else:
+                checks.append(_check("privacy_index", "ok", "no raw <private> tags in index"))
+        except _sqlite3.OperationalError as exc:
+            checks.append(_check("privacy_index", "na", str(exc)))
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("privacy_index", "warn", str(exc)))
+    else:
+        checks.append(_check("privacy_index", "na", "index absent — skipped"))
+
+    # --- 8. locale_profile ---
+    # Verify that a normalization_profile is recorded in index_meta and holds
+    # a known value. An absent table is a legacy index (na). An absent key is
+    # a warning. An unrecognised value is also a warning.
+    _KNOWN_PROFILES = frozenset({"tr-cldr", "tr-ascii-fold", "identity"})
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM index_meta WHERE key='normalization_profile'"
+                ).fetchone()
+            finally:
+                conn.close()
+            if row is None:
+                checks.append(
+                    _check(
+                        "locale_profile",
+                        "warn",
+                        "normalization_profile absent (legacy index)"
+                        " — rebuild to record profile",
+                    )
+                )
+            elif row[0] not in _KNOWN_PROFILES:
+                checks.append(
+                    _check(
+                        "locale_profile",
+                        "warn",
+                        f"unexpected normalization_profile value: {row[0]!r}"
+                        f" — expected one of {sorted(_KNOWN_PROFILES)}",
+                    )
+                )
+            else:
+                checks.append(
+                    _check(
+                        "locale_profile",
+                        "ok",
+                        f"normalization_profile={row[0]!r}",
+                    )
+                )
+        except _sqlite3.OperationalError:
+            checks.append(_check("locale_profile", "na", "index_meta table absent (legacy index)"))
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("locale_profile", "warn", str(exc)))
+    else:
+        checks.append(_check("locale_profile", "na", "index absent — skipped"))
+
+    # --- 9. type_parity ---
+    # Compare KNOWN_TYPES in vault.frontmatter against canonical_memory_types.json.
+    # A mismatch means the fixture and the runtime frozenset have drifted.
+    try:
+        _fixture_path = (
+            Path(__file__).parent.parent.parent
+            / "tests" / "fixtures" / "canonical_memory_types.json"
+        )
+        _fixture_types: frozenset[str]
+        if _fixture_path.exists():
+            _raw = json.loads(_fixture_path.read_text(encoding="utf-8"))
+            _fixture_types = frozenset(entry["type"] for entry in _raw)
+        else:
+            # Installed package: fixture not present; skip parity check gracefully.
+            raise FileNotFoundError(f"fixture not found: {_fixture_path}")
+
+        from .vault.frontmatter import KNOWN_TYPES as _KNOWN_TYPES
+        if _fixture_types == _KNOWN_TYPES:
+            checks.append(
+                _check(
+                    "type_parity",
+                    "ok",
+                    f"{len(_KNOWN_TYPES)} types match canonical_memory_types.json",
+                )
+            )
+        else:
+            only_fixture = _fixture_types - _KNOWN_TYPES
+            only_code = _KNOWN_TYPES - _fixture_types
+            checks.append(
+                _check(
+                    "type_parity",
+                    "fail",
+                    f"drift detected — only in fixture: {sorted(only_fixture)};"
+                    f" only in KNOWN_TYPES: {sorted(only_code)}",
+                )
+            )
+    except FileNotFoundError:
+        # Fixture not shipped in installed packages — parity check is not
+        # applicable; this is not an error condition for deployed users.
+        checks.append(_check("type_parity", "na", "fixture not present (installed package)"))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(_check("type_parity", "warn", str(exc)))
+
+    # --- 10. content_hash_coverage ---
+    # Spot-check that every documents row carries a non-NULL content_hash.
+    # NULL rows indicate a pre-Phase-1 index that needs a rebuild.
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM documents WHERE content_hash IS NULL"
+                ).fetchone()
+                null_count = row[0] if row else 0
+            finally:
+                conn.close()
+            if null_count > 0:
+                checks.append(
+                    _check(
+                        "content_hash_coverage",
+                        "warn",
+                        f"{null_count} row(s) missing content_hash; rebuild index",
+                    )
+                )
+            else:
+                checks.append(
+                    _check("content_hash_coverage", "ok", "all rows have content_hash")
+                )
+        except _sqlite3.OperationalError:
+            checks.append(
+                _check(
+                    "content_hash_coverage",
+                    "na",
+                    "content_hash column absent (pre-Phase-1 schema); rebuild index",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("content_hash_coverage", "warn", str(exc)))
+    else:
+        checks.append(_check("content_hash_coverage", "na", "index absent — skipped"))
+
+    # --- 11. temporal_index ---
+    # Check that the claims table exists and all rows carry content_hash and observed_at.
+    # "na" when the table does not exist (temporal not yet indexed — not an error).
+    if db_exists:
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                table_row = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='claims'"
+                ).fetchone()
+                if table_row is None:
+                    checks.append(
+                        _check(
+                            "temporal_index",
+                            "na",
+                            "claims table absent — run: mneme-core temporal index",
+                        )
+                    )
+                else:
+                    count_row = conn.execute("SELECT COUNT(*) FROM claims").fetchone()
+                    total = count_row[0] if count_row else 0
+                    null_row = conn.execute(
+                        "SELECT COUNT(*) FROM claims"
+                        " WHERE content_hash IS NULL OR observed_at IS NULL"
+                    ).fetchone()
+                    null_count = null_row[0] if null_row else 0
+                    if null_count > 0:
+                        checks.append(
+                            _check(
+                                "temporal_index",
+                                "warn",
+                                f"{null_count} claim row(s) missing content_hash or"
+                                f" observed_at (total={total}); rebuild: mneme-core temporal index",
+                            )
+                        )
+                    else:
+                        checks.append(
+                            _check(
+                                "temporal_index",
+                                "ok",
+                                f"claims={total}, all rows have content_hash and observed_at",
+                            )
+                        )
+            finally:
+                conn.close()
+        except _sqlite3.OperationalError as exc:
+            checks.append(_check("temporal_index", "na", str(exc)))
+        except Exception as exc:  # noqa: BLE001
+            checks.append(_check("temporal_index", "warn", str(exc)))
+    else:
+        checks.append(_check("temporal_index", "na", "index absent — skipped"))
+
     # Derive overall status: fail > warn > ok.
     statuses = {c["status"] for c in checks}
     if "fail" in statuses:
@@ -962,6 +1268,160 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
     click.echo(json.dumps(report, indent=2, ensure_ascii=False))
     if overall == "fail":
         sys.exit(1)
+
+
+@cli.group("temporal", help="Temporal claim index subcommands.")
+def temporal_group() -> None:  # pragma: no cover - dispatcher
+    pass
+
+
+@temporal_group.command("index", help="Build or rebuild the temporal claims index for the vault.")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--locale",
+    type=click.Choice(["en", "tr"]),
+    default="en",
+    show_default=True,
+    help="Token normalizer locale for statement_normalized.",
+)
+def temporal_index(vault_root: Path | None, locale: str) -> None:
+    from .fts5.indexer import connect as fts5_connect
+    from .temporal.index import ensure_temporal_schema, index_claims
+
+    vault = _resolve_vault(vault_root)
+    if locale == "tr":
+        from .fts5.locale.tr import normalize_tr
+        normalize = normalize_tr
+    else:
+        normalize = None
+
+    conn = fts5_connect(vault.fts5_db)
+    try:
+        ensure_temporal_schema(conn)
+        stats = index_claims(conn, vault, normalize=normalize)
+    finally:
+        conn.close()
+    click.echo(
+        json.dumps(
+            {
+                "vault": str(vault.root),
+                "db": str(vault.fts5_db),
+                "locale": locale,
+                "stats": {
+                    "indexed": stats.indexed,
+                    "skipped_no_claim": stats.skipped_no_claim,
+                    "skipped_error": stats.skipped_error,
+                    "total_seen": stats.total_seen,
+                },
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@temporal_group.command("as-of", help="Print claims live at the given ISO timestamp.")
+@click.argument("timestamp")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def temporal_as_of(timestamp: str, vault_root: Path | None) -> None:
+    import sqlite3 as _sqlite3
+
+    from .temporal.query import as_of as _as_of
+    from .vault.frontmatter import _parse_dt
+
+    t = _parse_dt(timestamp)
+    if t is None:
+        raise click.ClickException(f"Cannot parse timestamp: {timestamp!r}")
+
+    vault = _resolve_vault(vault_root)
+    if not vault.fts5_db.exists():
+        click.echo(json.dumps({"claims": [], "note": "index not found"}, indent=2))
+        return
+
+    conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
+    try:
+        claims = _as_of(conn, t)
+    finally:
+        conn.close()
+
+    payload = [
+        {
+            "claim_id": c.claim_id,
+            "path": c.path,
+            "statement": c.statement,
+            "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+            "valid_to": c.valid_to.isoformat() if c.valid_to else None,
+            "observed_at": c.observed_at.isoformat(),
+            "claim_key": c.claim_key,
+            "confidence_label": c.confidence_label.value,
+        }
+        for c in claims
+    ]
+    click.echo(
+        json.dumps(
+            {"at": timestamp, "count": len(payload), "claims": payload},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@temporal_group.command("current", help="Print claims live right now (UTC).")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def temporal_current(vault_root: Path | None) -> None:
+    import sqlite3 as _sqlite3
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from .temporal.query import current as _current
+
+    vault = _resolve_vault(vault_root)
+    if not vault.fts5_db.exists():
+        click.echo(json.dumps({"claims": [], "note": "index not found"}, indent=2))
+        return
+
+    now = _datetime.now(UTC)
+    conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
+    try:
+        claims = _current(conn, now)
+    finally:
+        conn.close()
+
+    payload = [
+        {
+            "claim_id": c.claim_id,
+            "path": c.path,
+            "statement": c.statement,
+            "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+            "valid_to": c.valid_to.isoformat() if c.valid_to else None,
+            "observed_at": c.observed_at.isoformat(),
+            "claim_key": c.claim_key,
+            "confidence_label": c.confidence_label.value,
+        }
+        for c in claims
+    ]
+    click.echo(
+        json.dumps(
+            {"at": now.isoformat(), "count": len(payload), "claims": payload},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 @cli.command("version", help="Print mneme-core version.")

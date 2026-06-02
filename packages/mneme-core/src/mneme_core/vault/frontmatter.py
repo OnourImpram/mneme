@@ -86,6 +86,8 @@ KNOWN_TYPES: frozenset[str] = frozenset(
         "observation",
         "session_summary",
         "user_prompt",
+        "claim",
+        "failure",
     }
 )
 
@@ -118,6 +120,12 @@ class Frontmatter:
     tags: list[str] = field(default_factory=list)
     session_id: str | None = None
     source: str | None = None
+    # Temporal claim fields (optional; absent on non-claim notes).
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    observed_at: datetime | None = None
+    supersedes: str | None = None
+    claim_key: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -154,6 +162,12 @@ class Frontmatter:
             "tags",
             "session_id",
             "source",
+            # Temporal claim fields — parsed below; not stored in extra.
+            "valid_from",
+            "valid_to",
+            "observed_at",
+            "supersedes",
+            "claim_key",
         }
         extra = {k: v for k, v in data.items() if k not in known}
 
@@ -179,6 +193,32 @@ class Frontmatter:
                 )
                 modified = _mtime_to_dt(mtime)
 
+        # Temporal claim fields — malformed dates degrade to None (never raise).
+        def _parse_dt_soft(key: str) -> datetime | None:
+            raw = data.get(key)
+            if raw is None:
+                return None
+            result = _parse_dt(raw)
+            if result is None:
+                _log.warning(
+                    "Malformed timestamp in frontmatter field %r: "
+                    "value=%r file=%s — treating as None",
+                    key,
+                    raw,
+                    file_path,
+                )
+            return result
+
+        valid_from = _parse_dt_soft("valid_from")
+        valid_to = _parse_dt_soft("valid_to")
+        observed_at = _parse_dt_soft("observed_at")
+
+        supersedes_raw = data.get("supersedes")
+        supersedes: str | None = str(supersedes_raw) if supersedes_raw is not None else None
+
+        claim_key_raw = data.get("claim_key")
+        claim_key: str | None = str(claim_key_raw) if claim_key_raw is not None else None
+
         return cls(
             id=str(data["id"]),
             type=str(data["type"]),
@@ -188,6 +228,11 @@ class Frontmatter:
             tags=list(data.get("tags") or []),
             session_id=data.get("session_id"),
             source=data.get("source"),
+            valid_from=valid_from,
+            valid_to=valid_to,
+            observed_at=observed_at,
+            supersedes=supersedes,
+            claim_key=claim_key,
             extra=extra,
         )
 

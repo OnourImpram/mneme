@@ -1,0 +1,46 @@
+[
+  {
+    "type": "session",
+    "description": "A Claude Code session transcript captured by the Stop hook."
+  },
+  {
+    "type": "topic",
+    "description": "A durable topic note written by the user or by mneme_write."
+  },
+  {
+    "type": "reference",
+    "description": "An external reference document (URL, paper, snippet) stored in the vault."
+  },
+  {
+    "type": "pattern",
+    "description": "A reusable action-pattern record written by the patterns subsystem (PATTERN_TYPE constant)."
+  },
+  {
+    "type": "trajectory",
+    "description": "A per-session trajectory transcript written by the trajectory subsystem (TRAJECTORY_TYPE constant)."
+  },
+  {
+    "type": "compressed",
+    "description": "An output produced by the opt-in background compression pipeline."
+  },
+  {
+    "type": "observation",
+    "description": "A structured observation block captured during a session (PostToolUse staging)."
+  },
+  {
+    "type": "session_summary",
+    "description": "A condensed summary of one or more session records, produced by the distill subsystem."
+  },
+  {
+    "type": "user_prompt",
+    "description": "A verbatim user-prompt capture stored for replay or audit."
+  },
+  {
+    "type": "claim",
+    "description": "A temporal fact claim note with validity window and optional claim_key for deduplication."
+  },
+  {
+    "type": "failure",
+    "description": "A captured Python failure (parsed traceback) recorded by mneme-code."
+  }
+]

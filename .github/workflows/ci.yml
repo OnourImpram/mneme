@@ -49,6 +49,22 @@ jobs:
       - name: Run mneme-cc-plugin pytest
         working-directory: packages/mneme-cc-plugin
         run: pytest tests/ -v --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing
+      - name: Install mneme-graph editable
+        run: pip install -e "packages/mneme-graph[dev]"
+      - name: Lint mneme-graph with ruff
+        run: ruff check packages/mneme-graph
+      - name: Type check mneme-graph with mypy strict
+        run: mypy --strict packages/mneme-graph/mneme_graph
+      - name: Run mneme-graph pytest with coverage
+        run: pytest packages/mneme-graph/tests -v
+      - name: Install mneme-code editable
+        run: pip install -e "packages/mneme-code[dev]"
+      - name: Lint mneme-code with ruff
+        run: ruff check packages/mneme-code
+      - name: Type check mneme-code with mypy strict
+        run: mypy --strict packages/mneme-code/mneme_code
+      - name: Run mneme-code pytest with coverage
+        run: pytest packages/mneme-code/tests -v
 
   node-test:
     name: Node ${{ matrix.node-version }} on ${{ matrix.os }}

@@ -857,6 +857,97 @@ class TestDeterministicWalkOrder:
         ]
 
 
+class TestIndexerRedaction:
+    """P3: indexer must redact <private> blocks before writing any store.
+
+    A file whose body contains ``<private>SECRET_TOKEN_P3</private>`` must
+    not expose SECRET_TOKEN_P3 in documents.content_raw, documents.body_text,
+    or via an FTS MATCH query after indexing.
+    """
+
+    def test_private_block_absent_from_content_raw(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "secret.md").write_text(
+            "---\nid: s\ntype: note\n---\n"
+            "# Secret Doc\n\n"
+            "Public info. <private>SECRET_TOKEN_P3</private> more public.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT content_raw FROM documents WHERE path='secret.md'"
+        ).fetchone()
+        assert row is not None
+        assert "SECRET_TOKEN_P3" not in row[0]
+        conn.close()
+
+    def test_private_block_absent_from_body_text(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "secret.md").write_text(
+            "---\nid: s\ntype: note\n---\n"
+            "# Secret Doc\n\n"
+            "Public info. <private>SECRET_TOKEN_P3</private> more public.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT body_text FROM documents WHERE path='secret.md'"
+        ).fetchone()
+        assert row is not None
+        assert "SECRET_TOKEN_P3" not in row[0]
+        conn.close()
+
+    def test_private_block_absent_from_fts_match(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "secret.md").write_text(
+            "---\nid: s\ntype: note\n---\n"
+            "# Secret Doc\n\n"
+            "Public info. <private>SECRET_TOKEN_P3</private> more public.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        hits = conn.execute(
+            "SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?",
+            ("SECRET_TOKEN_P3",),
+        ).fetchall()
+        assert hits == [], "FTS index must not return rows matching SECRET_TOKEN_P3"
+        conn.close()
+
+    def test_redacted_token_present_and_public_content_preserved(
+        self, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "secret.md").write_text(
+            "---\nid: s\ntype: note\n---\n"
+            "# Secret Doc\n\n"
+            "Public info. <private>SECRET_TOKEN_P3</private> more public.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT content_raw, body_text FROM documents WHERE path='secret.md'"
+        ).fetchone()
+        assert row is not None
+        # Replacement token must be present
+        assert "[REDACTED]" in row[0]
+        # Public content around the private block must survive
+        assert "Public info." in row[0]
+        assert "more public." in row[0]
+        conn.close()
+
+
 class TestVaultEscapeContainment:
     """A symlink inside the vault pointing outside it must not be indexed.
 

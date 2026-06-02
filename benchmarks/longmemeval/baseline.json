@@ -1,0 +1,42 @@
+{
+  "benchmark": "longmemeval",
+  "recorded_at": "2026-06-01",
+  "dataset_source": "synthetic-fixture",
+  "metadata": {
+    "vault_doc_count": 6,
+    "index_locale": "identity",
+    "mneme_version": "1.1.0"
+  },
+  "results": {
+    "recall_at_1": 1.0,
+    "recall_at_5": 1.0,
+    "recall_at_10": 1.0,
+    "mrr_at_10": 1.0,
+    "abstention_accuracy": 1.0,
+    "case_count": 8,
+    "abstention_count": 2,
+    "by_case_type": {
+      "single-session-user": {
+        "recall_at_10": 1.0,
+        "count": 3
+      },
+      "single-session-assistant": {
+        "recall_at_10": 1.0,
+        "count": 1
+      },
+      "multi-session-user": {
+        "recall_at_10": 1.0,
+        "count": 1
+      },
+      "temporal": {
+        "recall_at_10": 1.0,
+        "count": 1
+      },
+      "abstention": {
+        "recall_at_10": null,
+        "count": 2
+      }
+    }
+  },
+  "notes": "Results recorded by benchmarks/longmemeval/run.py. No superiority claim is made — these numbers reflect FTS5-only retrieval on the synthetic fixture. Real-dataset numbers require the official LongMemEval download (see README.md). To run against the official dataset: python benchmarks/longmemeval/run.py --dataset-path <path/to/longmemeval.json>."
+}

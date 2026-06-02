@@ -18,11 +18,20 @@ export interface Fts5Hit {
 	path: string;
 	title: string;
 	rank: number;
+	/**
+	 * Unsafe for direct display: contains frontmatter. Run through
+	 * redact()/neutralize() and strip frontmatter before surfacing to any
+	 * client.
+	 */
 	contentRaw: string;
 	bodyText: string;
 	mtime: number;
 	frontmatterType: string;
 	sessionId: string;
+	/** SHA-256 hex digest of raw file bytes computed before redaction. Empty string when column absent (legacy index). */
+	contentHash: string;
+	/** Origin trust label. 'user' for all vault-origin files. */
+	trust: string;
 }
 
 export interface Fts5SearchOptions {
@@ -107,7 +116,9 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
         COALESCE(d.body_text, '') AS body_text,
         COALESCE(d.mtime, 0) AS mtime,
         COALESCE(d.frontmatter_type, '') AS frontmatter_type,
-        COALESCE(d.session_id, '') AS session_id
+        COALESCE(d.session_id, '') AS session_id,
+        COALESCE(d.content_hash, '') AS content_hash,
+        COALESCE(d.trust, 'user') AS trust
       FROM documents_fts fts
       JOIN documents d ON d.rowid = fts.rowid
       WHERE ${filters.join(" AND ")}
@@ -125,6 +136,8 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			mtime: number;
 			frontmatter_type: string;
 			session_id: string;
+			content_hash: string;
+			trust: string;
 		}>;
 		return rows.map((r) => ({
 			path: r.path,
@@ -135,6 +148,8 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			mtime: r.mtime,
 			frontmatterType: r.frontmatter_type,
 			sessionId: r.session_id,
+			contentHash: r.content_hash,
+			trust: r.trust,
 		}));
 	} finally {
 		db.close();

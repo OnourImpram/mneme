@@ -1,5 +1,6 @@
 .PHONY: install-dev test test-parity lint bench-all bench-retrieval \
-        bench-latency bench-cost bench-migration bench-head-to-head clean help
+        bench-latency bench-cost bench-migration bench-head-to-head \
+        bench-longmemeval clean help
 
 PY ?= python
 PYTEST ?= $(PY) -m pytest
@@ -19,16 +20,19 @@ help:
 	@echo "  make bench-cost           benchmark C: Adaptive Context Layer token savings"
 	@echo "  make bench-migration      benchmark D: claude-mem migration validation"
 	@echo "  make bench-head-to-head   benchmark E: head-to-head adapter comparison"
+	@echo "  make bench-longmemeval    LongMemEval: FTS5 recall on synthetic fixture"
 	@echo "  make clean                remove caches and build artifacts"
 
 install-dev:
 	cd packages/mneme-core && $(PY) -m pip install -e ".[dev]"
 	$(PY) -m pip install -e "packages/mneme-cc-plugin[dev]"
+	$(PY) -m pip install -e "packages/mneme-graph[dev]"
 	$(PNPM) install --frozen-lockfile
 
 test:
 	$(PYTEST) packages/mneme-core/tests -q
 	$(PYTEST) packages/mneme-cc-plugin/tests -q
+	$(PYTEST) packages/mneme-graph/tests -q
 	$(PYTEST) tests/parity -q
 	$(PNPM) --filter mneme-mcp test
 
@@ -75,7 +79,11 @@ bench-head-to-head: $(BENCH_OUT)
 	  --hardware-output $(BENCH_OUT)/head-to-head-hardware.json \
 	  --output $(BENCH_OUT)/head-to-head.json
 
-bench-all: bench-retrieval bench-latency bench-cost bench-migration bench-head-to-head
+bench-longmemeval: $(BENCH_OUT)
+	$(PY) benchmarks/longmemeval/run.py --output $(BENCH_OUT)/longmemeval.json
+	$(PY) benchmarks/longmemeval/regression_guard.py $(BENCH_OUT)/longmemeval.json
+
+bench-all: bench-retrieval bench-latency bench-cost bench-migration bench-head-to-head bench-longmemeval
 	@echo "All benchmarks complete. Results in $(BENCH_OUT)/."
 
 clean:

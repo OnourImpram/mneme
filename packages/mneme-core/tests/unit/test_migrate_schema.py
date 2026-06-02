@@ -40,6 +40,9 @@ def _create_minimal_documents(conn: sqlite3.Connection, *, exclude: set[str]) ->
         "schema_version TEXT DEFAULT '2'",
         "language TEXT DEFAULT 'en'",
         "indexed_at TEXT",
+        "content_hash TEXT",
+        "trust TEXT",
+        "key_points TEXT",
     ]
     # Strip excluded columns (match by name prefix).
     kept = [

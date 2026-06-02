@@ -82,6 +82,37 @@ describe("normalize_tr semantic distinction (dotted vs dotless)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Finding 2 — normalizeTr must be length-preserving in JS char units.
+//
+// buildCenteredSnippet in search.ts finds matchPos in the normalized body
+// and then uses it to slice the ORIGINAL bodyText. This is only correct if
+// normalize(s).length === s.length for all vault content. The tests below
+// verify the invariant holds for the Turkish characters that appear in
+// practice (İ U+0130 and I U+0049 both map to single BMP code units).
+// ---------------------------------------------------------------------------
+
+describe("normalizeTr — length-preservation invariant (Finding 2)", () => {
+  it("preserves .length for a string containing dotted İ (U+0130)", () => {
+    const s = "İzmir ve İstanbul";
+    expect(normalizeTr(s).length).toBe(s.length);
+  });
+
+  it("preserves .length for a string containing both İ and I", () => {
+    const s = "İki IŞIKlı İstasyon";
+    expect(normalizeTr(s).length).toBe(s.length);
+  });
+
+  it("preserves .length for a pure-ASCII string", () => {
+    const s = "Hello World 123";
+    expect(normalizeTr(s).length).toBe(s.length);
+  });
+
+  it("preserves .length for an empty string", () => {
+    expect(normalizeTr("").length).toBe(0);
+  });
+});
+
 describe("normalizeTrAsciiFold", () => {
   it("returns empty string for non-string input", () => {
     expect(normalizeTrAsciiFold(undefined as unknown as string)).toBe("");

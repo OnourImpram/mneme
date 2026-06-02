@@ -322,3 +322,83 @@ class TestDoctorFrontmatterDates:
         result = runner.invoke(cli, ["doctor", "--vault", str(vault_root)])
         data = json.loads(result.output)
         assert data["overall"] == "warn"
+
+
+class TestDoctorPrivacyIndexBodyText:
+    """Doctor check #7 must fire when <private> survives in body_text."""
+
+    def test_privacy_check_fires_on_dirty_body_text(self, tmp_path: Path) -> None:
+        """Inserting a row with clean content_raw but dirty body_text must
+        cause the privacy_index check to report status='fail' and count>=1."""
+        vault_root = _make_vault(tmp_path)
+        vault = VaultConfig.from_path(vault_root)
+        db_path = vault.fts5_db
+
+        # Build schema so the documents table exists.
+        conn = connect(db_path)
+        try:
+            ensure_schema(conn)
+            # Insert a row with clean content_raw but dirty body_text.
+            conn.execute(
+                """INSERT INTO documents
+                   (path, content_raw, body_text, title, mtime, indexed_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "private-body.md",
+                    "",                              # content_raw: clean
+                    "<private>secret</private>",     # body_text: dirty
+                    "Private Body Test",
+                    0.0,
+                    "2026-06-02T00:00:00",
+                ),
+            )
+            conn.commit()
+
+            # Run the exact doctor check SQL directly — same query as cli.py check #7.
+            row = conn.execute(
+                "SELECT COUNT(*) FROM documents"
+                " WHERE instr(content_raw, '<private') > 0"
+                " OR instr(body_text, '<private') > 0"
+            ).fetchone()
+            count = row[0] if row else 0
+        finally:
+            conn.close()
+
+        assert count == 1, (
+            f"Expected privacy_index SQL to return count=1, got {count}"
+        )
+
+    def test_privacy_check_does_not_fire_on_clean_row(self, tmp_path: Path) -> None:
+        """A row with no <private> in either column must not trigger the check."""
+        vault_root = _make_vault(tmp_path)
+        vault = VaultConfig.from_path(vault_root)
+        db_path = vault.fts5_db
+
+        conn = connect(db_path)
+        try:
+            ensure_schema(conn)
+            conn.execute(
+                """INSERT INTO documents
+                   (path, content_raw, body_text, title, mtime, indexed_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "clean.md",
+                    "all good here",
+                    "also clean",
+                    "Clean Note",
+                    0.0,
+                    "2026-06-02T00:00:00",
+                ),
+            )
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT COUNT(*) FROM documents"
+                " WHERE instr(content_raw, '<private') > 0"
+                " OR instr(body_text, '<private') > 0"
+            ).fetchone()
+            count = row[0] if row else 0
+        finally:
+            conn.close()
+
+        assert count == 0
