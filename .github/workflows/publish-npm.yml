@@ -32,8 +32,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - name: Install and build
         run: pnpm install --frozen-lockfile && pnpm -r build
-      - name: Publish to npm with provenance
+      - name: Publish to npm
         working-directory: packages/mneme-mcp
-        run: npm publish --access=public --provenance
+        run: npm publish --access=public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
