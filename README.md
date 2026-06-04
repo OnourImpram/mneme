@@ -6,6 +6,18 @@
 
 > Vault-native memory for Claude Code. Markdown is ground truth.
 
+<p align="center">
+  <a href="https://pypi.org/project/mneme-core/"><img src="https://img.shields.io/pypi/v/mneme-core?label=mneme-core&color=3776ab&logo=pypi&logoColor=white" alt="mneme-core on PyPI"></a>
+  <a href="https://pypi.org/project/mneme-cc-plugin/"><img src="https://img.shields.io/pypi/v/mneme-cc-plugin?label=mneme-cc-plugin&color=3776ab&logo=pypi&logoColor=white" alt="mneme-cc-plugin on PyPI"></a>
+  <a href="https://www.npmjs.com/package/mneme-mcp-server"><img src="https://img.shields.io/npm/v/mneme-mcp-server?label=mneme-mcp-server&color=cb3837&logo=npm&logoColor=white" alt="mneme-mcp-server on npm"></a>
+  <a href="https://github.com/TheGoatPsy/mneme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheGoatPsy/mneme/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+  <img src="https://img.shields.io/pypi/pyversions/mneme-core" alt="Python versions">
+</p>
+
+<p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>
+
+
 FTS5 retrieval, RRF-fused hybrid core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
 
 **Status**: 2.0.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (13 sources, verified in CI), so no single declared version can drift.
