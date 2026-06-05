@@ -2,12 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%2228%22%20height%3D%2228%22%20rx%3D%227%22%20fill%3D%22%230b0f14%22%20stroke%3D%22%232dd4bf%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h11M8%2021h13%22%20stroke%3D%22%232dd4bf%22%20stroke-width%3D%222.2%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>mneme — Accountable, vault-native memory for Claude Code and any MCP client</title>
 <meta name="description" content="mneme is an open-source, MIT-licensed memory layer for Claude Code and any MCP client. Your Markdown vault stays the source of truth. Every derived store is rebuildable. Redaction before every write.">
 <meta property="og:title" content="mneme — Accountable, vault-native memory for Claude Code">
 <meta property="og:description" content="Open-source, local-first memory layer. Markdown vault as source of truth. Deterministic capture, no LLM on the critical path. On the official MCP Registry.">
 <meta property="og:type" content="website">
+<meta name="theme-color" content="#0b0f14">
+<link rel="canonical" href="https://thegoatpsy.github.io/mneme/">
 <style>
 /* ============================================================
    RESET & BASE
@@ -1279,7 +1283,238 @@ footer {
 .stagger.visible > *:nth-child(7) { opacity:1; transform:none; transition-delay: 0.65s; }
 .stagger.visible > *:nth-child(8) { opacity:1; transform:none; transition-delay: 0.75s; }
 
+
+/* ============================================================
+   PREFERS-REDUCED-MOTION
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal, .stagger > * {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .stagger.visible > * { transition-delay: 0ms !important; }
+  html { scroll-behavior: auto; }
+}
+
+/* ============================================================
+   SCROLL-MARGIN-TOP — clear sticky nav on anchor jump
+   ============================================================ */
+#hero, #invariants, #how-it-works, #install,
+#benchmarks, #compare, #modules, #registry, #fit, #faq {
+  scroll-margin-top: calc(var(--nav-h) + 8px);
+}
+
+/* ============================================================
+   HOW IT COMPARES — capability matrix
+   ============================================================ */
+.compare-section { }
+.compare-caveat {
+  background: rgba(45,212,191,0.04);
+  border-left: 3px solid var(--accent);
+  padding: 14px 20px;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  line-height: 1.75;
+  margin-bottom: 24px;
+  border-radius: 0 6px 6px 0;
+}
+.compare-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  min-width: 680px;
+}
+.compare-table th,
+.compare-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  vertical-align: middle;
+  line-height: 1.45;
+}
+.compare-table th:last-child,
+.compare-table td:last-child {
+  border-right: none;
+}
+.compare-table thead th {
+  background: var(--bg-card2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.compare-table thead th.col-mneme {
+  color: var(--accent);
+  background: rgba(45,212,191,0.06);
+}
+/* sticky first column */
+.compare-table th:first-child,
+.compare-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-card);
+  min-width: 220px;
+  max-width: 260px;
+  font-weight: 500;
+  color: var(--text);
+  border-right: 1px solid var(--border-hi);
+}
+.compare-table thead th:first-child {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+}
+.compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.compare-table tbody tr:hover td {
+  background: rgba(45,212,191,0.025);
+}
+.compare-table tbody tr:hover td:first-child {
+  background: var(--bg-card);
+}
+/* mneme column accent */
+.compare-table td.col-mneme {
+  color: var(--accent);
+  font-weight: 600;
+  background: rgba(45,212,191,0.04);
+}
+.compare-table td.col-other {
+  color: var(--text-muted);
+}
+.compare-table td.col-na {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.compare-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 18px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.compare-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.compare-legend-glyph {
+  font-family: var(--mono);
+  color: var(--accent);
+  min-width: 18px;
+  text-align: center;
+}
+.compare-legend-glyph.dim { color: var(--text-faint); }
+.compare-detail-link {
+  margin-top: 16px;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+.compare-detail-link a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(45,212,191,0.35);
+}
+
+/* ============================================================
+   HERO META PILLS
+   ============================================================ */
+.hero-meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 18px;
+}
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border-hi);
+  color: var(--accent);
+  background: var(--accent-glo2);
+}
+
+/* ============================================================
+   INSTALL COPY BUTTON — toolbar row approach
+   ============================================================ */
+.code-block-v2 {
+  background: var(--code-bg);
+}
+.code-block-v2 .cb-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px 0 12px;
+}
+.code-block-v2 .cb-code {
+  padding: 8px 22px 18px;
+}
+.code-block-v2 pre {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--code-fg);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.copy-btn-v2 {
+  background: rgba(45,212,191,0.1);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-family: var(--sans);
+  cursor: pointer;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.copy-btn-v2:hover { background: var(--accent-glo); color: var(--accent); }
+.copy-btn-v2.copied { color: var(--accent); border-color: var(--accent); }
+
 </style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "mneme",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any",
+  "license": "https://opensource.org/licenses/MIT",
+  "url": "https://thegoatpsy.github.io/mneme/",
+  "codeRepository": "https://github.com/TheGoatPsy/mneme",
+  "downloadUrl": [
+    "https://pypi.org/project/mneme-core/",
+    "https://pypi.org/project/mneme-cc-plugin/",
+    "https://www.npmjs.com/package/mneme-mcp-server"
+  ],
+  "softwareVersion": "2.0.2",
+  "description": "Accountable, vault-native memory for Claude Code and any MCP client. Local-first, MIT licensed, on the official MCP Registry."
+}
+</script>
 </head>
 <body>
 
@@ -1361,6 +1596,12 @@ footer {
     </div>
 
     <p class="hero-note">Open source, MIT. Any MCP client.</p>
+    <div class="hero-meta-pills" aria-label="Distribution channels">
+      <span class="hero-pill">MIT</span>
+      <span class="hero-pill">PyPI</span>
+      <span class="hero-pill">npm</span>
+      <span class="hero-pill">MCP Registry</span>
+    </div>
   </div>
 </section>
 
@@ -1569,12 +1810,14 @@ footer {
           <span class="ic-badge ic-badge-cc">Claude Code</span>
           <h3>Plugin</h3>
         </div>
-        <div class="code-block">
-          <pre id="code-plugin">pipx install mneme-cc-plugin &amp;&amp; mneme install .</pre>
-          <button class="copy-btn" onclick="copyCode('code-plugin', this)" aria-label="Copy Claude Code plugin install command">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-            <span>Copy</span>
-          </button>
+        <div class="code-block-v2">
+          <div class="cb-toolbar">
+            <button class="copy-btn-v2" onclick="copyCode('code-plugin', this)" aria-label="Copy Claude Code plugin install command" aria-live="polite">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="cb-code"><pre id="code-plugin">pipx install mneme-cc-plugin &amp;&amp; mneme install .</pre></div>
         </div>
         <div class="install-note">
           Installs the plugin and wires the Stop hook into your local Claude Code instance.
@@ -1588,12 +1831,14 @@ footer {
           <span class="ic-badge ic-badge-py">Python</span>
           <h3>Core Engine</h3>
         </div>
-        <div class="code-block">
-          <pre id="code-core">pip install mneme-core</pre>
-          <button class="copy-btn" onclick="copyCode('code-core', this)" aria-label="Copy core engine install command">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-            <span>Copy</span>
-          </button>
+        <div class="code-block-v2">
+          <div class="cb-toolbar">
+            <button class="copy-btn-v2" onclick="copyCode('code-core', this)" aria-label="Copy core engine install command" aria-live="polite">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="cb-code"><pre id="code-core">pip install mneme-core</pre></div>
         </div>
         <div class="install-note">
           Standalone engine: vault indexing, FTS5, dense retrieval, redaction, and the benchmark harness.
@@ -1608,12 +1853,14 @@ footer {
           <span class="ic-badge ic-badge-npm">npm</span>
           <h3>MCP Server</h3>
         </div>
-        <div class="code-block">
-          <pre id="code-mcp">npm install -g mneme-mcp-server</pre>
-          <button class="copy-btn" onclick="copyCode('code-mcp', this)" aria-label="Copy MCP server install command">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-            <span>Copy</span>
-          </button>
+        <div class="code-block-v2">
+          <div class="cb-toolbar">
+            <button class="copy-btn-v2" onclick="copyCode('code-mcp', this)" aria-label="Copy MCP server install command" aria-live="polite">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="cb-code"><pre id="code-mcp">npm install -g mneme-mcp-server</pre></div>
         </div>
         <div class="install-note">
           Provides the <code style="font-family:var(--mono);font-size:0.85em;color:var(--accent)">mneme-mcp</code> command. Use with any MCP-compatible client.
@@ -1783,6 +2030,214 @@ footer {
 
   </div>
 </section>
+
+<!-- ============================================================
+     HOW IT COMPARES — capability matrix
+     ============================================================ -->
+<section id="compare">
+  <div class="container compare-section">
+    <div class="section-eyebrow">
+      <span class="section-label">How it compares</span>
+      <span class="section-eyebrow-line" aria-hidden="true"></span>
+    </div>
+    <h2>How it compares</h2>
+
+    <p class="compare-caveat">
+      This compares architectural capabilities across the dimensions mneme commits to. The cells describe design properties that are publicly verifiable from each tool documentation. They are not a benchmarked ranking, and the table deliberately includes rows where another tool leads.
+    </p>
+
+    <div class="compare-scroll-wrap" role="region" aria-label="Capability matrix" tabindex="0">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th scope="col">Dimension</th>
+            <th scope="col" class="col-mneme">mneme</th>
+            <th scope="col">claude-mem</th>
+            <th scope="col">mem0</th>
+            <th scope="col">Letta</th>
+            <th scope="col">Zep</th>
+            <th scope="col">Supermemory</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Plain-markdown store you can git diff and grep</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Built-in private-tag redaction with SHA256 audit</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Deterministic Stop capture, no LLM call</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-na">n/a</td>
+            <td class="col-na">n/a</td>
+            <td class="col-na">n/a</td>
+            <td class="col-na">n/a</td>
+          </tr>
+          <tr>
+            <td>Hybrid retrieval, FTS5 plus local dense, RRF-fused</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#10003;</td>
+          </tr>
+          <tr>
+            <td>Temporal claim lifecycle (valid-from/to, supersedes)</td>
+            <td class="col-mneme">gated</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">~</td>
+          </tr>
+          <tr>
+            <td>Project and code graph (tree-sitter, PR-impact)</td>
+            <td class="col-mneme">gated</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Adaptive token and context budget</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Agent security: capability firewall, taint, approval gate</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>One-command lossless migration from claude-mem</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-na">n/a</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Local-first, no cloud account required</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Runs in Claude Code, Codex, Antigravity, any MCP client</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+          </tr>
+          <tr>
+            <td>License</td>
+            <td class="col-mneme">MIT</td>
+            <td class="col-other">Apache-2.0</td>
+            <td class="col-other">Apache-2.0</td>
+            <td class="col-other">Apache-2.0</td>
+            <td class="col-other">cloud</td>
+            <td class="col-other">open source</td>
+          </tr>
+          <tr>
+            <td>Cloud-hosted team memory with a web graph UI today</td>
+            <td class="col-mneme">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#10003;</td>
+          </tr>
+          <tr>
+            <td>Agent autonomously rewrites its own memory</td>
+            <td class="col-mneme">~</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Auto-summarization at session end, on by default</td>
+            <td class="col-mneme">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+          </tr>
+          <tr>
+            <td>Localized observation-prompt presets</td>
+            <td class="col-mneme">&#8212;</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="compare-legend" aria-label="Table legend">
+      <div class="compare-legend-item">
+        <span class="compare-legend-glyph">&#10003;</span>
+        <span>Built in (shipped, no flag needed)</span>
+      </div>
+      <div class="compare-legend-item">
+        <span class="compare-legend-glyph">gated</span>
+        <span>Shipped, needs opt-in dependency or flag</span>
+      </div>
+      <div class="compare-legend-item">
+        <span class="compare-legend-glyph">~</span>
+        <span>Partial</span>
+      </div>
+      <div class="compare-legend-item">
+        <span class="compare-legend-glyph dim">&#8212;</span>
+        <span>Not available</span>
+      </div>
+      <div class="compare-legend-item">
+        <span class="compare-legend-glyph dim">n/a</span>
+        <span>Not applicable</span>
+      </div>
+    </div>
+
+    <p class="compare-detail-link">
+      For per-tool detail and an honest account of where mneme is not the right fit, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">capability matrix</a>.
+    </p>
+
+  </div>
+</section>
+
 
 <!-- ============================================================
      ADVANCED MODULES
@@ -2131,7 +2586,7 @@ footer {
 function copyCode(id, btn) {
   var el = document.getElementById(id);
   var text = el ? el.textContent : '';
-  var labelSpan = btn.querySelector('span');
+  var labelSpan = btn.querySelector('.copy-label') || btn.querySelector('span');
   if (!navigator.clipboard) {
     var ta = document.createElement('textarea');
     ta.value = text;
