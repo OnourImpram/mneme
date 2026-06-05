@@ -8,7 +8,7 @@
       "name": "mneme",
       "source": "./packages/mneme-cc-plugin",
       "description": "Vault-native memory for Claude Code. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context.",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "license": "MIT",
       "homepage": "https://github.com/TheGoatPsy/mneme",
       "keywords": [
