@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mneme — Vault-native memory for Claude Code and MCP clients</title>
+  <meta name="description" content="mneme is an open-source, accountable memory layer for Claude Code and any MCP client. Your Markdown vault stays the source of truth.">
+  <meta property="og:title" content="mneme — Vault-native memory for Claude Code and MCP clients">
+  <meta property="og:description" content="An open-source memory layer for Claude Code and any MCP client. Accountable, privacy-first, deterministic capture.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://thegoatpsy.github.io/mneme/">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0b0f14;
+      --bg-card:   #0d1117;
+      --bg-card2:  #111820;
+      --border:    #1e2a38;
+      --border-hi: #2dd4bf44;
+      --accent:    #2dd4bf;
+      --accent-dim:#1a8f82;
+      --accent-bg: #0d2926;
+      --text:      #e2e8f0;
+      --text-muted:#7fa3b5;
+      --text-dim:  #4a6a7a;
+      --code-bg:   #0a1520;
+      --code-border:#1a3040;
+      --red:       #f87171;
+      --radius:    8px;
+      --radius-lg: 14px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 80px 0; border-bottom: 1px solid var(--border); }
+    section:last-of-type { border-bottom: none; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: #0b0f14e8;
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+    nav .container {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    }
+    .nav-brand {
+      font-size: 18px; font-weight: 700; letter-spacing: -0.5px;
+      color: var(--text); text-decoration: none;
+    }
+    .nav-brand span { color: var(--accent); }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a {
+      color: var(--text-muted); text-decoration: none; font-size: 14px;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--accent); }
+    .nav-badge {
+      font-size: 11px; font-weight: 600; letter-spacing: .05em;
+      background: var(--accent-bg); color: var(--accent);
+      border: 1px solid var(--border-hi);
+      padding: 3px 9px; border-radius: 20px;
+    }
+
+    /* ── Hero ── */
+    #hero { padding: 100px 0 80px; border-bottom: 1px solid var(--border); }
+    .hero-eyebrow {
+      font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 20px;
+    }
+    h1 {
+      font-size: clamp(42px, 8vw, 72px);
+      font-weight: 800; letter-spacing: -2px; line-height: 1.05;
+      color: var(--text); margin-bottom: 24px;
+    }
+    h1 .wordmark { color: var(--accent); }
+    .hero-tagline {
+      font-size: clamp(17px, 2.5vw, 20px);
+      color: var(--text-muted); max-width: 600px; margin-bottom: 40px; line-height: 1.55;
+    }
+    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 36px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 24px; border-radius: var(--radius);
+      font-size: 15px; font-weight: 600; text-decoration: none;
+      transition: all .2s; cursor: pointer; border: none;
+    }
+    .btn-primary {
+      background: var(--accent); color: #0b1210;
+    }
+    .btn-primary:hover { background: #25b5a5; }
+    .btn-outline {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+    .hero-meta { font-size: 13px; color: var(--text-dim); }
+    .hero-meta a { color: var(--text-dim); text-decoration: underline; text-underline-offset: 3px; }
+    .hero-meta a:hover { color: var(--accent); }
+
+    /* ── Section headings ── */
+    h2 {
+      font-size: clamp(24px, 4vw, 34px);
+      font-weight: 700; letter-spacing: -1px;
+      color: var(--text); margin-bottom: 12px;
+    }
+    h3 {
+      font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 8px;
+    }
+    .section-label {
+      font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 12px;
+    }
+    .section-sub {
+      color: var(--text-muted); margin-bottom: 48px; max-width: 580px; font-size: 15px;
+    }
+
+    /* ── Invariants ── */
+    .cards-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;
+    }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 28px;
+      transition: border-color .2s;
+    }
+    .card:hover { border-color: var(--border-hi); }
+    .card-num {
+      font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 14px;
+    }
+    .card p { font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-top: 8px; }
+
+    /* ── Install ── */
+    .install-block { margin-bottom: 36px; }
+    .install-label {
+      font-size: 13px; font-weight: 600; color: var(--text-muted);
+      margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+    }
+    .install-tag {
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      background: var(--accent-bg); color: var(--accent);
+      border: 1px solid var(--border-hi); padding: 2px 7px; border-radius: 12px;
+    }
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      position: relative;
+    }
+    .code-block code {
+      font-family: "SFMono-Regular", "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 14px; color: var(--accent); white-space: pre; overflow-x: auto;
+      flex: 1;
+    }
+    .copy-btn {
+      flex-shrink: 0;
+      background: var(--bg-card2); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      padding: 5px 12px; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all .2s; font-family: inherit;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .install-note { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+
+    /* ── Registry ── */
+    .registry-box {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 32px;
+    }
+    .registry-box h3 { font-size: 20px; margin-bottom: 8px; }
+    .registry-box p { font-size: 14px; color: var(--text-muted); line-height: 1.7; margin-bottom: 12px; }
+    .registry-id {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--code-bg); border: 1px solid var(--code-border);
+      border-radius: var(--radius); padding: 10px 16px;
+      font-family: "SFMono-Regular", "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 14px; color: var(--accent); margin-top: 4px;
+    }
+    .registry-link { margin-top: 16px; }
+    .registry-link a {
+      color: var(--accent); text-decoration: none; font-size: 14px; font-weight: 600;
+    }
+    .registry-link a:hover { text-decoration: underline; }
+
+    /* ── Advanced ── */
+    .modules-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px;
+    }
+    .module-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+      transition: border-color .2s;
+    }
+    .module-card:hover { border-color: var(--border-hi); }
+    .module-card h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .module-card p { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+    .module-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .tag {
+      font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 10px;
+    }
+    .tag-local { background: #0d2926; color: #2dd4bf; border: 1px solid #1a4a40; }
+    .tag-opt   { background: #1a1f2e; color: #8899cc; border: 1px solid #252f50; }
+
+    /* ── Benchmarks ── */
+    .bench-table {
+      width: 100%; border-collapse: collapse;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); overflow: hidden;
+      font-size: 14px;
+    }
+    .bench-table th {
+      background: var(--bg-card2); text-align: left; padding: 12px 18px;
+      font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--text-muted); border-bottom: 1px solid var(--border);
+    }
+    .bench-table td {
+      padding: 13px 18px; border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+    .bench-table tr:last-child td { border-bottom: none; }
+    .bench-table tr:hover td { background: var(--bg-card2); }
+    .bench-val { color: var(--accent); font-weight: 600; font-family: "SFMono-Regular", Consolas, monospace; }
+    .bench-note {
+      margin-top: 14px; font-size: 12px; color: var(--text-dim); line-height: 1.6;
+    }
+    .bench-note code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      background: var(--code-bg); padding: 1px 6px; border-radius: 4px;
+      color: var(--accent); font-size: 12px;
+    }
+    .compare-link { margin-top: 18px; font-size: 13px; }
+    .compare-link a { color: var(--accent); text-decoration: none; }
+    .compare-link a:hover { text-decoration: underline; }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--bg-card); border-top: 1px solid var(--border);
+      padding: 40px 0;
+    }
+    .footer-inner {
+      display: flex; flex-wrap: wrap; gap: 24px;
+      align-items: center; justify-content: space-between;
+    }
+    .footer-brand { font-size: 15px; font-weight: 700; color: var(--text); }
+    .footer-brand span { color: var(--accent); }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 20px; }
+    .footer-links a {
+      color: var(--text-muted); text-decoration: none; font-size: 13px;
+      transition: color .2s;
+    }
+    .footer-links a:hover { color: var(--accent); }
+    .footer-copy { font-size: 12px; color: var(--text-dim); width: 100%; }
+
+    /* ── Divider ── */
+    .divider { width: 48px; height: 2px; background: var(--accent); border-radius: 2px; margin-bottom: 36px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      section { padding: 56px 0; }
+      #hero { padding: 64px 0 56px; }
+      .nav-links { gap: 16px; }
+      .code-block { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .bench-table { font-size: 13px; }
+      .bench-table th, .bench-table td { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav>
+  <div class="container">
+    <a class="nav-brand" href="#hero"><span>mneme</span></a>
+    <div class="nav-links">
+      <a href="#what">What it is</a>
+      <a href="#install">Install</a>
+      <a href="#advanced">Modules</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <span class="nav-badge">v2.0.2</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section id="hero">
+  <div class="container">
+    <div class="hero-eyebrow">Open source memory layer</div>
+    <h1><span class="wordmark">mneme</span></h1>
+    <p class="hero-tagline">Accountable, vault-native memory for Claude Code and any MCP client.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/TheGoatPsy/mneme">View on GitHub</a>
+      <a class="btn btn-outline" href="#install">Install</a>
+    </div>
+    <p class="hero-meta">
+      Open source, <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE">MIT</a>.&nbsp; Version 2.0.2.
+    </p>
+  </div>
+</section>
+
+<!-- ── What it is ── -->
+<section id="what">
+  <div class="container">
+    <div class="section-label">What it is</div>
+    <div class="divider"></div>
+    <h2>Your vault stays the source of truth</h2>
+    <p class="section-sub">
+      mneme is an open-source memory layer for Claude Code and any MCP client.
+      Your Markdown vault remains authoritative. Everything derived from it —
+      the search index, embeddings, knowledge graph, and summaries — is rebuildable
+      and never authoritative. Nothing is locked into a proprietary store.
+    </p>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-num">Invariant 01</div>
+        <h3>Markdown is the source of truth</h3>
+        <p>All memory lives in plain Markdown files you own. Derived stores are rebuilt from the vault, not the other way around.</p>
+      </div>
+      <div class="card">
+        <div class="card-num">Invariant 02</div>
+        <h3>No LLM on the Stop or critical path</h3>
+        <p>Capture is deterministic. p95 latency is around 3 ms on the seeded benchmark. Nothing waits on a model call during session hooks.</p>
+      </div>
+      <div class="card">
+        <div class="card-num">Invariant 03</div>
+        <h3>Redaction before every derived store</h3>
+        <p>A user configuration can never weaken a built-in privacy mode. Redaction runs before content reaches any index, embedding, or graph.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ── -->
+<section id="install">
+  <div class="container">
+    <div class="section-label">Install</div>
+    <div class="divider"></div>
+    <h2>Get started</h2>
+    <p class="section-sub">Choose the package that matches your client. All packages are independent; install only what you need.</p>
+
+    <div class="install-block">
+      <div class="install-label">
+        <span>Claude Code plugin</span>
+        <span class="install-tag">Recommended</span>
+      </div>
+      <div class="code-block">
+        <code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code>
+        <button class="copy-btn" onclick="copy(this, 'pipx install mneme-cc-plugin && mneme install')">Copy</button>
+      </div>
+      <p class="install-note">Installs hooks, skills, and the MCP server automatically via <code style="font-family:monospace;font-size:12px;background:var(--code-bg);padding:1px 5px;border-radius:4px;color:var(--accent)">mneme install</code>.</p>
+    </div>
+
+    <div class="install-block">
+      <div class="install-label">Core engine</div>
+      <div class="code-block">
+        <code>pip install mneme-core</code>
+        <button class="copy-btn" onclick="copy(this, 'pip install mneme-core')">Copy</button>
+      </div>
+      <p class="install-note">Low-level engine: indexing, retrieval, privacy, graph, and benchmarks.</p>
+    </div>
+
+    <div class="install-block">
+      <div class="install-label">MCP server — any MCP client</div>
+      <div class="code-block">
+        <code>npm install -g mneme-mcp-server</code>
+        <button class="copy-btn" onclick="copy(this, 'npm install -g mneme-mcp-server')">Copy</button>
+      </div>
+      <p class="install-note">Provides the <code style="font-family:monospace;font-size:12px;background:var(--code-bg);padding:1px 5px;border-radius:4px;color:var(--accent)">mneme-mcp</code> command. Works with any MCP-compatible client.</p>
+    </div>
+
+    <!-- MCP Registry -->
+    <div class="registry-box">
+      <div class="section-label" style="margin-bottom:10px;">MCP Registry</div>
+      <h3>Listed on the official MCP Registry</h3>
+      <p>
+        mneme is listed on the official MCP Registry as
+        <strong style="color:var(--text)">io.github.TheGoatPsy/mneme</strong>.
+        The MCP Registry is the canonical, project-maintained directory of Model Context Protocol servers,
+        so any MCP client can discover and install mneme from a single verified source instead of a random GitHub link.
+      </p>
+      <p>
+        The <code style="font-family:monospace;font-size:13px;color:var(--accent)">io.github.TheGoatPsy</code> namespace is bound to the GitHub account that owns the project,
+        so the entry is ownership-verified, not self-asserted.
+      </p>
+      <div class="registry-id">io.github.TheGoatPsy/mneme</div>
+      <div class="registry-link">
+        <a href="https://registry.modelcontextprotocol.io">registry.modelcontextprotocol.io &rarr;</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Advanced Modules ── -->
+<section id="advanced">
+  <div class="container">
+    <div class="section-label">Advanced modules</div>
+    <div class="divider"></div>
+    <h2>Opt-in, local-first extensions</h2>
+    <p class="section-sub">All modules are optional and run entirely on your machine. None phone home or require a cloud service.</p>
+
+    <div class="modules-grid">
+      <div class="module-card">
+        <h4>Project &amp; code graph</h4>
+        <p>Tree-sitter parsing for Python, JavaScript, and TypeScript. Structural graph of your codebase built locally.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Code memory</h4>
+        <p>AGENTS.md parsing, failure and fix capture. Accumulates project-level engineering knowledge across sessions.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Clinical mode</h4>
+        <p>Domain mode that blocks external extraction of clinical content at the config layer. Cannot be weakened by user config.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Security-review mode</h4>
+        <p>Restricts retrieval and injection to security-relevant patterns. Blocks cross-domain leakage at the config boundary.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Agent-security layer</h4>
+        <p>Capability firewall, taint tracking, human-approval gate, and a poisoned-vault benchmark for adversarial testing.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>HTML audit console</h4>
+        <p>Offline, read-only HTML console for inspecting the memory index, redaction log, and retrieval telemetry without a server.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Dense retrieval + FTS5</h4>
+        <p>Local dense embeddings fused with SQLite FTS5 via Reciprocal Rank Fusion. No external embedding API required.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Temporal claims</h4>
+        <p>Extracts time-bound claims from vault content and exports them to Graphiti-compatible format for temporal graph queries.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>Obsidian connector</h4>
+        <p>Watches an Obsidian vault directory and syncs changes into the mneme index without file duplication.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+      <div class="module-card">
+        <h4>GitHub connector</h4>
+        <p>Pulls issues, PRs, and discussion threads into the vault as structured Markdown, then indexes them with the rest of your memory.</p>
+        <div class="module-tags"><span class="tag tag-local">local</span><span class="tag tag-opt">opt-in</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Benchmarks ── -->
+<section id="benchmarks">
+  <div class="container">
+    <div class="section-label">Benchmarks</div>
+    <div class="divider"></div>
+    <h2>Reproducible regression anchors</h2>
+    <p class="section-sub">
+      These are deterministic regression anchors on a seeded synthetic corpus (seed 42),
+      not real-world or superiority measurements. They exist so regressions are caught in CI.
+    </p>
+
+    <table class="bench-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Value</th>
+          <th>Benchmark</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Retrieval nDCG@5</td>
+          <td class="bench-val">0.893</td>
+          <td>Seeded synthetic corpus, seed 42</td>
+        </tr>
+        <tr>
+          <td>Recall@10</td>
+          <td class="bench-val">1.000</td>
+          <td>Seeded synthetic corpus, seed 42</td>
+        </tr>
+        <tr>
+          <td>Stop-hook latency p95</td>
+          <td class="bench-val">~3 ms</td>
+          <td>Seeded latency harness</td>
+        </tr>
+        <tr>
+          <td>Shell-output compression</td>
+          <td class="bench-val">88%</td>
+          <td>Seeded compression suite</td>
+        </tr>
+        <tr>
+          <td>Injection deduplication</td>
+          <td class="bench-val">95%</td>
+          <td>Seeded dedup corpus</td>
+        </tr>
+        <tr>
+          <td>claude-mem migration assertions</td>
+          <td class="bench-val">4 / 4</td>
+          <td>Migration parity suite</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="bench-note">
+      Reproduce locally: <code>make bench-all</code>.
+      Results are pinned per release in <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/BENCHMARKS.md" style="color:var(--accent);text-decoration:none">docs/BENCHMARKS.md</a>.
+    </p>
+    <div class="compare-link">
+      <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md">
+        How it compares — honest capability matrix &rarr;
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand"><span>mneme</span></div>
+      <div class="footer-links">
+        <a href="https://github.com/TheGoatPsy/mneme">GitHub</a>
+        <a href="https://www.npmjs.com/package/mneme-mcp-server">npm</a>
+        <a href="https://pypi.org/project/mneme-core/">PyPI (core)</a>
+        <a href="https://pypi.org/project/mneme-cc-plugin/">PyPI (plugin)</a>
+        <a href="https://registry.modelcontextprotocol.io">MCP Registry</a>
+      </div>
+      <p class="footer-copy">Released under the MIT License.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+function copy(btn, text) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    setTimeout(function() {
+      btn.textContent = orig;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 1800);
+  });
+}
+</script>
+
+</body>
+</html>
