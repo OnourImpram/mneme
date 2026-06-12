@@ -22,8 +22,8 @@ jobs:
     name: Benchmark A - Retrieval Quality (nDCG@5)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install mneme-core
@@ -37,7 +37,7 @@ jobs:
             --output benchmarks/_runs/retrieval.json
       - name: Regression guard (nDCG@5, Recall@10, negative probe)
         run: python benchmarks/retrieval/regression_guard.py benchmarks/_runs/retrieval.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-retrieval
           path: benchmarks/_runs/retrieval*.json
@@ -46,8 +46,8 @@ jobs:
     name: Benchmark B - Latency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install mneme-core
@@ -61,7 +61,7 @@ jobs:
             --output benchmarks/_runs/latency.json
       - name: P95 guard (Stop hook proxy must stay under 1000ms)
         run: python benchmarks/latency/p95_guard.py benchmarks/_runs/latency.json --threshold-ms=1000
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-latency
           path: benchmarks/_runs/latency*.json
@@ -70,8 +70,8 @@ jobs:
     name: Benchmark C - Adaptive Context Layer
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install mneme-core
@@ -83,7 +83,7 @@ jobs:
           python benchmarks/cost/run.py --output-format=json \
             --hardware-output benchmarks/_runs/cost-hardware.json \
             --output benchmarks/_runs/cost.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-cost
           path: benchmarks/_runs/cost*.json
@@ -92,14 +92,14 @@ jobs:
     name: Benchmark D - Migration Validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: pnpm
@@ -132,7 +132,7 @@ jobs:
                   sys.exit(1)
           print("All migration assertions passed.")
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-migration
           path: benchmarks/_runs/migration*.json
@@ -141,14 +141,14 @@ jobs:
     name: Benchmark E - Head-to-Head (mneme adapter only in CI)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: pnpm
@@ -163,7 +163,7 @@ jobs:
           python benchmarks/head-to-head/run.py --output-format=json \
             --hardware-output benchmarks/_runs/head-to-head-hardware.json \
             --output benchmarks/_runs/head-to-head.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-head-to-head
           path: benchmarks/_runs/head-to-head*.json
