@@ -12,6 +12,7 @@ together:
 6. runtime constants, Codex plugin manifest, Claude plugin manifest,
    and Claude plugin marketplace entry.
 7. ``CITATION.cff`` (YAML ``version:`` field) for Zenodo/citation metadata.
+8. ``README.md`` status line (prose SemVer claim, kept honest in lockstep).
 
 The script accepts a SemVer string (``1.0.0``, ``1.0.0-rc.1``,
 ``1.0.0-alpha.0``) and writes the PEP 440 equivalent to the
@@ -191,6 +192,16 @@ SOURCES: tuple[VersionSource, ...] = (
         flavor="semver-json",
         json_key="version",
     ),
+    VersionSource(
+        label="README status line",
+        path=REPO_ROOT / "README.md",
+        flavor="semver-prose",
+        runtime_pattern=(
+            r"(\*\*Status\*\*: )"
+            r"(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?)"
+            r"(?= public release)"
+        ),
+    ),
 )
 
 
@@ -291,7 +302,12 @@ def read_version(source: VersionSource) -> str:
         if not isinstance(version, str):
             raise ValueError(f"Version value in {source.label} is not a string")
         return version
-    if source.flavor in {"pep440-pystr", "semver-pystr", "semver-tsconst"}:
+    if source.flavor in {
+        "pep440-pystr",
+        "semver-pystr",
+        "semver-tsconst",
+        "semver-prose",
+    }:
         assert source.runtime_pattern is not None
         m = re.search(source.runtime_pattern, text)
         if not m:
@@ -352,6 +368,18 @@ def write_version(source: VersionSource, new_semver: str) -> None:
         updated = re.sub(
             source.runtime_pattern,
             lambda m: f'{m.group(1)}"{literal}"',
+            text,
+            count=1,
+        )
+        if updated == text:
+            raise ValueError(f"No replacement performed in {source.label}")
+    elif source.flavor == "semver-prose":
+        # Unquoted prose literal: group(1) keeps the prefix, the
+        # lookahead in the pattern keeps the trailing text untouched.
+        assert source.runtime_pattern is not None
+        updated = re.sub(
+            source.runtime_pattern,
+            lambda m: f"{m.group(1)}{new_semver}",
             text,
             count=1,
         )
