@@ -70,8 +70,6 @@ jobs:
           python-version: '3.12'
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: 9
 
       - uses: actions/setup-node@v6
         with:
@@ -166,8 +164,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
-        with:
-          version: 9
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
