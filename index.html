@@ -1648,7 +1648,7 @@ footer {
         </div>
         <h3>No LLM on the Stop or critical path</h3>
         <p>Capture is fully deterministic. The Stop hook never calls a model or makes a network request. Work is captured synchronously and heavy processing happens in the background — off the hot path entirely.</p>
-        <span class="inv-stat">p95 ~3 ms · seed-42 benchmark</span>
+        <span class="inv-stat">p95 2 ms locked · seed-42</span>
       </div>
 
       <div class="inv-card">
@@ -1738,7 +1738,7 @@ footer {
           <rect x="230" y="148" width="116" height="14" rx="4" fill="rgba(45,212,191,0.06)" stroke="none"/>
           <text x="288" y="158.5" text-anchor="middle" font-family="monospace" font-size="8" fill="rgba(45,212,191,0.85)">deterministic · no LLM</text>
           <rect x="230" y="165" width="116" height="14" rx="4" fill="rgba(45,212,191,0.06)" stroke="none"/>
-          <text x="288" y="175.5" text-anchor="middle" font-family="monospace" font-size="8" fill="rgba(45,212,191,0.85)">no network · p95 ~3 ms</text>
+          <text x="288" y="175.5" text-anchor="middle" font-family="monospace" font-size="8" fill="rgba(45,212,191,0.85)">no network · p95 2 ms</text>
           <text x="288" y="200" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.7)">sync capture → bg processing</text>
 
           <!-- Arrow: stop hook → redaction gate -->
@@ -1947,7 +1947,7 @@ footer {
           <div class="latency-main">
             <div class="latency-header">
               <span class="latency-title">Stop Hook Latency — p95 headroom vs CI budget</span>
-              <span class="latency-stat">~3 ms actual · 1000 ms CI budget</span>
+              <span class="latency-stat">2 ms actual · 1000 ms CI budget</span>
             </div>
 
             <div class="latency-rail" role="progressbar" aria-valuenow="3" aria-valuemin="0" aria-valuemax="1000" aria-label="Stop hook latency: 3ms out of 1000ms budget">
@@ -1965,7 +1965,7 @@ footer {
             </div>
 
             <div class="latency-actual-label">
-              ~3 ms — 99.7% of the CI budget left unused
+              2 ms — 99.8% of the CI budget left unused
             </div>
           </div>
 
@@ -2559,7 +2559,7 @@ footer {
           </svg>
         </button>
         <div class="faq-body" id="faq-body-3" hidden>
-          <p>The Stop hook p95 is approximately 3 ms on the seeded benchmark corpus against a 1000 ms CI budget. That leaves 99.7% of the budget unused. Heavy processing — indexing, embedding, graph updates — runs in the background and is never on the synchronous critical path of your Claude Code session.</p>
+          <p>The Stop hook p95 is 2 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. That leaves 99.8% of the budget unused. Heavy processing — indexing, embedding, graph updates — runs in the background and is never on the synchronous critical path of your Claude Code session.</p>
         </div>
       </div>
 
