@@ -22,8 +22,8 @@
     "clean": "pnpm -r clean"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.8.3",
-    "typescript": "^5.5.3"
+    "@biomejs/biome": "^2.5.0",
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": ">=22",
