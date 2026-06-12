@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from mneme_core.privacy import redact
+
 from mneme_code.stacktrace import Frame, ParsedTraceback
 
 
@@ -95,7 +97,7 @@ def failure_from_traceback(
     )
 
 
-def failure_to_markdown(failure: FailureMemory) -> str:
+def failure_to_markdown(failure: FailureMemory, *, branch: str | None = None) -> str:
     """Render a :class:`FailureMemory` as a vault-ready markdown note.
 
     Frontmatter fields:
@@ -105,6 +107,9 @@ def failure_to_markdown(failure: FailureMemory) -> str:
         tags          ``["failure"]``
         exc_type      failure.exc_type
         source_label  failure.source_label (omitted when ``None``)
+        branch        caller-supplied git branch (omitted when ``None``);
+                      metadata only — it never participates in failure_id
+                      or content_hash, so determinism is preserved
 
     Body: redacted summary — exception message followed by frame list
     (``file:line in func`` format).
@@ -130,6 +135,11 @@ def failure_to_markdown(failure: FailureMemory) -> str:
     if failure.source_label is not None:
         # JSON-encode so an arbitrary user label stays valid YAML.
         fm_lines.append(f"source_label: {json.dumps(failure.source_label)}")
+    if branch is not None:
+        # Branch-aware failure tracking: redact then JSON-encode so an
+        # arbitrary branch name stays valid YAML and never leaks a
+        # <private> span embedded in an exotic branch name.
+        fm_lines.append(f"branch: {json.dumps(redact(branch))}")
     fm_lines.append("---")
 
     # Body

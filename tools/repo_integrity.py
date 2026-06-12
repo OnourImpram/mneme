@@ -46,8 +46,8 @@ def main() -> int:
     for marker in ("v1.0.0-rc", "Hard launch target", "Phase K release"):
         if marker in readme:
             errors.append(f"README still contains stale release marker: {marker}")
-    if "6 MCP tools" not in readme:
-        errors.append("README must describe lite as six MCP tools")
+    if "7 MCP tools" not in readme:
+        errors.append("README must describe lite as seven MCP tools")
     if "mneme upgrade --profile=standard" not in readme:
         errors.append("README must document the supported upgrade command")
     if "## [1.0.1]" not in changelog or "## [1.0.0]" not in changelog:
@@ -75,6 +75,31 @@ def main() -> int:
 
     if not (REPO_ROOT / "packages/mneme-core/src/mneme_core/__main__.py").is_file():
         errors.append("mneme_core module execution entry point is missing")
+
+    license_text = _read("LICENSE")
+    if "Apache License" not in license_text or "Version 2.0, January 2004" not in license_text:
+        errors.append("LICENSE must contain the verbatim Apache License 2.0 text")
+    if not (REPO_ROOT / "NOTICE").is_file():
+        errors.append("NOTICE file is missing (required by the Apache-2.0 convention)")
+    for manifest in (
+        "package.json",
+        "packages/mneme-mcp/package.json",
+    ):
+        if '"license": "Apache-2.0"' not in _read(manifest):
+            errors.append(f"{manifest} license field must be Apache-2.0")
+    for manifest in (
+        "packages/mneme-core/pyproject.toml",
+        "packages/mneme-cc-plugin/pyproject.toml",
+        "packages/mneme-graph/pyproject.toml",
+        "packages/mneme-code/pyproject.toml",
+    ):
+        text = _read(manifest)
+        if 'license = { text = "Apache-2.0" }' not in text:
+            errors.append(f"{manifest} license field must be Apache-2.0")
+        if "License :: OSI Approved :: Apache Software License" not in text:
+            errors.append(f"{manifest} must carry the Apache classifier")
+    if "license: Apache-2.0" not in _read("CITATION.cff"):
+        errors.append("CITATION.cff license must be Apache-2.0")
 
     if errors:
         print("Repository integrity check failed:")

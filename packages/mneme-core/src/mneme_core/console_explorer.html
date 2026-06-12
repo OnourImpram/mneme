@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mneme console</title>
+<style>
+  :root { --bg:#10141a; --panel:#1a212b; --ink:#e8e6e3; --dim:#8b949e;
+          --accent:#d4a843; --ok:#3fb950; --bad:#f85149; }
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 20px; border-bottom:1px solid #2d333b; display:flex; gap:18px; align-items:baseline; }
+  header h1 { font-size:16px; margin:0; color:var(--accent); }
+  header span { color:var(--dim); font-size:12px; }
+  nav { display:flex; gap:4px; padding:10px 20px 0; }
+  nav button { background:var(--panel); color:var(--ink); border:1px solid #2d333b;
+               border-bottom:none; padding:7px 16px; cursor:pointer; border-radius:6px 6px 0 0; }
+  nav button.active { background:#222b38; color:var(--accent); }
+  main { padding:16px 20px; }
+  section { display:none; } section.active { display:block; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:5px 10px; border-bottom:1px solid #2d333b; vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  #graph-svg { width:100%; height:560px; background:var(--panel); border-radius:8px; }
+  circle { fill:var(--accent); } circle.external { fill:#4d5763; }
+  line { stroke:#3d4754; stroke-width:1; }
+  text { fill:var(--dim); font-size:10px; pointer-events:none; }
+  input { background:var(--panel); border:1px solid #2d333b; color:var(--ink);
+          padding:6px 10px; border-radius:6px; margin-bottom:10px; width:280px; }
+  .note { color:var(--dim); font-style:italic; }
+  pre { background:var(--panel); padding:10px; border-radius:8px; overflow:auto; }
+</style>
+</head>
+<body>
+<header><h1>mneme console</h1><span>read-only · localhost · zero-LLM</span></header>
+<nav>
+  <button data-tab="audit" class="active">Audit</button>
+  <button data-tab="graph">Graph</button>
+  <button data-tab="claims">Claims</button>
+  <button data-tab="changes">Changes</button>
+  <button data-tab="chain">Audit chain</button>
+</nav>
+<main>
+  <section id="audit" class="active"><pre id="audit-pre">loading…</pre></section>
+  <section id="graph">
+    <input id="graph-filter" placeholder="filter nodes by name…">
+    <svg id="graph-svg"></svg>
+    <p class="note" id="graph-note"></p>
+  </section>
+  <section id="claims"><div id="claims-box">loading…</div></section>
+  <section id="changes"><div id="changes-box">loading…</div></section>
+  <section id="chain"><div id="chain-box">loading…</div></section>
+</main>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll("main section").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  document.getElementById(b.dataset.tab).classList.add("active");
+}));
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]));
+
+fetch("/api/audit").then(r => r.json()).then(d => {
+  $("#audit-pre").textContent = JSON.stringify(d, null, 2);
+});
+
+fetch("/api/changes").then(r => r.json()).then(d => {
+  const rows = (d.changes || []).map(c =>
+    `<tr><td>${esc(c.change_id).slice(0,8)}</td><td>${esc(c.action)}</td>` +
+    `<td>${esc(c.path)}</td><td>${esc(c.edit_class)}</td>` +
+    `<td>${c.auto_approved ? "auto" : "human"}</td><td>${esc(c.status)}</td>` +
+    `<td>${esc(c.applied_at)}</td></tr>`).join("");
+  $("#changes-box").innerHTML = d.count
+    ? `<table><tr><th>id</th><th>action</th><th>path</th><th>class</th><th>mode</th><th>status</th><th>applied</th></tr>${rows}</table>`
+    : '<p class="note">No autonomous edits recorded.</p>';
+});
+
+fetch("/api/chain").then(r => r.json()).then(d => {
+  const cls = d.valid ? "ok" : "bad";
+  $("#chain-box").innerHTML =
+    `<p>Day <strong>${esc(d.day)}</strong>: ${d.records} record(s), ` +
+    `<span class="${cls}">${d.valid ? "chain verifies" : "CHAIN BROKEN at line " + d.first_break_line}</span>` +
+    (d.detail ? ` <span class="note">(${esc(d.detail)})</span>` : "") + "</p>";
+});
+
+fetch("/api/claims").then(r => r.json()).then(d => {
+  const claims = d.claims || [];
+  if (!claims.length) {
+    $("#claims-box").innerHTML = `<p class="note">${esc(d.note || "No claims indexed.")}</p>`;
+    return;
+  }
+  const rows = claims.map(c =>
+    `<tr><td>${esc(c.claim_id).slice(0,12)}</td><td>${esc(c.statement)}</td>` +
+    `<td>${esc(c.valid_from || "—")} → ${esc(c.valid_to || "open")}</td>` +
+    `<td>${esc(c.supersedes || "—")}</td><td>${esc(c.confidence_label)}</td>` +
+    `<td>${esc(c.path)}</td></tr>`).join("");
+  $("#claims-box").innerHTML =
+    `<table><tr><th>id</th><th>statement</th><th>validity</th><th>supersedes</th><th>confidence</th><th>source</th></tr>${rows}</table>`;
+});
+
+fetch("/api/graph").then(r => r.json()).then(d => {
+  const svg = $("#graph-svg");
+  const note = $("#graph-note");
+  let nodes = (d.nodes || []).slice(0, 400);
+  const ids = new Set(nodes.map(n => n.node_id));
+  let edges = (d.edges || []).filter(e => ids.has(e.src_id) && ids.has(e.dst_id));
+  if (!nodes.length) { note.textContent = d.note || "Graph empty."; return; }
+  if ((d.nodes || []).length > 400) note.textContent = `Showing first 400 of ${d.nodes.length} nodes.`;
+  const W = svg.clientWidth || 900, H = 560;
+  nodes.forEach((n, i) => {
+    n.x = W/2 + (W/3) * Math.cos(2*Math.PI*i/nodes.length);
+    n.y = H/2 + (H/3) * Math.sin(2*Math.PI*i/nodes.length);
+    n.vx = 0; n.vy = 0;
+  });
+  const byId = Object.fromEntries(nodes.map(n => [n.node_id, n]));
+  for (let t = 0; t < 120; t++) {  // tiny deterministic force layout
+    for (const e of edges) {
+      const a = byId[e.src_id], b = byId[e.dst_id];
+      const dx = b.x-a.x, dy = b.y-a.y, dist = Math.hypot(dx,dy) || 1;
+      const f = (dist - 90) * 0.01;
+      a.vx += f*dx/dist; a.vy += f*dy/dist; b.vx -= f*dx/dist; b.vy -= f*dy/dist;
+    }
+    for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      const dx = b.x-a.x, dy = b.y-a.y, d2 = dx*dx+dy*dy || 1;
+      const f = 900/d2;
+      const dist = Math.sqrt(d2);
+      a.vx -= f*dx/dist; a.vy -= f*dy/dist; b.vx += f*dx/dist; b.vy += f*dy/dist;
+    }
+    for (const n of nodes) {
+      n.x = Math.max(15, Math.min(W-15, n.x + n.vx)); n.vx *= 0.6;
+      n.y = Math.max(15, Math.min(H-15, n.y + n.vy)); n.vy *= 0.6;
+    }
+  }
+  const render = (filter) => {
+    const f = (filter || "").toLowerCase();
+    const visible = new Set(nodes.filter(n => !f || (n.name||"").toLowerCase().includes(f)).map(n => n.node_id));
+    svg.innerHTML =
+      edges.filter(e => visible.has(e.src_id) && visible.has(e.dst_id))
+        .map(e => `<line x1="${byId[e.src_id].x}" y1="${byId[e.src_id].y}" x2="${byId[e.dst_id].x}" y2="${byId[e.dst_id].y}"/>`).join("") +
+      nodes.filter(n => visible.has(n.node_id))
+        .map(n => `<circle cx="${n.x}" cy="${n.y}" r="5" class="${n.source_path === "<external>" ? "external" : ""}"><title>${esc(n.name)} (${esc(n.kind)}) — ${esc(n.source_path)}</title></circle>` +
+                  `<text x="${n.x+7}" y="${n.y+3}">${esc((n.name||"").slice(0,18))}</text>`).join("");
+  };
+  render("");
+  $("#graph-filter").addEventListener("input", (ev) => render(ev.target.value));
+});
+</script>
+</body>
+</html>

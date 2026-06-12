@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "2.0.2",
+  "version": "3.0.0",
   "private": true,
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "repository": {
@@ -12,7 +12,7 @@
   },
   "homepage": "https://github.com/TheGoatPsy/mneme#readme",
   "author": "Onour Impram (TheGoatPsy)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",

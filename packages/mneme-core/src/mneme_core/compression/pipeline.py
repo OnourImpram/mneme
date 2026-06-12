@@ -119,17 +119,28 @@ class RunReport:
     reason: str | None = None
 
 
-def load_prompt(path: Path | None = None) -> str:
-    """Load the compression prompt. Falls back to the bundled resource."""
+def load_prompt(path: Path | None = None, *, language: str = "en") -> str:
+    """Load the compression prompt for *language*.
+
+    Resolution order: an explicit *path* override wins; otherwise the
+    bundled ``compress-<language>.md`` preset is used, falling back to
+    the English preset when no localized preset ships for *language*.
+    """
     if path is not None and path.is_file():
         return path.read_text(encoding="utf-8")
-    try:
-        files = importlib.resources.files(
-            "mneme_core.compression"
-        ) / "prompts" / DEFAULT_PROMPT_RESOURCE
-        return files.read_text(encoding="utf-8")
-    except (OSError, ModuleNotFoundError, FileNotFoundError):
-        return ""
+    resources = [DEFAULT_PROMPT_RESOURCE]
+    normalized = language.strip().lower()
+    if normalized and normalized != "en":
+        resources.insert(0, f"compress-{normalized}.md")
+    for resource in resources:
+        try:
+            files = importlib.resources.files(
+                "mneme_core.compression"
+            ) / "prompts" / resource
+            return files.read_text(encoding="utf-8")
+        except (OSError, ModuleNotFoundError, FileNotFoundError):
+            continue
+    return ""
 
 
 def _is_paused(path: Path) -> bool:
@@ -367,7 +378,7 @@ def run_compression(
     # reservation counts toward the cap until settled (success) or
     # rolled back (failure). Two workers can no longer both pass a
     # naive check and both spend.
-    prompt = load_prompt(config.prompt_path)
+    prompt = load_prompt(config.prompt_path, language=config.compression.language)
     if not prompt.strip():
         return RunReport(status="error", reason="compression_prompt_unavailable")
 

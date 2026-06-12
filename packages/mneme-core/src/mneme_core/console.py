@@ -252,7 +252,55 @@ def render_html_report(
     show_default=True,
     help="Output format.",
 )
-def _cli(vault_root: Path, out_file: Path | None, fmt: str) -> None:
+@click.option(
+    "--serve",
+    is_flag=True,
+    default=False,
+    help="Serve the interactive read-only web console instead of printing.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Bind address for --serve (loopback only unless --unsafe-expose).",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=7421,
+    show_default=True,
+    help="Port for --serve.",
+)
+@click.option(
+    "--unsafe-expose",
+    is_flag=True,
+    default=False,
+    help="Allow a non-loopback --host bind. You almost never want this.",
+)
+def _cli(
+    vault_root: Path,
+    out_file: Path | None,
+    fmt: str,
+    serve: bool,
+    host: str,
+    port: int,
+    unsafe_expose: bool,
+) -> None:
+    if serve:
+        from .console_serve import serve_forever
+        from .vault.config import VaultConfig
+
+        try:
+            serve_forever(
+                VaultConfig.from_path(vault_root),
+                host,
+                port,
+                allow_remote=unsafe_expose,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        return
+
     report = build_audit(vault_root)
     graph_summary = read_graph_summary(vault_root)
     data = audit_to_dict(report, graph_summary=graph_summary)

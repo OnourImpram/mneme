@@ -104,10 +104,37 @@ def _maybe_launch_compression(vault: VaultConfig) -> None:
         )
 
 
+def _maybe_drain_proposals(vault: VaultConfig) -> None:
+    """Apply queued memory proposals under the operator's policy.
+
+    Deterministic file IO only (no LLM, no network), so it is safe on
+    the SessionEnd path. Runs only when both a policy file and a
+    pending queue exist; everything else is a no-op. Fail-soft: a
+    drain error never blocks the hook.
+    """
+    policy_path = vault.state_dir / "policy.json"
+    queue_path = vault.state_dir / "proposals" / "pending.jsonl"
+    if not policy_path.is_file() or not queue_path.is_file():
+        return
+    try:
+        from mneme_core.memory_apply import drain_proposals
+
+        report = drain_proposals(vault)
+        if report.applied or report.refused:
+            sys.stderr.write(
+                f"[mneme:SessionEnd] proposal drain: applied={report.applied} "
+                f"refused={report.refused} malformed={report.malformed}\n"
+            )
+    except Exception as exc:
+        sys.stderr.write(f"[mneme:SessionEnd] proposal drain skipped: {exc}\n")
+
+
 def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="SessionEnd")
         return
+
+    _maybe_drain_proposals(vault)
 
     state_path = vault.state_dir / STATE_FILENAME
     try:

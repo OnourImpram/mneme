@@ -9,10 +9,14 @@ LLM. The full Stop ritual is:
   2. Otherwise, atomically append a new ``## HH:MM session summary``
      block to today's session log inside the vault. The body lists
      the session_id, the transcript path (if Claude Code surfaced
-     one), and a placeholder for the user to expand later. The day's
-     log file is created with ``type: session`` frontmatter so the
-     indexer records ``frontmatter_type='session'`` and SessionStart
-     can surface it in the recent-sessions block.
+     one), and the deterministic extractive summary produced by
+     ``mneme_core.distill.session_summary`` (zero-LLM, default ON,
+     disable via ``summary.json``). When the summarizer has nothing
+     to say it returns ``None`` and the body falls back to the
+     editable placeholder line. The day's log file is created with
+     ``type: session`` frontmatter so the indexer records
+     ``frontmatter_type='session'`` and SessionStart can surface it
+     in the recent-sessions block.
   3. Update a small ``last_session_end_at`` field in the vault's
      state file. The next SessionStart will read this.
 
@@ -34,6 +38,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from mneme_core.distill.session_summary import build_session_summary
 from mneme_core.kg import kg_config_from_vault, mark_community_refresh
 from mneme_core.vault.atomic_write import atomic_write_text
 from mneme_core.vault.config import VaultConfig
@@ -80,6 +85,10 @@ def _append_session_section(
 ) -> None:
     today_iso = date.today().isoformat()
     target = vault.root / LOG_DIR_NAME / f"{today_iso}.md"
+    # Deterministic extractive summary (zero-LLM, default ON). Computed
+    # OUTSIDE the lock so summary aggregation never extends the critical
+    # section; the function degrades to None instead of raising.
+    summary_body = build_session_summary(vault, session_id, transcript_path)
     # Codex Pass 2 review fix: two concurrent Stop hooks read the same
     # file then both atomic-write their appended section, with the
     # later writer overwriting the earlier session block. Serialize the
@@ -113,11 +122,16 @@ def _append_session_section(
         transcript_line = (
             f"transcript: `{transcript_path}`\n\n" if transcript_path else ""
         )
+        section_body = (
+            summary_body
+            if summary_body
+            else "(Session summary placeholder. Edit to add notes.)\n"
+        )
         body = (
             f"{existing}{separator}"
             f"{header}\n\n"
             f"{transcript_line}"
-            "(Session summary placeholder. Edit to add notes.)\n"
+            f"{section_body}"
         )
         atomic_write_text(target, body)
 

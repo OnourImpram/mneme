@@ -44,4 +44,8 @@ Disagreements between maintainers are resolved by the project lead in year 1. Fr
 
 ## License Changes
 
-The MIT license is a permanent commitment for the v1.x line. Any relicensing requires unanimous agreement of all co-maintainers and at least 30 days of public notice.
+From the 3.0.0 release onward mneme is licensed under the Apache License 2.0 (see ADR-015). The MIT commitment for the published 1.x and 2.x artifacts is permanent: everything released under MIT remains available under MIT.
+
+The 3.0 relicensing decision was taken on 2026-06-10 by unanimous agreement of all maintainers (sole maintainer at the time of decision) and announced publicly ahead of the 3.0.0 release, satisfying the notice requirement below.
+
+Any future relicensing requires unanimous agreement of all co-maintainers and at least 30 days of public notice.

@@ -54,4 +54,4 @@ This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Report 
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the MIT License (see `LICENSE`).
+By contributing, you agree that your contributions are licensed under the Apache License 2.0 (see `LICENSE` and `NOTICE`), the project's license from 3.0.0 onward. Inbound contributions are accepted under the same terms as the outbound license (inbound = outbound). Contributions merged while the project was MIT-licensed remain MIT in those published releases.

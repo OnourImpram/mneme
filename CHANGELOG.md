@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.0.0] - 2026-06-12
+
+The next-level release: the remaining capability-matrix gaps close on mneme's
+own local-first terms, and the project relicenses to Apache-2.0.
+
+### Changed
+
+- **License: Apache-2.0** from this release onward (`LICENSE` + new `NOTICE`,
+  ADR-015). Published 1.x and 2.x artifacts permanently remain MIT.
+- **Stop-hook session log entries now carry a deterministic extractive summary
+  by default** (files touched, tool activity, opening intent) computed from
+  already-redacted staging records — zero LLM, zero network, zero key. Disable
+  or localize via `.mneme/summary.json`; the editable placeholder returns when
+  disabled. The opt-in LLM compression pipeline is unchanged.
+- **Temporal claim lifecycle de-gated**: valid-from/to, supersedes, as-of, and
+  contradiction queries are built in on every profile (pure SQLite). Graphiti
+  export and LLM claim extraction stay gated and off the critical path.
+
+### Added
+
+- **`temporal blame` + `temporal contradictions` CLI** — provenance
+  time-travel: where a claim came from, what it supersedes, what superseded
+  it, and its same-key rivals, with cycle-safe lineage walks.
+- **Policy-graduated autonomous memory edits**: `.mneme/policy.json` declares
+  which low-risk edit classes (dedup-merge, typo-fix, tag-normalize,
+  supersede-link, stale-archive) the agent may apply autonomously. Every edit
+  is journalled for `memory rollback <id>`, recorded in a tamper-evident HMAC
+  audit chain shared byte-compatibly between the Python and TypeScript
+  writers, and durable categories (identity, preference, clinical, legal,
+  financial) always require human approval. New CLI:
+  `memory policy|changes|rollback|drain`.
+- **`mneme_propose` MCP tool (seventh tool)**: agents queue redacted edit
+  proposals — the server never applies them directly; the SessionEnd hook
+  drains the queue deterministically under the operator's policy.
+- **Localized presets**: Turkish compression rubric (`compress-tr.md`) and
+  localized deterministic-summary templates (`summary-en.md`,
+  `summary-tr.md`), selected via the `language` knob in `compression.json` /
+  `summary.json` with English fallback.
+- **`mneme-graph impact` (PR-impact)**: file-seeded reverse-BFS over the code
+  graph with `--diff` git integration; external ghost nodes resolve onto
+  their unambiguous local definitions at query time. Self-verification test:
+  the package analyses its own source.
+- **Branch-aware failure notes**: `mneme-code parse-trace` records the
+  vault's git branch (metadata-only; identity hashes unchanged) with
+  `--branch` / `--no-branch` overrides.
+- **`mneme-console --serve`**: loopback-only, GET-only, dependency-free web
+  console — interactive explorer for the vault audit, code graph, temporal
+  claims (supersedes chains), autonomous-edit journal, and audit-chain
+  verification. Non-loopback binds refused without `--unsafe-expose`.
+- **`mneme-core sync` (self-hosted team memory)**: share the vault over any
+  plain git remote with redaction-before-share (a surviving `<private>` span
+  aborts the push), optional `age` end-to-end encryption, per-member share
+  trees, and a never-overwrite `.conflict`-sidecar merge policy. New CLI:
+  `sync status|push|pull`.
+
+### Verified
+
+- Benchmark anchors re-verified post-3.0 (seed 42): Benchmark A
+  nDCG@5 = 0.893, Recall@10 = 1.0; Benchmark B Stop p95 = 2.0 ms — the new
+  surfaces stay off the Stop hot path.
+
 ## [2.0.0] - 2026-06-02
 
 Major release: the Full and Power profile advanced capabilities. Every module is

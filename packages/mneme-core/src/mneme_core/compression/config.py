@@ -44,6 +44,7 @@ class CompressionConfig:
     model: str = DEFAULT_MODEL
     max_tokens: int = DEFAULT_MAX_TOKENS
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
+    language: str = "en"
     schema_version: int = SCHEMA_VERSION
 
     @classmethod
@@ -74,6 +75,7 @@ def read_config(path: Path) -> CompressionConfig:
             max_payload_bytes=int(
                 merged.get("max_payload_bytes", DEFAULT_MAX_PAYLOAD_BYTES)
             ),
+            language=str(merged.get("language") or "en"),
             schema_version=int(merged.get("schema_version", SCHEMA_VERSION)),
         )
     except (TypeError, ValueError):

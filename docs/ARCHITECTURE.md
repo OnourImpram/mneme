@@ -98,13 +98,15 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 
 **Consequences**: 40 to 60 percent session token reduction. Trade-off: layer adds complexity to the hook and retrieval paths. Retrofitting this into a tool not built for it costs 2 to 3 months of engineering, so it is a real moat.
 
-### ADR-006: MIT license, not AGPL-3.0
+### ADR-006: MIT license, not AGPL-3.0 (superseded by ADR-015)
 
 **Context**: claude-mem ships under AGPL-3.0, which creates enterprise adoption friction.
 
 **Decision**: MIT license. Maximum permissiveness consistent with the project's goal of becoming the default Claude Code memory plugin.
 
 **Consequences**: Enterprises can adopt freely. Trade-off: forks can be closed-source. Mitigation: maintainer velocity and ecosystem (plugin manifest, marketplace) keep upstream the canonical implementation.
+
+**Status**: Superseded by ADR-015 for the 3.0 line. Published 1.x and 2.x artifacts remain MIT.
 
 ### ADR-007: `mneme_` prefix on all MCP tools
 
@@ -169,6 +171,14 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 **Decision**: Keep Claude Code as the primary, native client. Add Codex support as a parallel layer, never by genericizing the core or diluting the Claude-Code-native identity. Concretely: (1) the MCP server and core stay untouched and serve every MCP client; (2) a shared `mneme hook <event>` CLI subcommand gives both clients one OS-agnostic, client-agnostic hook entry; (3) the Claude Code native plugin lives at `packages/mneme-cc-plugin` with `.claude-plugin/` manifests and a repo-root `.claude-plugin/marketplace.json`; (4) the Codex plugin lives at `packages/mneme-codex-plugin` with `.codex-plugin/` manifests and a repo-root `.agents/plugins/marketplace.json`; (5) `mneme install --client=claude-code|codex|all` wires whichever clients are requested, default `claude-code`.
 
 **Consequences**: Codex users get the same six MCP tools, the same two skills, and four of the five lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact). SessionEnd folds into Stop because Codex has no SessionEnd event. The Claude Code experience is unchanged and stays full-fidelity. Trade-off: two plugin manifests and two marketplace files to keep in sync, and the PostToolUse Bash-output compression is tuned to Claude Code tool names so Codex capture is generic until a Codex tool-name variant lands. The shared core means a retrieval or vault improvement benefits both clients at once.
+
+### ADR-015: Apache License 2.0 from the 3.0 line (supersedes ADR-006)
+
+**Context**: ADR-006 chose MIT for maximum permissiveness. Two pressures changed the calculus for 3.0. First, every directly comparable open-source memory tool in the competitive set (claude-mem's ecosystem peers, Mem0, Letta, Graphiti) ships under Apache-2.0, and enterprise procurement increasingly treats Apache-2.0's explicit patent grant as the baseline for adopting AI-agent infrastructure. Second, 3.0 introduces team-facing surfaces (self-hosted sync, web console) where the patent-retaliation and contribution clauses of Apache-2.0 give adopters and contributors clearer protection than MIT's silence.
+
+**Decision**: License the 3.0 line under the Apache License 2.0. `LICENSE` carries the verbatim license text, `NOTICE` carries the copyright statement. Published 1.x and 2.x artifacts permanently remain MIT. Contributions are inbound = outbound under Apache-2.0. The relicensing was decided unanimously by the maintainers on 2026-06-10 (sole maintainer and sole copyright holder at the time; the lone third-party commit was an automated image recompression with no copyrightable code) and announced ahead of the 3.0.0 release per the GOVERNANCE.md notice requirement.
+
+**Consequences**: Explicit patent grant for users and contributors, license parity with the competitive set so license choice is never an adoption blocker, and unchanged permissiveness in practice (Apache-2.0 remains enterprise-friendly and fork-friendly). Trade-off: slightly heavier compliance surface (NOTICE propagation in redistributions) and GPLv2-incompatibility, which does not affect any current integration.
 
 ## Out of Scope for v1.0
 

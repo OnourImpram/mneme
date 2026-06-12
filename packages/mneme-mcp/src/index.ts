@@ -2,7 +2,7 @@
 /**
  * mneme-mcp — MCP server for vault-native memory in Claude Code.
  *
- * Six tools over stdio transport, all prefixed `mneme_` to avoid
+ * Seven tools over stdio transport, all prefixed `mneme_` to avoid
  * namespace clash with other MCP servers running in the same client:
  *
  *   mneme_search     FTS5 retrieval today, dense search roadmap
@@ -11,10 +11,11 @@
  *   mneme_summarize  topic grouped by directory, KG-enriched when active
  *   mneme_timeline   subject ordered by mtime, KG-enriched when active
  *   mneme_prime      preflight context bundle within token budget
+ *   mneme_propose    queue a memory-edit proposal for the policy drain
  *
  * The server resolves a VaultConfig once at startup. Vault root comes
  * from `MNEME_VAULT` or the documented resolution order. Tool
- * handlers receive the same config so all six agree on paths.
+ * handlers receive the same config so all seven agree on paths.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -27,6 +28,7 @@ import type { z } from "zod";
 import { toMnemeError } from "./errors.js";
 import { isToolError } from "./tool_error.js";
 import { PrimeInputSchema, primeTool } from "./tools/prime.js";
+import { ProposeInputSchema, proposeTool } from "./tools/propose.js";
 import { RecallInputSchema, recallTool } from "./tools/recall.js";
 import { SearchInputSchema, searchTool } from "./tools/search.js";
 import { SummarizeInputSchema, summarizeTool } from "./tools/summarize.js";
@@ -35,7 +37,7 @@ import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "2.0.2";
+const SERVER_VERSION = "3.0.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 
@@ -217,6 +219,60 @@ const TOOLS: ToolDef[] = [
 			required: ["task_description"],
 		},
 		handler: (args, vault) => primeTool(PrimeInputSchema.parse(args), vault),
+	},
+	{
+		name: "mneme_propose",
+		description:
+			"Queue a memory-edit proposal (create/update/delete) for the " +
+			"policy drain. The server never applies the edit directly: the " +
+			"proposal is staged under .mneme/proposals/ and applied by the " +
+			"policy engine — autonomously when the operator's policy.json " +
+			"allows the declared edit_class on an ephemeral edit, otherwise " +
+			"held for human approval. Durable categories (identity, " +
+			"preference, clinical, legal, financial) always require human " +
+			"approval. Content is redacted before it is queued.",
+		zodSchema: ProposeInputSchema,
+		inputSchema: {
+			type: "object",
+			properties: {
+				action: { type: "string", enum: ["create", "update", "delete"] },
+				path: {
+					type: "string",
+					description: "Target path relative to the vault root.",
+				},
+				content: {
+					type: "string",
+					description: "Proposed full file content (ignored for delete).",
+				},
+				category: {
+					type: "string",
+					enum: [
+						"ephemeral",
+						"identity",
+						"preference",
+						"clinical",
+						"legal",
+						"financial",
+					],
+					default: "ephemeral",
+				},
+				edit_class: {
+					type: "string",
+					enum: [
+						"dedup-merge",
+						"typo-fix",
+						"tag-normalize",
+						"supersede-link",
+						"stale-archive",
+					],
+					description:
+						"Low-risk mechanical edit class for autonomous apply eligibility.",
+				},
+			},
+			required: ["action", "path"],
+		},
+		handler: (args, vault) =>
+			proposeTool(ProposeInputSchema.parse(args), vault),
 	},
 ];
 

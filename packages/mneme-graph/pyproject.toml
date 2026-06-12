@@ -8,13 +8,13 @@ version = "0.2.0"
 description = "Local code knowledge graph for mneme: tree-sitter extraction, atomic GraphStore, confidence-labelled nodes."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Onour Impram" }]
 keywords = ["mneme", "knowledge-graph", "tree-sitter", "code-graph", "ast"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

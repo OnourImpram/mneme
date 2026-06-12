@@ -32,6 +32,29 @@ Claude Code's `settings.json` on Windows is sometimes saved with a UTF-8 BOM. mn
 
 See `packages/mneme-cc-plugin/src/mneme_cc_plugin/install/settings.py` for the load-write helpers used by `mneme install`.
 
+## Deterministic Session Summary (default ON)
+
+The Stop hook fills each session-log entry with an **extractive,
+zero-LLM summary**: files touched, tool activity counts, and the
+session's opening intent (a bounded read of the transcript head). The
+summary is computed from the already-redacted PostToolUse staging
+records and is passed through `privacy.redact` once more before it is
+written, so `<private>` content can never reach the session log. No
+LLM, no network, no API key — the Zero-LLM-Stop constraint holds.
+
+Configure via `<vault>/.mneme/summary.json`:
+
+```json
+{"deterministic": true, "language": "en"}
+```
+
+`deterministic: false` restores the editable placeholder line.
+`language` selects a localized template (`en` and `tr` ship today);
+unknown values fall back to English. The opt-in LLM compression
+pipeline is unchanged and layers richer observations on top — it also
+honours the same `language` knob via `compression.json` for its
+localized rubric presets (`compress-en.md`, `compress-tr.md`).
+
 ## Append, Not Replace
 
 Hook entries are merged additively. mneme never replaces user-configured hooks. If a hook key already exists, mneme prepends its entry to the chain.

@@ -1424,6 +1424,333 @@ def temporal_current(vault_root: Path | None) -> None:
     )
 
 
+def _claim_payload(c: object) -> dict[str, object]:
+    """Serialize a Claim for CLI JSON output (shared by blame/contradictions)."""
+    from .temporal.claim import Claim
+
+    assert isinstance(c, Claim)
+    return {
+        "claim_id": c.claim_id,
+        "path": c.path,
+        "statement": c.statement,
+        "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+        "valid_to": c.valid_to.isoformat() if c.valid_to else None,
+        "observed_at": c.observed_at.isoformat(),
+        "supersedes": c.supersedes,
+        "claim_key": c.claim_key,
+        "confidence_label": c.confidence_label.value,
+        "trust": c.trust,
+        "content_hash": c.content_hash,
+    }
+
+
+@temporal_group.command(
+    "blame",
+    help=(
+        "git-blame for memories: show where a claim came from, what it "
+        "supersedes, what superseded it, and its rivals. REF is a claim_id "
+        "or a vault-relative markdown path."
+    ),
+)
+@click.argument("ref")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def temporal_blame(ref: str, vault_root: Path | None) -> None:
+    import sqlite3 as _sqlite3
+
+    from .temporal.blame import blame as _blame
+
+    vault = _resolve_vault(vault_root)
+    if not vault.fts5_db.exists():
+        click.echo(json.dumps({"reports": [], "note": "index not found"}, indent=2))
+        return
+
+    conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
+    try:
+        reports = _blame(conn, ref)
+    finally:
+        conn.close()
+
+    payload = [
+        {
+            "target": _claim_payload(r.target),
+            "ancestors": [_claim_payload(c) for c in r.ancestors],
+            "descendants": [_claim_payload(c) for c in r.descendants],
+            "rivals": [_claim_payload(c) for c in r.rivals],
+        }
+        for r in reports
+    ]
+    click.echo(
+        json.dumps(
+            {"ref": ref, "count": len(payload), "reports": payload},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@temporal_group.command(
+    "contradictions",
+    help="List claim pairs sharing a claim_key with overlapping validity windows.",
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def temporal_contradictions(vault_root: Path | None) -> None:
+    import sqlite3 as _sqlite3
+
+    from .temporal.blame import _claim_by_id
+    from .temporal.query import find_contradictions as _find
+
+    vault = _resolve_vault(vault_root)
+    if not vault.fts5_db.exists():
+        click.echo(json.dumps({"contradictions": [], "note": "index not found"}, indent=2))
+        return
+
+    conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
+    try:
+        pairs = _find(conn)
+        payload = []
+        for a_id, b_id in pairs:
+            a = _claim_by_id(conn, a_id)
+            b = _claim_by_id(conn, b_id)
+            payload.append(
+                {
+                    "a": _claim_payload(a) if a else {"claim_id": a_id},
+                    "b": _claim_payload(b) if b else {"claim_id": b_id},
+                }
+            )
+    finally:
+        conn.close()
+    click.echo(
+        json.dumps(
+            {"count": len(payload), "contradictions": payload},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@cli.group(
+    "memory",
+    help="Policy-graduated autonomous memory edits: policy, changes, rollback, drain.",
+)
+def memory_group() -> None:  # pragma: no cover - dispatcher
+    pass
+
+
+@memory_group.command("policy", help="Show the resolved autonomy policy for this vault.")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_policy(vault_root: Path | None) -> None:
+    from .policy import POLICY_CONFIG_FILENAME, load_policy
+
+    vault = _resolve_vault(vault_root)
+    policy = load_policy(vault)
+    click.echo(
+        json.dumps(
+            {
+                "config_path": str(vault.state_dir / POLICY_CONFIG_FILENAME),
+                "auto_approve": sorted(c.value for c in policy.allowed_classes),
+                "clinical_lock": policy.clinical_lock,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@memory_group.command("changes", help="List applied autonomous edits (rollback journal).")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_changes(vault_root: Path | None) -> None:
+    from .memory_apply import list_changes
+
+    vault = _resolve_vault(vault_root)
+    changes = list_changes(vault)
+    click.echo(
+        json.dumps(
+            {"count": len(changes), "changes": changes},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@memory_group.command("rollback", help="Restore the prior state for one change id.")
+@click.argument("change_id")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_rollback(change_id: str, vault_root: Path | None) -> None:
+    from .memory_apply import rollback_change
+
+    vault = _resolve_vault(vault_root)
+    result = rollback_change(vault, change_id)
+    click.echo(
+        json.dumps(
+            {
+                "applied": result.applied,
+                "change_id": result.change_id,
+                "reason": result.reason,
+                "path": result.path,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    if not result.applied:
+        sys.exit(1)
+
+
+@memory_group.command(
+    "drain", help="Apply queued memory proposals under the current policy."
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_drain(vault_root: Path | None) -> None:
+    from .memory_apply import drain_proposals
+
+    vault = _resolve_vault(vault_root)
+    report = drain_proposals(vault)
+    click.echo(
+        json.dumps(
+            {
+                "applied": report.applied,
+                "refused": report.refused,
+                "malformed": report.malformed,
+                "results": [
+                    {
+                        "applied": r.applied,
+                        "change_id": r.change_id,
+                        "reason": r.reason,
+                        "path": r.path,
+                    }
+                    for r in report.results
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@cli.group(
+    "sync",
+    help="Self-hosted team vault sync over plain git (redaction-before-share).",
+)
+def sync_group() -> None:  # pragma: no cover - dispatcher
+    pass
+
+
+@sync_group.command("status", help="Show the resolved sync configuration.")
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def sync_status(vault_root: Path | None) -> None:
+    from .sync import SYNC_CONFIG_FILENAME, load_sync_config
+
+    vault = _resolve_vault(vault_root)
+    config = load_sync_config(vault)
+    click.echo(
+        json.dumps(
+            {
+                "config_path": str(vault.state_dir / SYNC_CONFIG_FILENAME),
+                "configured": config.configured,
+                "remote_url": config.remote_url,
+                "branch": config.branch,
+                "member": config.member,
+                "exclude": list(config.exclude),
+                "encrypted": bool(config.encrypt_recipients),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+@sync_group.command(
+    "push", help="Build the redacted share tree and push it to the team remote."
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def sync_push(vault_root: Path | None) -> None:
+    from .sync import push as _push
+
+    vault = _resolve_vault(vault_root)
+    result = _push(vault)
+    payload: dict[str, object] = {"ok": result.ok, "detail": result.detail}
+    if result.report is not None:
+        payload["report"] = {
+            "files_shared": result.report.files_shared,
+            "files_excluded": result.report.files_excluded,
+            "redactions_applied": result.report.redactions_applied,
+            "leaked_paths": list(result.report.leaked_paths),
+        }
+    click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    if not result.ok:
+        sys.exit(1)
+
+
+@sync_group.command(
+    "pull", help="Fetch teammates' share trees and import them under team/."
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def sync_pull(vault_root: Path | None) -> None:
+    from .sync import pull as _pull
+
+    vault = _resolve_vault(vault_root)
+    result = _pull(vault)
+    click.echo(
+        json.dumps(
+            {
+                "ok": result.ok,
+                "detail": result.detail,
+                "imported": list(result.imported),
+                "conflicts": list(result.conflicts),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    if not result.ok:
+        sys.exit(1)
+
+
 @cli.command("version", help="Print mneme-core version.")
 def version_cmd() -> None:
     click.echo(__version__)

@@ -13,8 +13,8 @@ authors:
     given-names: Onour
 repository-code: "https://github.com/TheGoatPsy/mneme"
 url: "https://github.com/TheGoatPsy/mneme"
-license: MIT
-version: 2.0.2
+license: Apache-2.0
+version: 3.0.0
 date-released: "2026-05-29"
 keywords:
   - claude-code

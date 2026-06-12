@@ -160,6 +160,115 @@ def _print_report(report: dict[str, object], vault_root: Path) -> None:
     print()
 
 
+def run_impact(
+    vault_root: Path,
+    changed_files: list[str],
+    *,
+    max_depth: int | None = None,
+) -> dict[str, object]:
+    """PR-impact: which nodes depend (transitively) on the changed files.
+
+    *changed_files* are vault-relative paths (posix or os separators).
+    Every node whose ``source_path`` matches a changed file seeds the
+    reverse-BFS in :func:`mneme_graph.analytics.pr_impact`.
+
+    Returns a JSON-ready dict: the changed files that matched at least
+    one node, the seed node count, and the affected nodes (name, kind,
+    source_path, hop distance), sorted by distance then id.
+    """
+    from .analytics import apply_merge, changed_nodes_for_paths, pr_impact
+
+    store = GraphStore.load(vault_root)
+    nodes = store.nodes
+    edges = store.edges
+    # Resolve external ghost nodes onto their unambiguous local definition
+    # (PA3 entity canonicalization, impact-time only — graph.json on disk
+    # stays exactly as built). Without this, a cross-file call lands on an
+    # `<external>` ghost and the reverse BFS never reaches the real caller.
+    canonical = _external_resolution_map(nodes)
+    if canonical:
+        nodes, edges = apply_merge(nodes, edges, canonical)
+    normalized = {f.replace("\\", "/").strip() for f in changed_files if f.strip()}
+    seed_ids = changed_nodes_for_paths(nodes, normalized)
+    matched_files = sorted({n.source_path for n in nodes if n.source_path in normalized})
+    result = pr_impact(nodes, edges, seed_ids, max_depth=max_depth)
+    node_by_id = {n.node_id: n for n in nodes}
+    affected = [
+        {
+            "name": node_by_id[nid].name,
+            "kind": node_by_id[nid].kind,
+            "source_path": node_by_id[nid].source_path,
+            "distance": dist,
+        }
+        for nid, dist in result.affected
+        if nid in node_by_id
+    ]
+    affected_files = sorted(
+        {str(a["source_path"]) for a in affected if a["source_path"] != "<external>"}
+    )
+    return {
+        "changed_files": matched_files,
+        "unmatched_files": sorted(normalized - set(matched_files)),
+        "seed_nodes": len(result.changed),
+        "affected_nodes": affected,
+        "affected_files": affected_files,
+    }
+
+
+def _external_resolution_map(nodes: list[GraphNode]) -> dict[str, str]:
+    """Map external ghost node_ids to their unique local definition.
+
+    A ghost ``(name, kind, source_path='<external>')`` resolves to a local
+    node when exactly ONE local node shares its ``(name, kind)``. Modules
+    additionally match on the last dotted segment (``src.alpha`` → local
+    module ``alpha``). Ambiguous names (two local defs) stay unresolved —
+    fail open to "no merge", never guess.
+    """
+    local_by_key: dict[tuple[str, str], list[str]] = {}
+    for node in nodes:
+        if node.source_path == "<external>":
+            continue
+        local_by_key.setdefault((node.name, node.kind), []).append(node.node_id)
+
+    mapping: dict[str, str] = {}
+    for node in nodes:
+        if node.source_path != "<external>":
+            continue
+        candidates = local_by_key.get((node.name, node.kind), [])
+        if not candidates and node.kind == "module" and "." in node.name:
+            tail = node.name.rsplit(".", 1)[-1]
+            candidates = local_by_key.get((tail, "module"), [])
+        if len(candidates) == 1:
+            mapping[node.node_id] = candidates[0]
+    return mapping
+
+
+def _git_changed_files(vault_root: Path) -> list[str]:
+    """Changed + untracked files from git, vault-relative. Empty on failure."""
+    import subprocess
+
+    files: list[str] = []
+    for cmd in (
+        ["git", "diff", "--name-only", "HEAD"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ):
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(vault_root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return files
+        if proc.returncode == 0:
+            files.extend(line.strip() for line in proc.stdout.splitlines() if line.strip())
+    return files
+
+
 def main() -> None:
     """Entry point for the mneme-graph console script."""
     parser = argparse.ArgumentParser(
@@ -193,6 +302,33 @@ def main() -> None:
         help="Number of top-referenced nodes to show (default: 10).",
     )
 
+    # impact subcommand
+    impact_parser = subparsers.add_parser(
+        "impact",
+        help=(
+            "PR-impact analysis: list nodes and files that transitively "
+            "depend on the changed files (reverse BFS over the graph)."
+        ),
+    )
+    impact_parser.add_argument(
+        "paths",
+        nargs="*",
+        metavar="PATH",
+        help="Changed files, vault-relative. Omit with --diff to use git.",
+    )
+    impact_parser.add_argument(
+        "--diff",
+        action="store_true",
+        help="Seed from `git diff --name-only HEAD` plus untracked files.",
+    )
+    impact_parser.add_argument(
+        "--max-depth",
+        metavar="N",
+        type=int,
+        default=None,
+        help="Maximum hop distance to explore (default: unbounded).",
+    )
+
     args = parser.parse_args()
 
     # --vault is a top-level option only (no subcommand defines it); argparse
@@ -210,3 +346,18 @@ def main() -> None:
     elif args.command == "report":
         report = run_report(vault_root, top_n=args.top)
         _print_report(report, vault_root)
+
+    elif args.command == "impact":
+        import json as _json
+
+        changed: list[str] = list(args.paths)
+        if args.diff:
+            changed.extend(_git_changed_files(vault_root))
+        if not changed:
+            print(
+                "mneme-graph impact: no changed files (pass paths or --diff)",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        impact = run_impact(vault_root, changed, max_depth=args.max_depth)
+        print(_json.dumps(impact, indent=2, ensure_ascii=False))

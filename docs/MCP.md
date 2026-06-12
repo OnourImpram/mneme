@@ -104,6 +104,24 @@ Temporal query for a subject. Shipped default returns FTS5 hits sorted by mtime.
 
 **Output**: ordered timeline of state changes with provenance to source sessions.
 
+### mneme_propose
+
+Queue a memory-edit proposal (create, update, or delete) for the policy drain. The server never applies an agent-initiated edit directly: the proposal is staged as one JSONL record under `.mneme/proposals/pending.jsonl` and applied later by the policy engine (`mneme-core memory drain`, also run automatically at SessionEnd when a `policy.json` exists). Ephemeral edits whose `edit_class` is in the operator's `policy.json` allow-list apply autonomously with a rollback journal and a tamper-evident audit-chain record; everything else is held for the human approval flow. Durable categories (`identity`, `preference`, `clinical`, `legal`, `financial`) are never auto-applied. Content is redacted before it is queued (C4).
+
+**Input**:
+
+```json
+{
+  "action": "create | update | delete",
+  "path": "string (vault-relative)",
+  "content": "string (proposed full file content; ignored for delete)",
+  "category": "ephemeral | identity | preference | clinical | legal | financial",
+  "edit_class": "dedup-merge | typo-fix | tag-normalize | supersede-link | stale-archive (optional)"
+}
+```
+
+**Output**: `{ "proposal_id", "status": "queued", "auto_eligible", "redactions_applied", "note" }`. `auto_eligible` reports whether the current policy would apply the edit autonomously at the next drain. Rollback: `mneme-core memory rollback <change_id>`.
+
 ## Configuration
 
 ```json

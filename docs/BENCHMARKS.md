@@ -13,6 +13,8 @@ make bench-all               # writes to benchmarks/_runs/ (gitignored)
 
 Each run also writes a `hardware.json` capturing CPU model, core count, RAM, OS, Python version, and Node version. This lets results be interpreted in context across operator hardware, CI runners, and contributor machines.
 
+**Re-verified for the 3.0 line (2026-06-12, seed 42, operator hardware):** after the 3.0 feature work (deterministic session distillation, temporal de-gate, policy autonomy, team sync, web console) the locked anchors hold unchanged — Benchmark A nDCG@5 = 0.893, Recall@10 = 1.0; Benchmark B Stop-hook proxy p95 = 2.0 ms, retrieve p95 = 9.8 ms. The new 3.0 surfaces stay off the Stop hot path by design, and the numbers confirm it.
+
 ## Methodology
 
 All benchmarks pin hardware specs in a `hardware.json` file alongside results. CI uses GitHub Actions ubuntu-latest runners (2 vCPU, 7 GB RAM). Developer machines may show different absolute numbers but consistent relative deltas. CI regression guards lock the deltas, not the absolutes.

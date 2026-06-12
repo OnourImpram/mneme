@@ -3,10 +3,13 @@
 Subcommands
 -----------
 parse-trace [--input FILE] [--vault VAULT_ROOT] [--write] [--source LABEL]
+            [--branch NAME | --no-branch]
     Read a CPython traceback from --input (or stdin), parse it, print a
     redacted structured summary to stdout.  With --write, write the
     failure_to_markdown output into
     ``<vault>/code-failures/<failure_id>.md`` via atomic_write_text.
+    Branch-aware: the note records the vault's current git branch
+    (explicit --branch wins; --no-branch disables auto-detection).
 
 No new dependencies: argparse only (stdlib).
 
@@ -75,7 +78,13 @@ def _cmd_parse_trace(args: argparse.Namespace) -> int:
         vault_root = Path(vault_raw).resolve()
         out_dir = vault_root / "code-failures"
         out_path = out_dir / f"{failure.failure_id}.md"
-        note = failure_to_markdown(failure)
+        # Branch-aware failure tracking: explicit --branch wins, otherwise
+        # auto-detect from the vault's git checkout. Metadata only — the
+        # failure_id and content_hash stay branch-independent.
+        branch: str | None = getattr(args, "branch", None)
+        if branch is None and not getattr(args, "no_branch", False):
+            branch = _detect_git_branch(vault_root)
+        note = failure_to_markdown(failure, branch=branch)
         try:
             from mneme_core.vault.atomic_write import atomic_write_text
 
@@ -87,6 +96,26 @@ def _cmd_parse_trace(args: argparse.Namespace) -> int:
             return 1
 
     return 0
+
+
+def _detect_git_branch(vault_root: Path) -> str | None:
+    """Current git branch of *vault_root*, or ``None`` outside a checkout."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(vault_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    name = proc.stdout.strip()
+    return name if proc.returncode == 0 and name else None
 
 
 def main() -> None:
@@ -125,6 +154,18 @@ def main() -> None:
         metavar="LABEL",
         default=None,
         help="Optional source label (e.g. 'ci-run-42').",
+    )
+    pt.add_argument(
+        "--branch",
+        metavar="NAME",
+        default=None,
+        help="Git branch recorded in the note (default: auto-detect).",
+    )
+    pt.add_argument(
+        "--no-branch",
+        action="store_true",
+        default=False,
+        help="Disable branch auto-detection.",
     )
 
     args = parser.parse_args()

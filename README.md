@@ -11,14 +11,13 @@
   <a href="https://pypi.org/project/mneme-cc-plugin/"><img src="https://img.shields.io/pypi/v/mneme-cc-plugin?label=mneme-cc-plugin&color=3776ab&logo=pypi&logoColor=white" alt="mneme-cc-plugin on PyPI"></a>
   <a href="https://www.npmjs.com/package/mneme-mcp-server"><img src="https://img.shields.io/npm/v/mneme-mcp-server?label=mneme-mcp-server&color=cb3837&logo=npm&logoColor=white" alt="mneme-mcp-server on npm"></a>
   <a href="https://github.com/TheGoatPsy/mneme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheGoatPsy/mneme/ci.yml?branch=main&label=CI" alt="CI"></a>
-  <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+  <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/pypi/pyversions/mneme-core" alt="Python versions">
 </p>
 
 <p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>
 
-
-FTS5 retrieval, RRF-fused hybrid core, gated temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
+FTS5 retrieval, RRF-fused hybrid core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
 
 **Status**: 2.0.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (13 sources, verified in CI), so no single declared version can drift.
 
@@ -31,7 +30,7 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 - **Hybrid retrieval, shipped and opt-in.** The default MCP search path is FTS5 BM25. A local hashing-embedding dense backend is now a shipped opt-in feature, RRF-fused, activated with a flag. Full-profile knowledge graph enrichment (Graphiti + Neo4j) remains gated. The heavyweight packaged LEANN / sentence-transformers dense adapter is roadmap.
 - **Token-efficient by architecture.** Shell output compression, injection deduplication, adaptive top-k, and three injection format levels save 40 to 60 percent on session token consumption.
 - **Privacy by default.** Inline `<private>` tag redaction at staging write with SHA256 audit log. Zero outbound network calls except opted-in compression LLM and optional local Neo4j.
-- **Temporal reasoning.** Temporal claim lifecycle, rule-based extraction, and Graphiti export ship as a gated feature. LLM extraction is optional and never on the Stop or critical path. Lite installs fall back to FTS5 and mtime ordering.
+- **Temporal reasoning.** The deterministic claim lifecycle (valid-from/to, supersedes, as-of queries, contradiction detection, `temporal blame` provenance time-travel) is built in on every profile — pure SQLite, no extra dependency. Graphiti export and LLM claim extraction remain optional and never run on the Stop or critical path.
 - **Pattern and trajectory memory.** First-class vault-markdown primitives for Signal/Action/Outcome patterns and per-session step recorders, queryable via the same retrieval pipeline.
 - **Agent security and domain modes.** A capability firewall, data-flow taint tracking, and a human-approval gate for durable edits ship in 2.0. Domain privacy modes (clinical, security-review) block external extraction and artifact upload at the config layer. A mode can never weaken built-in privacy guarantees or disable redaction.
 
@@ -53,20 +52,20 @@ Legend: **✓** built in · **gated** shipped, needs an opt-in dependency or fla
 | Built-in `<private>` redaction with SHA256 audit | **✓** | — | — | — | — | — |
 | Deterministic Stop capture, no LLM call | **✓** | — | n/a | n/a | n/a | n/a |
 | Hybrid retrieval, FTS5 plus local dense, RRF-fused | **✓** | ~ | ~ | ~ | ✓ | ✓ |
-| Temporal claim lifecycle (valid-from/to, supersedes) | gated | — | ~ | ~ | ✓ | ~ |
+| Temporal claim lifecycle (valid-from/to, supersedes, blame) | **✓** | — | ~ | ~ | ✓ | ~ |
 | Project and code graph (tree-sitter, PR-impact) | gated | ~ | — | — | — | — |
 | Adaptive token and context budget | **✓** | — | — | — | — | — |
 | Agent security: capability firewall, taint, approval gate | **✓** | — | — | — | — | — |
 | One-command lossless migration from claude-mem | **✓** | n/a | — | — | — | — |
 | Local-first, no cloud account required | **✓** | ✓ | ~ | ✓ | — | — |
 | Runs in Claude Code, Codex, Antigravity, any MCP client | **✓** | ~ | ~ | ~ | ~ | ~ |
-| License | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 | cloud | open source |
-| Cloud-hosted team memory with a web graph UI today | — | — | ~ | — | **✓** | **✓** |
-| Agent autonomously rewrites its own memory | ~ | — | ~ | **✓** | — | — |
-| Auto-summarization at session end, on by default | ~ | **✓** | — | — | ~ | ~ |
-| Localized observation-prompt presets | — | **✓** | — | — | — | — |
+| License | Apache-2.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 | cloud | open source |
+| Team memory with a web graph UI (mneme: self-hosted git sync + local console) | **✓** | — | ~ | — | **✓** | **✓** |
+| Agent autonomously rewrites its own memory (mneme: policy-graduated, rollback, audit chain) | **✓** | — | ~ | **✓** | — | — |
+| Auto-summarization at session end, on by default (mneme: deterministic zero-LLM) | **✓** | **✓** | — | — | ~ | ~ |
+| Localized observation-prompt presets (mneme: en + tr) | ~ | **✓** | — | — | — | — |
 
-The last four rows are dimensions where another tool leads today. mneme is local-first by conviction, so a hosted team UI and always-on auto-summarization are deliberate non-goals at this stage, the self-edit is intentionally routed through a human-approval gate rather than performed autonomously, and localized prompt presets are planned. We publish these rows because durable credibility outweighs a one-sided table.
+The 3.0 line closed the former gap rows on mneme's own terms. Team memory is self-hosted (any git remote, redaction-before-share, optional age end-to-end encryption) with a loopback-only web console rather than a vendor cloud. Autonomy is policy-graduated: the agent applies operator-allowed low-risk edit classes on its own, every change is journalled for one-command rollback and chained into a tamper-evident HMAC audit log, and durable categories always keep a human in the loop. The default-on session summary is deterministic and zero-LLM — no key, no cost, no latency — with LLM compression as the opt-in richer layer. Localized presets ship for English and Turkish today (claude-mem still leads on raw language count, hence the honest ~). Where a hosted product is genuinely the better fit, `docs/COMPETITIVE.md` says so.
 
 ## Implementation Status
 
@@ -84,7 +83,7 @@ An honest, at-a-glance map of what is shipped today versus what is gated behind 
 | Open MCP adapter (Kimi, Qwen, any MCP client) | Shipped (non-native) | MCP tools only, no auto-capture |
 | Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
 | Local dense retrieval (hashing-embedding, RRF-fused) | Shipped (opt-in) | FTS5 remains the default; sentence-transformers is an opt-in seam, not a default dependency |
-| Temporal claim lifecycle + rule-based claim extraction + Graphiti export | Shipped (gated) | LLM extraction is optional and never on the Stop/critical path |
+| Temporal claim lifecycle + rule-based claim extraction + `temporal blame` | Shipped | Graphiti export gated; LLM extraction optional, never on the Stop/critical path |
 | Project + code graph (mneme-graph 0.2.0) | Shipped (separate package) | tree-sitter Python/JavaScript/TypeScript extraction, community detection, PR-impact, entity canonicalization |
 | Code memory (mneme-code 0.2.0) | Shipped (separate package) | AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory |
 | Domain modes | Shipped | vault-config user modes + CLI; clinical and security-review modes block external extraction and artifact upload; user config can never weaken a built-in privacy mode or disable redaction |
@@ -118,7 +117,7 @@ CI regression guards lock the path-scoped benchmark surface. Pull requests touch
 ## Three-Tier Install
 
 ```bash
-# Lite: FTS5 + Stop hook + privacy redaction + 6 MCP tools (Python + Node only)
+# Lite: FTS5 + Stop hook + privacy redaction + 7 MCP tools (Python + Node only)
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
@@ -155,7 +154,7 @@ codex plugin marketplace add TheGoatPsy/mneme
 mneme install --client=codex
 ```
 
-Codex gets the same six MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+Codex gets the same seven MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
 
 ## Using mneme with Antigravity
 
@@ -165,11 +164,11 @@ Antigravity (Google's agentic IDE) uses the Gemini-CLI extension model, and mnem
 mneme install --client=antigravity
 ```
 
-This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same six MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
+This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same seven MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
 
 ## Other MCP clients (open adapter)
 
-Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the six MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
+Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the seven MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
 
 ```bash
 mneme install --client=mcp --config <path-to-your-clients-mcp-config.json>
@@ -179,7 +178,7 @@ mneme merges only its own server entry and leaves every other server in the conf
 
 ## What 2.0 Ships
 
-- 6 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`. Default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active.
+- 7 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`. Default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active.
 - 5 Claude Code hooks: `PostToolUse`, `SessionStart`, `Stop`, `PreCompact`, `SessionEnd`.
 - 3 slash commands: `/mneme:prime`, `/mneme:recall`, `/mneme:migrate`.
 - 2 skills: `mneme-prime`, `mneme-search`.
@@ -232,7 +231,7 @@ See `docs/COMPETITIVE.md` for the full landscape and which tools may suit those 
 
 ## License
 
-MIT. See `LICENSE`.
+Apache License 2.0. See `LICENSE` and `NOTICE`. Releases up to and including the 2.x line were published under MIT and remain so.
 
 ## Acknowledgments
 

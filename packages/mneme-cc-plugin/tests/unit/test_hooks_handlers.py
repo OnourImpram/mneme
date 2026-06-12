@@ -169,6 +169,92 @@ class TestStopHandle:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         assert "last_session_end_at" in state
 
+    def _stage_summary_events(self, vault: VaultConfig, session_id: str) -> None:
+        from datetime import UTC, datetime
+
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
+        out_dir = vault.staging_dir / "host" / day
+        out_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "session_id": session_id,
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "notes/today.md"},
+            "captured_at": datetime.now(UTC).isoformat(),
+        }
+        (out_dir / "10-00-events.jsonl").write_text(
+            json.dumps(record) + "\n", encoding="utf-8"
+        )
+
+    def test_session_log_carries_deterministic_summary(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        _capture(monkeypatch)
+        self._stage_summary_events(vault, "s-sum")
+        stop.handle({"session_id": "s-sum"}, vault)
+        produced = list((vault.root / "sessions").glob("*.md"))
+        assert len(produced) == 1
+        text = produced[0].read_text(encoding="utf-8")
+        assert "notes/today.md" in text
+        assert "Files touched" in text
+        assert "placeholder" not in text.lower()
+
+    def test_summary_disabled_falls_back_to_placeholder(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        _capture(monkeypatch)
+        self._stage_summary_events(vault, "s-off")
+        (vault.state_dir / "summary.json").write_text(
+            json.dumps({"deterministic": False}), encoding="utf-8"
+        )
+        stop.handle({"session_id": "s-off"}, vault)
+        produced = list((vault.root / "sessions").glob("*.md"))
+        text = produced[0].read_text(encoding="utf-8")
+        assert "placeholder" in text.lower()
+        assert "notes/today.md" not in text
+
+
+class TestSessionEndProposalDrain:
+    def test_drain_applies_queued_proposal(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        from mneme_core.approval import EditCategory, propose
+        from mneme_core.memory_apply import queue_proposal
+        from mneme_core.policy import AutoApproveClass
+
+        (vault.state_dir / "policy.json").write_text(
+            json.dumps({"auto_approve": ["typo-fix"]}), encoding="utf-8"
+        )
+        proposal = propose(
+            action="create",
+            target_path="notes/drained.md",
+            content="drained at session end",
+            category=EditCategory.EPHEMERAL,
+        )
+        queue_proposal(vault, proposal, AutoApproveClass.TYPO_FIX)
+        _capture(monkeypatch)
+        session_end.handle({"session_id": "s-drain"}, vault)
+        assert (vault.root / "notes/drained.md").is_file()
+        assert not (vault.state_dir / "proposals" / "pending.jsonl").exists()
+
+    def test_no_policy_file_means_no_drain(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        from mneme_core.approval import EditCategory, propose
+        from mneme_core.memory_apply import queue_proposal
+        from mneme_core.policy import AutoApproveClass
+
+        proposal = propose(
+            action="create",
+            target_path="notes/held.md",
+            content="held",
+            category=EditCategory.EPHEMERAL,
+        )
+        queue_proposal(vault, proposal, AutoApproveClass.TYPO_FIX)
+        _capture(monkeypatch)
+        session_end.handle({"session_id": "s-hold"}, vault)
+        assert not (vault.root / "notes/held.md").exists()
+        assert (vault.state_dir / "proposals" / "pending.jsonl").is_file()
+
 
 class TestPreCompactHandle:
     def test_no_vault_returns_continue(
