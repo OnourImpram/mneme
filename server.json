@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.TheGoatPsy/mneme",
+  "title": "mneme",
+  "description": "Vault-native, accountable memory for Claude Code and MCP clients. Markdown is ground truth.",
+  "repository": {
+    "url": "https://github.com/TheGoatPsy/mneme",
+    "source": "github"
+  },
+  "version": "3.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mneme-mcp-server",
+      "version": "3.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

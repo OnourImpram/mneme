@@ -1546,14 +1546,21 @@ def memory_group() -> None:  # pragma: no cover - dispatcher
     pass
 
 
-@memory_group.command("policy", help="Show the resolved autonomy policy for this vault.")
+@memory_group.group(
+    "policy",
+    invoke_without_command=True,
+    help="Show, scaffold, or validate the autonomy policy.",
+)
 @click.option(
     "--vault",
     "vault_root",
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
-def memory_policy(vault_root: Path | None) -> None:
+@click.pass_context
+def memory_policy(ctx: click.Context, vault_root: Path | None) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
     from .policy import POLICY_CONFIG_FILENAME, load_policy
 
     vault = _resolve_vault(vault_root)
@@ -1569,6 +1576,64 @@ def memory_policy(vault_root: Path | None) -> None:
             ensure_ascii=False,
         )
     )
+
+
+@memory_policy.command(
+    "init", help="Write a documented starter policy.json. Never overwrites."
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_policy_init(vault_root: Path | None) -> None:
+    from .policy import POLICY_CONFIG_FILENAME, default_policy_payload
+
+    vault = _resolve_vault(vault_root)
+    path = vault.state_dir / POLICY_CONFIG_FILENAME
+    if path.exists():
+        click.echo(
+            json.dumps(
+                {
+                    "created": False,
+                    "config_path": str(path),
+                    "note": "policy.json already exists; left untouched",
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(default_policy_payload(), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    click.echo(
+        json.dumps(
+            {"created": True, "config_path": str(path)}, indent=2, ensure_ascii=False
+        )
+    )
+
+
+@memory_policy.command(
+    "validate", help="Validate policy.json and surface unknown class names."
+)
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def memory_policy_validate(vault_root: Path | None) -> None:
+    from .policy import inspect_policy
+
+    vault = _resolve_vault(vault_root)
+    report = inspect_policy(vault)
+    click.echo(json.dumps(report, indent=2, ensure_ascii=False))
+    if not report.get("valid") or report.get("unknown_classes"):
+        raise SystemExit(1)
 
 
 @memory_group.command("changes", help="List applied autonomous edits (rollback journal).")

@@ -99,6 +99,77 @@ def load_policy(vault: VaultConfig) -> PolicyConfig:
     )
 
 
+def default_policy_payload() -> dict[str, object]:
+    """Template payload written by ``mneme memory policy init``.
+
+    Ships with an EMPTY allow-list: creating the file changes nothing
+    until the operator consciously opts classes in. JSON has no
+    comments, so the guidance lives in a ``_docs`` key that
+    :func:`load_policy` ignores like any other unknown key.
+    """
+    return {
+        "_docs": (
+            "Allow-list of edit classes the agent may apply without a "
+            "human. Known classes: "
+            + ", ".join(c.value for c in AutoApproveClass)
+            + ". Durable categories (identity, preference, clinical, "
+            "legal, financial) always require human approval regardless "
+            "of this file. clinical_lock=true refuses every autonomous "
+            "edit."
+        ),
+        "auto_approve": [],
+        "clinical_lock": False,
+    }
+
+
+def inspect_policy(vault: VaultConfig) -> dict[str, object]:
+    """Structured validation report for ``policy.json``.
+
+    :func:`load_policy` drops unknown class strings silently (fail
+    closed), which is the right runtime posture but hides typos: a
+    misspelled class grants nothing and nobody notices. This report
+    surfaces them. ``valid`` describes the parse level only; callers
+    decide whether unknown classes are fatal.
+    """
+    path = vault.state_dir / POLICY_CONFIG_FILENAME
+    report: dict[str, object] = {"config_path": str(path)}
+    if not path.is_file():
+        report.update(exists=False, valid=True, note="absent file = zero autonomy")
+        return report
+    report["exists"] = True
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        report.update(valid=False, error=f"unreadable or invalid JSON: {exc}")
+        return report
+    if not isinstance(raw, dict):
+        report.update(valid=False, error="top-level value must be an object")
+        return report
+    raw_classes = raw.get("auto_approve")
+    if raw_classes is not None and not isinstance(raw_classes, list):
+        report.update(valid=False, error="auto_approve must be a list")
+        return report
+    known: list[str] = []
+    unknown: list[str] = []
+    for item in raw_classes or []:
+        value = str(item)
+        try:
+            AutoApproveClass(value)
+        except ValueError:
+            unknown.append(value)
+        else:
+            known.append(value)
+    report.update(
+        valid=True,
+        auto_approve=sorted(known),
+        unknown_classes=sorted(unknown),
+        clinical_lock=bool(raw.get("clinical_lock", False)),
+    )
+    if unknown:
+        report["note"] = "unknown classes are ignored at load time (fail closed)"
+    return report
+
+
 def evaluate(
     category: EditCategory,
     edit_class: AutoApproveClass | None,

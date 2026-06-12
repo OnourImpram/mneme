@@ -1,0 +1,46 @@
+# Weekly dependency hygiene across the three ecosystems. Grouped so a
+# routine week produces at most one PR per ecosystem instead of ten.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      npm-all:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: "/packages/mneme-core"
+    schedule:
+      interval: weekly
+    groups:
+      pip-all:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: "/packages/mneme-cc-plugin"
+    schedule:
+      interval: weekly
+    groups:
+      pip-all:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: "/packages/mneme-graph"
+    schedule:
+      interval: weekly
+    groups:
+      pip-all:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: "/packages/mneme-code"
+    schedule:
+      interval: weekly
+    groups:
+      pip-all:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-all:
+        patterns: ["*"]

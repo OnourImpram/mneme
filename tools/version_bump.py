@@ -6,13 +6,15 @@ together:
 
 1. ``packages/mneme-core/pyproject.toml``         (PEP 440)
 2. ``packages/mneme-mcp/package.json``            (SemVer)
-3. ``packages/mneme-cc-plugin/pyproject.toml``    (SemVer-style)
+3. ``packages/mneme-cc-plugin/pyproject.toml``    (SemVer-style),
+   plus the ``mneme-graph`` and ``mneme-code`` pyprojects (PEP 440).
 4. ``packages/mneme-cc-plugin/plugin.json``       (SemVer)
 5. ``package.json`` (workspace root)              (SemVer)
 6. runtime constants, Codex plugin manifest, Claude plugin manifest,
    and Claude plugin marketplace entry.
 7. ``CITATION.cff`` (YAML ``version:`` field) for Zenodo/citation metadata.
 8. ``README.md`` status line (prose SemVer claim, kept honest in lockstep).
+9. ``server.json`` MCP Registry manifest (top-level + package entry).
 
 The script accepts a SemVer string (``1.0.0``, ``1.0.0-rc.1``,
 ``1.0.0-alpha.0``) and writes the PEP 440 equivalent to the
@@ -92,6 +94,16 @@ SOURCES: tuple[VersionSource, ...] = (
         label="mneme-cc-plugin pyproject",
         path=REPO_ROOT / "packages" / "mneme-cc-plugin" / "pyproject.toml",
         flavor="semver-toml",
+    ),
+    VersionSource(
+        label="mneme-graph pyproject",
+        path=REPO_ROOT / "packages" / "mneme-graph" / "pyproject.toml",
+        flavor="pep440",
+    ),
+    VersionSource(
+        label="mneme-code pyproject",
+        path=REPO_ROOT / "packages" / "mneme-code" / "pyproject.toml",
+        flavor="pep440",
     ),
     VersionSource(
         label="mneme-cc-plugin plugin.json",
@@ -191,6 +203,18 @@ SOURCES: tuple[VersionSource, ...] = (
         ),
         flavor="semver-json",
         json_key="version",
+    ),
+    VersionSource(
+        label="MCP Registry server.json (top-level)",
+        path=REPO_ROOT / "server.json",
+        flavor="semver-json",
+        json_key="version",
+    ),
+    VersionSource(
+        label="MCP Registry server.json (package entry)",
+        path=REPO_ROOT / "server.json",
+        flavor="semver-json",
+        json_path=("packages", 0, "version"),
     ),
     VersionSource(
         label="README status line",
@@ -387,7 +411,7 @@ def write_version(source: VersionSource, new_semver: str) -> None:
             raise ValueError(f"No replacement performed in {source.label}")
     else:
         raise ValueError(f"Unknown flavor {source.flavor!r}")
-    source.path.write_text(updated, encoding="utf-8")
+    source.path.write_text(updated, encoding="utf-8", newline="")
 
 
 def check_consistency() -> tuple[bool, list[tuple[str, str]]]:

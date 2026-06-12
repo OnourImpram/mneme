@@ -219,3 +219,82 @@ class TestEncryption:
 
         with pytest.raises(RuntimeError, match="age encryption failed"):
             sync_mod._encrypt_tree(dest, ("age1abc",), failing_runner)
+
+
+class TestImportMarking:
+    """3.1 trust-marking: imported notes are data, never instructions."""
+
+    def _round_trip(self, tmp_path: Path) -> tuple[VaultConfig, VaultConfig, Path]:
+        remote = _bare_remote(tmp_path)
+        alice = _vault(tmp_path, "alice-vault")
+        bob = _vault(tmp_path, "bob-vault")
+        _configure(alice, remote, "alice")
+        _configure(bob, remote, "bob")
+        (alice.root / "fact.md").write_text("shared fact", encoding="utf-8")
+        assert push(alice).ok
+        assert pull(bob).ok
+        return alice, bob, bob.root / "team" / "alice" / "fact.md"
+
+    def test_imported_markdown_is_trust_marked(self, tmp_path: Path) -> None:
+        from mneme_core.taint import TaintLabel, taint_for_trust
+
+        _, _, imported = self._round_trip(tmp_path)
+        text = imported.read_text(encoding="utf-8")
+        assert text.startswith("---")
+        assert "source: team-sync" in text
+        assert 'team_member: "alice"' in text
+        assert "trust: external" in text
+        assert "payload_sha256: " in text
+        assert "shared fact" in text
+        # The recorded trust value resolves to UNTRUSTED in the taint model.
+        assert taint_for_trust("external") is TaintLabel.UNTRUSTED
+
+    def test_second_pull_idempotent(self, tmp_path: Path) -> None:
+        _, bob, imported = self._round_trip(tmp_path)
+        before = imported.read_bytes()
+        again = pull(bob)
+        assert again.ok
+        assert again.imported == ()
+        assert again.conflicts == ()
+        assert imported.read_bytes() == before
+
+    def test_local_edit_kept_when_remote_unchanged(self, tmp_path: Path) -> None:
+        _, bob, imported = self._round_trip(tmp_path)
+        edited = imported.read_text(encoding="utf-8") + "\nlocal margin note\n"
+        imported.write_text(edited, encoding="utf-8", newline="")
+        again = pull(bob)
+        assert again.ok
+        assert again.conflicts == ()
+        assert "local margin note" in imported.read_text(encoding="utf-8")
+
+    def test_remote_change_surfaces_conflict(self, tmp_path: Path) -> None:
+        alice, bob, imported = self._round_trip(tmp_path)
+        (alice.root / "fact.md").write_text("revised fact v2", encoding="utf-8")
+        assert push(alice).ok
+        again = pull(bob)
+        assert again.ok
+        assert again.conflicts == ("team/alice/fact.md",)
+        assert "shared fact" in imported.read_text(encoding="utf-8")
+        sidecar = imported.parent / "fact.md.conflict"
+        assert "revised fact v2" in sidecar.read_text(encoding="utf-8")
+
+    def test_incoming_trust_user_cannot_override_mark(self, tmp_path: Path) -> None:
+        import yaml
+
+        marked = sync_mod._mark_team_import(
+            "---\ntrust: user\ntype: note\n---\nbody text",
+            "mallory",
+            "deadbeef",
+        )
+        block = marked.split("---")[1]
+        data = yaml.safe_load(block)
+        # YAML duplicate-key resolution keeps the LAST value: the mark wins.
+        assert data["trust"] == "external"
+        assert data["payload_sha256"] == "deadbeef"
+        assert "body text" in marked
+
+    def test_mark_without_frontmatter_prepends_block(self, tmp_path: Path) -> None:
+        marked = sync_mod._mark_team_import("plain body", "alice", "abc123")
+        assert marked.startswith("---\nsource: team-sync\n")
+        assert marked.rstrip().endswith("plain body")
+        assert sync_mod._imported_payload_hash(marked) == "abc123"

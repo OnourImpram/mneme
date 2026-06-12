@@ -16,6 +16,9 @@ Please include:
 
 ## Response Timeline
 
+mneme currently has a single maintainer; the targets below are honest
+best-effort commitments, not a staffed SLA.
+
 - Acknowledgment within 48 hours.
 - Initial assessment within 7 days.
 - Fix release target depending on severity.

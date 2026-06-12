@@ -37,7 +37,7 @@ import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "3.0.1";
+const SERVER_VERSION = "3.1.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 

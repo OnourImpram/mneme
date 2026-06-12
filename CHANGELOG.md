@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.1.0] - 2026-06-12
+
+### Security
+
+- The web console now refuses requests whose Host header does not name
+  a loopback alias, closing the DNS-rebinding read path that a bare
+  loopback bind leaves open. `--unsafe-expose` disables the check
+  together with the bind guard.
+
+### Added
+
+- Team-sync pulls trust-mark every imported markdown file (`source:
+  team-sync`, `trust: external`, `payload_sha256`) and redact it on
+  arrival; re-pulls are idempotent against the recorded payload hash,
+  so local edits no longer risk conflict noise.
+- `mneme memory policy init` scaffolds a documented zero-autonomy
+  `policy.json` (never overwrites) and `mneme memory policy validate`
+  surfaces misspelled class names that the loader drops silently.
+- `docs/UPGRADING.md` covers the 2.x to 3.x runtime changes; the
+  cookbook gains five recipes for autonomy, team sync, memory blame,
+  the web console, and localized deterministic summaries.
+- mneme-graph and mneme-code join the release train: 3.x versions,
+  `mneme-core>=3.0.0,<4` floors, lockstep sources, preflight gates,
+  and first PyPI publishes under the pypi3/pypi4 environments.
+- `server.json` is tracked at the repo root (lockstep sources 17 and
+  18) and the MCP Registry entry publishes automatically from the
+  release workflow via GitHub OIDC.
+- Dependabot (npm, pip, actions; weekly, grouped) and CodeQL (python,
+  javascript-typescript) workflows.
+
+### Changed
+
+- CI tests Python 3.14 alongside 3.11 to 3.13; all four Python
+  packages declare the 3.14 classifier.
+- Dev Status classifiers: mneme-core and mneme-cc-plugin move to
+  Production/Stable, mneme-graph and mneme-code to Beta.
+- Governance documents the interim single-maintainer release rule;
+  the security policy states its best-effort response posture.
+
 ## [3.0.1] - 2026-06-12
 
 ### Fixed

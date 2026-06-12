@@ -261,6 +261,77 @@ Cursor `mcp.json`:
 }
 ```
 
-Both clients now see the same six `mneme_*` tools. Search results are consistent because they share the same vault and indexes. The `mneme_` prefix on tool names guarantees no namespace clash with other MCP servers registered in the same client.
+Both clients now see the same seven `mneme_*` tools. Search results are consistent because they share the same vault and indexes. The `mneme_` prefix on tool names guarantees no namespace clash with other MCP servers registered in the same client.
 
 This is the "vault-native, client-agnostic" half of the thesis: the vault outlives any single client.
+
+
+## 11. Policy-Graduated Autonomy (lite)
+
+By default the agent applies nothing on its own: no `policy.json`, zero autonomy. Opt in per edit class.
+
+```bash
+mneme memory policy init          # writes a documented zero-autonomy starter
+# edit .mneme/policy.json, e.g. "auto_approve": ["typo-fix", "tag-normalize"]
+mneme memory policy validate      # exit 1 on typos in class names
+mneme memory policy               # show the resolved policy
+```
+
+Queued proposals (from the `mneme_propose` MCP tool or `propose()`) then drain at session end. Every applied edit lands in the rollback journal and the tamper-evident audit chain:
+
+```bash
+mneme memory changes              # journal of autonomous edits
+mneme memory rollback <change-id> # one-command undo
+```
+
+Durable categories (identity, preference, clinical, legal, financial) always require a human regardless of the policy file.
+
+## 12. Team Vault Sync, Self-Hosted (lite)
+
+Shared memory over any git remote you already trust. No vendor, no account.
+
+```bash
+# one-time, per member: .mneme/sync.json
+# { "remote_url": "ssh://git.internal/team-vault.git", "member": "alice" }
+mneme sync status
+mneme sync push                   # redacts EVERY file before it leaves the machine
+```
+
+Push builds a separate share tree, redacts each markdown body, rescans it, and aborts fail-closed if a `<private>` span survived. Teammates import with:
+
+```bash
+mneme sync pull                   # lands under team/<member>/, never overwrites
+```
+
+Imports are redacted again on arrival and trust-marked (`source: team-sync`, `trust: external`, `payload_sha256`), so retrieval treats teammate notes as data, never instructions. A changed remote payload surfaces as a `.conflict` sidecar you resolve in markdown.
+
+## 13. Memory Blame and Time-Travel (lite)
+
+git-blame for memories: where a claim came from, what superseded it, and what was true on a given date.
+
+```bash
+mneme temporal index              # build or refresh the claims table
+mneme temporal blame notes/decisions/retrieval.md
+mneme temporal as-of 2026-05-01T00:00:00Z
+mneme temporal contradictions    # claim pairs with overlapping validity
+```
+
+`blame` accepts a claim id or a vault path and prints the ancestor chain, descendants, and rival claims sharing the same key.
+
+## 14. Read-Only Web Console (lite)
+
+```bash
+mneme-console --serve             # http://127.0.0.1:7421/, Ctrl+C to stop
+```
+
+Tabs for the vault audit, the code graph, temporal claims with supersedes chains, the autonomous-edit journal, and audit-chain verification. GET-only, loopback-only, Host-header pinned against DNS rebinding, zero external requests. The static report mode (`mneme-console --json` or plain HTML) still works for air-gapped review.
+
+## 15. Deterministic Session Summaries, Localized (lite)
+
+Session-end summaries are extractive and zero-LLM, on by default. Configure per vault in `.mneme/summary.json`:
+
+```json
+{ "deterministic": true, "language": "tr", "max_files": 12 }
+```
+
+Set `"deterministic": false` to fall back to the 2.x placeholder behaviour. The opt-in LLM compression layer (`mneme compress`) is independent and accepts the same `language` for its Turkish rubric.

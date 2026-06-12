@@ -19,6 +19,18 @@ The privacy contract extends Core Invariant 3 from redaction-before-
    collision with different content is written as a ``.conflict``
    sidecar and surfaced in the report — deterministic merge, no silent
    overwrite, no LLM.
+4. Every imported markdown file is **trust-marked**: its frontmatter
+   gains ``source: team-sync``, ``team_member``, ``trust: external``
+   (which :func:`mneme_core.taint.taint_for_trust` maps to
+   ``UNTRUSTED`` — teammate notes are data, never instructions), and
+   ``payload_sha256`` of the incoming bytes. Re-pulls compare that
+   recorded hash, so an unchanged remote payload is idempotent even
+   though the local file carries the mark, and local edits never
+   trigger conflict noise. The body also passes :func:`redact` on
+   import — defence in depth on the receiving side. The mark keys are
+   appended at the END of an existing frontmatter block: YAML keeps
+   the last duplicate key, so an incoming ``trust: user`` cannot
+   override the mark.
 
 Optional end-to-end encryption hooks onto the external ``age`` binary
 (config ``encrypt.recipients``); when configured, every staged file is
@@ -30,6 +42,7 @@ logic is fully testable without a network.
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import shutil
 import subprocess
@@ -227,6 +240,55 @@ class SyncResult:
     conflicts: tuple[str, ...] = ()
 
 
+#: Frontmatter trust value for team imports; taint_for_trust maps it
+#: to UNTRUSTED so imported notes can never become instructions.
+TEAM_IMPORT_TRUST = "external"
+
+
+def _payload_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _mark_team_import(text: str, member: str, payload_hash: str) -> str:
+    """Inject team-sync provenance keys into *text*'s frontmatter.
+
+    The keys go at the END of an existing block because YAML resolves
+    duplicate keys to the last occurrence — placed first, an incoming
+    ``trust: user`` line would silently win over the mark. Files
+    without a frontmatter block get a fresh one prepended.
+    """
+    inject = [
+        "source: team-sync",
+        f"team_member: {json.dumps(member)}",
+        f"trust: {TEAM_IMPORT_TRUST}",
+        f"payload_sha256: {payload_hash}",
+    ]
+    lines = text.split("\n")
+    if lines and lines[0].strip() == "---":
+        for idx in range(1, len(lines)):
+            if lines[idx].strip() == "---":
+                return "\n".join(lines[:idx] + inject + lines[idx:])
+        # Unterminated block: treat as body and prepend a fresh one.
+    return "\n".join(["---", *inject, "---", "", text])
+
+
+def _imported_payload_hash(text: str) -> str | None:
+    """Read the recorded ``payload_sha256`` from a marked import."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    value: str | None = None
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        if stripped.startswith("payload_sha256:"):
+            # Keep scanning: the mark appends at the end of the block,
+            # so the LAST occurrence is authoritative (YAML semantics).
+            value = stripped.split(":", 1)[1].strip().strip('"') or None
+    return value
+
+
 def _git(runner: Runner, repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return runner(["git", *args], repo)
 
@@ -301,10 +363,15 @@ def pull(
     """Fetch the team branch and import teammates' trees under ``team/``.
 
     Deterministic merge policy: a file is imported only when it is new
-    or its local copy under ``team/`` is byte-identical; a differing
-    local copy gets a ``<name>.conflict`` sidecar with the incoming
+    or the remote payload is unchanged (recorded ``payload_sha256`` for
+    marked markdown imports, byte identity otherwise); a changed remote
+    payload gets a ``<name>.conflict`` sidecar with the incoming
     content and the path is reported. Local files are never
-    overwritten, the operator resolves conflicts in markdown.
+    overwritten, the operator resolves conflicts in markdown. Imported
+    markdown is redacted on arrival and trust-marked (``source:
+    team-sync``, ``trust: external``, ``payload_sha256``) so retrieval
+    treats it as data, never instructions, and re-pulls stay idempotent
+    even after local edits.
     """
     config = load_sync_config(vault)
     if not config.configured:
@@ -329,16 +396,30 @@ def pull(
             if len(parts) >= 2 and parts[1] == config.member:
                 continue  # own share tree round-trips; vault stays canonical
             local = vault.root / rel
+            incoming = src.read_bytes()
+            is_markdown = src.suffix.lower() == ".md"
             if local.exists():
-                if local.read_bytes() == src.read_bytes():
-                    continue
+                if is_markdown:
+                    recorded = _imported_payload_hash(
+                        local.read_text(encoding="utf-8", errors="replace")
+                    )
+                    if recorded == _payload_sha256(incoming):
+                        continue  # remote payload unchanged; local edits stay
+                if local.read_bytes() == incoming:
+                    continue  # legacy unmarked import, still identical
                 sidecar = local.with_name(local.name + ".conflict")
                 sidecar.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src, sidecar)
                 conflicts.append(rel.as_posix())
                 continue
             local.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, local)
+            if is_markdown:
+                member_name = parts[1] if len(parts) >= 2 else "unknown"
+                body = redact(incoming.decode("utf-8", errors="replace"))
+                marked = _mark_team_import(body, member_name, _payload_sha256(incoming))
+                local.write_text(marked, encoding="utf-8", newline="")
+            else:
+                shutil.copyfile(src, local)
             imported.append(rel.as_posix())
     return SyncResult(
         True,

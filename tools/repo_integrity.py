@@ -60,10 +60,24 @@ def main() -> int:
         )
     if "7 tools" not in mcp_pkg.get("description", ""):
         errors.append("mneme-mcp package.json description must say 7 tools")
+    server_manifest = json.loads(_read("server.json"))
+    if server_manifest.get("name") != mcp_pkg.get("mcpName"):
+        errors.append(
+            "server.json name must match package.json mcpName exactly "
+            "(the MCP Registry compares casing byte for byte)"
+        )
     if "## [1.0.1]" not in changelog or "## [1.0.0]" not in changelog:
         errors.append("CHANGELOG must contain separate 1.0.1 and 1.0.0 sections")
     if not (REPO_ROOT / "docs/RELEASE.md").is_file():
         errors.append("docs/RELEASE.md release checklist is missing")
+    upgrading_path = REPO_ROOT / "docs/UPGRADING.md"
+    if not upgrading_path.is_file():
+        errors.append("docs/UPGRADING.md upgrade guide is missing")
+    else:
+        upgrading = upgrading_path.read_text(encoding="utf-8")
+        for needle in ("Apache-2.0", "Node", "summary.json"):
+            if needle not in upgrading:
+                errors.append(f"docs/UPGRADING.md must cover {needle}")
 
     tracked_markdown = [
         path

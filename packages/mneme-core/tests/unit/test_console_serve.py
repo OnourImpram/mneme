@@ -133,3 +133,57 @@ class TestBuildPayload:
         payload = build_payload(vault, "/api/chain", {"day": ["not-a-day"]})
         assert isinstance(payload, dict)
         assert "error" in payload
+
+
+class TestHostPinning:
+    """DNS-rebinding defence: requests must name a loopback host."""
+
+    @staticmethod
+    def _raw_get(
+        url: str, path: str, host_header: str | None, method: str = "GET"
+    ) -> int:
+        import http.client
+        from urllib.parse import urlparse as _parse
+
+        parsed = _parse(url)
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+        try:
+            conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+            if host_header is not None:
+                conn.putheader("Host", host_header)
+            conn.endheaders()
+            return conn.getresponse().status
+        finally:
+            conn.close()
+
+    def test_rebound_host_refused(self, server_url: str) -> None:
+        assert self._raw_get(server_url, "/", "evil.example") == 403
+
+    def test_rebound_host_refused_on_api(self, server_url: str) -> None:
+        assert self._raw_get(server_url, "/api/claims", "evil.example:80") == 403
+
+    def test_localhost_with_port_allowed(self, server_url: str) -> None:
+        port = server_url.rsplit(":", 1)[1]
+        assert self._raw_get(server_url, "/", f"localhost:{port}") == 200
+
+    def test_bracketed_ipv6_allowed(self, server_url: str) -> None:
+        assert self._raw_get(server_url, "/", "[::1]:7421") == 200
+
+    def test_missing_host_allowed(self, server_url: str) -> None:
+        assert self._raw_get(server_url, "/", None) == 200
+
+    def test_rebound_post_gets_403_not_405(self, server_url: str) -> None:
+        assert self._raw_get(server_url, "/", "evil.example", method="POST") == 403
+
+    def test_unsafe_expose_disables_pinning(self, vault: VaultConfig) -> None:
+        import threading
+
+        server = make_server(vault, "127.0.0.1", 0, allow_remote=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}"
+            assert self._raw_get(url, "/", "evil.example") == 200
+        finally:
+            server.shutdown()
+            server.server_close()

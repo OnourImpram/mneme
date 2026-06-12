@@ -96,6 +96,18 @@ jobs:
           mypy --strict src/
           pytest -q
 
+      - name: mneme-graph pytest
+        working-directory: packages/mneme-graph
+        run: |
+          pip install -e '.[dev]'
+          pytest -q
+
+      - name: mneme-code pytest
+        working-directory: packages/mneme-code
+        run: |
+          pip install -e '.[dev]'
+          pytest -q
+
       - name: tools/parity pytest
         run: |
           pip install pytest
@@ -153,6 +165,58 @@ jobs:
         with:
           packages-dir: packages/mneme-cc-plugin/dist/
 
+  publish-pypi-graph:
+    name: Publish mneme-graph to PyPI
+    runs-on: ubuntu-latest
+    needs: [preflight, pack-plugin]
+    if: needs.preflight.outputs.is_dry_run != 'true'
+    # First published in 3.1.0. PyPI does not share one trusted-publisher
+    # environment name across projects (the pypi/pypi2 precedent), so the
+    # pending publisher for mneme-graph is registered under `pypi3` with a
+    # matching GitHub Environment.
+    environment: pypi3
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build wheel and sdist
+        working-directory: packages/mneme-graph
+        run: |
+          pip install build
+          python -m build
+      - name: Publish to PyPI via trusted publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/mneme-graph/dist/
+
+  publish-pypi-code:
+    name: Publish mneme-code to PyPI
+    runs-on: ubuntu-latest
+    needs: [preflight, pack-plugin]
+    if: needs.preflight.outputs.is_dry_run != 'true'
+    # First published in 3.1.0; pending publisher registered under `pypi4`
+    # (see the pypi3 note above).
+    environment: pypi4
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build wheel and sdist
+        working-directory: packages/mneme-code
+        run: |
+          pip install build
+          python -m build
+      - name: Publish to PyPI via trusted publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/mneme-code/dist/
+
   publish-npm:
     name: Publish mneme-mcp to npm
     runs-on: ubuntu-latest
@@ -193,6 +257,34 @@ jobs:
   #      failure here aborts both publish-pypi and publish-npm via the
   #      `publish-gate` step below. This delivers the staged-publish
   #      semantics Codex Pass 2 asked for.
+  publish-mcp-registry:
+    name: Publish server.json to the MCP Registry
+    runs-on: ubuntu-latest
+    needs: [preflight, publish-npm]
+    if: needs.preflight.outputs.is_dry_run != 'true'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install mcp-publisher
+        run: >
+          curl -fsSL
+          https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz
+          | tar xz mcp-publisher
+      - name: Login via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish (retries for npm metadata propagation)
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if ./mcp-publisher publish server.json; then
+              exit 0
+            fi
+            echo "attempt ${attempt} failed; npm metadata may still be propagating"
+            sleep 30
+          done
+          exit 1
+
   pack-plugin:
     name: Pack and verify CC plugin tarball
     runs-on: ubuntu-latest
@@ -250,7 +342,7 @@ jobs:
   publish-plugin:
     name: Publish CC plugin manifest to marketplace
     runs-on: ubuntu-latest
-    needs: [preflight, publish-pypi, publish-pypi-plugin, publish-npm, pack-plugin]
+    needs: [preflight, publish-pypi, publish-pypi-plugin, publish-pypi-graph, publish-pypi-code, publish-npm, pack-plugin]
     if: needs.preflight.outputs.is_dry_run != 'true'
     permissions:
       contents: write

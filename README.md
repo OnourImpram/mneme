@@ -19,7 +19,7 @@
 
 FTS5 retrieval, RRF-fused hybrid core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
 
-**Status**: 3.0.1 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (14 sources including this line, verified in CI), so no single declared version can drift.
+**Status**: 3.1.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Why mneme
 

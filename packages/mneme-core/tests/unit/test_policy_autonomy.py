@@ -263,3 +263,65 @@ class TestQueueAndDrain:
         (queue / "pending.jsonl").write_text("{broken\n", encoding="utf-8")
         report = drain_proposals(vault)
         assert report.malformed == 1
+
+
+class TestPolicyScaffold:
+    """policy init template + validate report (WS1b autonomy UX)."""
+
+    def test_default_payload_grants_zero_autonomy(self, tmp_path: Path) -> None:
+        import json as _json
+
+        from mneme_core.policy import default_policy_payload, load_policy
+        from mneme_core.vault.config import VaultConfig
+
+        vault = VaultConfig.from_path(tmp_path)
+        vault.state_dir.mkdir(parents=True, exist_ok=True)
+        (vault.state_dir / "policy.json").write_text(
+            _json.dumps(default_policy_payload()), encoding="utf-8"
+        )
+        policy = load_policy(vault)
+        assert policy.allowed_classes == frozenset()
+        assert policy.clinical_lock is False
+
+    def test_default_payload_documents_every_class(self) -> None:
+        from mneme_core.policy import AutoApproveClass, default_policy_payload
+
+        docs = str(default_policy_payload()["_docs"])
+        for cls in AutoApproveClass:
+            assert cls.value in docs
+
+    def test_inspect_absent_file(self, tmp_path: Path) -> None:
+        from mneme_core.policy import inspect_policy
+        from mneme_core.vault.config import VaultConfig
+
+        vault = VaultConfig.from_path(tmp_path)
+        report = inspect_policy(vault)
+        assert report["exists"] is False
+        assert report["valid"] is True
+
+    def test_inspect_surfaces_unknown_classes(self, tmp_path: Path) -> None:
+        import json as _json
+
+        from mneme_core.policy import inspect_policy
+        from mneme_core.vault.config import VaultConfig
+
+        vault = VaultConfig.from_path(tmp_path)
+        vault.state_dir.mkdir(parents=True, exist_ok=True)
+        (vault.state_dir / "policy.json").write_text(
+            _json.dumps({"auto_approve": ["typo-fix", "typofix"]}),
+            encoding="utf-8",
+        )
+        report = inspect_policy(vault)
+        assert report["valid"] is True
+        assert report["auto_approve"] == ["typo-fix"]
+        assert report["unknown_classes"] == ["typofix"]
+
+    def test_inspect_invalid_json(self, tmp_path: Path) -> None:
+        from mneme_core.policy import inspect_policy
+        from mneme_core.vault.config import VaultConfig
+
+        vault = VaultConfig.from_path(tmp_path)
+        vault.state_dir.mkdir(parents=True, exist_ok=True)
+        (vault.state_dir / "policy.json").write_text("{nope", encoding="utf-8")
+        report = inspect_policy(vault)
+        assert report["valid"] is False

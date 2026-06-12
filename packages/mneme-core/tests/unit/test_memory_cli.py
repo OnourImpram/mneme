@@ -78,3 +78,54 @@ class TestMemoryCli:
         runner = CliRunner()
         changes = runner.invoke(cli, ["memory", "changes", "--vault", str(vault.root)])
         assert json.loads(changes.output)["count"] == 1
+
+
+class TestPolicyInitValidate:
+    """memory policy init/validate subcommands (WS1b)."""
+
+    def test_init_creates_then_never_overwrites(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        root = tmp_path / "fresh"
+        root.mkdir()
+        first = runner.invoke(
+            cli, ["memory", "policy", "init", "--vault", str(root)]
+        )
+        assert first.exit_code == 0, first.output
+        assert json.loads(first.output)["created"] is True
+        path = root / ".mneme" / "policy.json"
+        original = path.read_bytes()
+        second = runner.invoke(
+            cli, ["memory", "policy", "init", "--vault", str(root)]
+        )
+        assert second.exit_code == 0, second.output
+        assert json.loads(second.output)["created"] is False
+        assert path.read_bytes() == original
+
+    def test_policy_show_still_works_as_bare_group(self, vault: VaultConfig) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["memory", "policy", "--vault", str(vault.root)])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["auto_approve"] == ["typo-fix"]
+
+    def test_validate_ok_exit_zero(self, vault: VaultConfig) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["memory", "policy", "validate", "--vault", str(vault.root)]
+        )
+        assert result.exit_code == 0, result.output
+        report = json.loads(result.output)
+        assert report["valid"] is True
+        assert report["unknown_classes"] == []
+
+    def test_validate_unknown_class_exit_one(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        root = tmp_path / "typo"
+        (root / ".mneme").mkdir(parents=True)
+        (root / ".mneme" / "policy.json").write_text(
+            json.dumps({"auto_approve": ["dedupmerge"]}), encoding="utf-8"
+        )
+        result = runner.invoke(
+            cli, ["memory", "policy", "validate", "--vault", str(root)]
+        )
+        assert result.exit_code == 1
+        assert json.loads(result.output)["unknown_classes"] == ["dedupmerge"]

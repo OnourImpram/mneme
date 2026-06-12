@@ -6,7 +6,7 @@ How decisions get made and how the project survives the loss of any single maint
 
 - **Project lead**: Onour Impram ([TheGoatPsy](https://github.com/TheGoatPsy)).
 - **Year 1 model**: Benevolent Dictator. Sole maintainer, sole release authority. Decisions logged as ADR entries in `docs/ARCHITECTURE.md`.
-- **Co-maintainer recruitment**: actively underway during pre-launch peer review. Target: at least one committed co-maintainer by v1.1.
+- **Co-maintainer recruitment**: still open as of the 3.x line. Until one lands, the interim release rule below applies.
 
 ## Decision Process
 
@@ -18,7 +18,7 @@ How decisions get made and how the project survives the loss of any single maint
 
 - Patch releases (`v1.0.x`): any maintainer with publish credentials.
 - Minor releases (`v1.x.0`): project lead approval.
-- Major releases (`v2.0.0`): project lead approval plus at least one co-maintainer concurrence.
+- Major releases (e.g. `v3.0.0`): project lead approval plus at least one co-maintainer concurrence. **Interim rule while the project has a single maintainer**: the concurrence requirement is replaced by a public intent announcement (issue or discussion) at least 7 days before the tag, and the decision is recorded as an ADR in `docs/ARCHITECTURE.md` (ADR-015 documents the 3.0.0 relicense precedent).
 
 ## Issue Service Level
 

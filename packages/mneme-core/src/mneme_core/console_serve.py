@@ -13,6 +13,13 @@ Security posture, in order:
   consent, per the conflict-resolution #5 record.
 * **Loopback only.** The default bind is ``127.0.0.1`` and the CLI
   refuses non-loopback hosts unless ``--unsafe-expose`` is passed.
+* **Host-header pinned.** A loopback bind alone does not stop DNS
+  rebinding: a malicious page can resolve its own hostname to
+  ``127.0.0.1`` and read the JSON APIs through the victim's browser.
+  Every request must therefore carry a Host header naming a loopback
+  alias (or the explicit bind host); anything else is refused with
+  ``403``. ``--unsafe-expose`` disables the check along with the bind
+  guard, since a remote-exposed console cannot enumerate valid hosts.
 * **No external requests.** The explorer page is fully self-contained
   (inline CSS/JS, no CDN), so the console works air-gapped and leaks
   nothing (Core Invariant 2: no network beyond the local socket).
@@ -43,6 +50,27 @@ from .vault.config import VaultConfig
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def host_header_allowed(raw: str | None, allowed: frozenset[str]) -> bool:
+    """True when the Host header names an allowed host.
+
+    A missing header is allowed: every browser (the DNS-rebinding
+    vehicle) always sends Host, so refusing header-less requests would
+    only break odd local HTTP/1.0 tooling without closing anything.
+    Ports are ignored; bracketed IPv6 forms are unwrapped.
+    """
+    if raw is None:
+        return True
+    host = raw.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        if end == -1:
+            return False
+        host = host[1:end]
+    elif host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+    return host in allowed
 
 
 def _graph_payload(vault: VaultConfig) -> dict[str, Any]:
@@ -156,13 +184,23 @@ class _ConsoleHandler(BaseHTTPRequestHandler):
     """GET-only request handler bound to one vault."""
 
     vault: VaultConfig  # injected by make_server via subclassing
+    allowed_hosts: frozenset[str] = LOOPBACK_HOSTS
+    enforce_host: bool = True
     server_version = "mneme-console"
     sys_version = ""
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass  # quiet by default; the console is a local tool, not a service
 
+    def _host_ok(self) -> bool:
+        if not self.enforce_host:
+            return True
+        return host_header_allowed(self.headers.get("Host"), self.allowed_hosts)
+
     def do_GET(self) -> None:  # noqa: N802 - http.server API
+        if not self._host_ok():
+            self._send(403, json.dumps({"error": "forbidden host header"}), "application/json")
+            return
         parsed = urlparse(self.path)
         route = parsed.path
         if route == "/" or route == "/index.html":
@@ -197,8 +235,13 @@ class _ConsoleHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    # Read-only contract: everything except GET is refused.
+    # Read-only contract: everything except GET is refused. The host
+    # check still runs first so a rebound origin learns nothing, not
+    # even the method policy.
     def _refuse(self) -> None:
+        if not self._host_ok():
+            self._send(403, json.dumps({"error": "forbidden host header"}), "application/json")
+            return
         self._send(405, json.dumps({"error": "read-only console"}), "application/json")
 
     do_POST = _refuse  # noqa: N815 - http.server API
@@ -228,6 +271,8 @@ def make_server(
         pass
 
     BoundHandler.vault = vault
+    BoundHandler.enforce_host = not allow_remote
+    BoundHandler.allowed_hosts = frozenset({*LOOPBACK_HOSTS, host.strip().lower()})
     return ThreadingHTTPServer((host, port), BoundHandler)
 
 
