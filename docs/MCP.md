@@ -1,6 +1,6 @@
 # MCP Tool Reference
 
-mneme-mcp exposes six tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
+mneme-mcp exposes seven tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
 
 ## Tools
 

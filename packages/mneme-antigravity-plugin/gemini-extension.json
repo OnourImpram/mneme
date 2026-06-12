@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Vault-native memory for Antigravity. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {

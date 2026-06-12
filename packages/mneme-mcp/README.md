@@ -2,7 +2,7 @@
 
 TypeScript MCP server for [mneme](https://github.com/TheGoatPsy/mneme). The npm package is `mneme-mcp-server`; it installs the `mneme-mcp` command.
 
-Provides six tools to any MCP-compatible client (Claude Code, Cursor, Cline, Continue, Goose):
+Provides seven tools to any MCP-compatible client (Claude Code, Cursor, Cline, Continue, Goose):
 
 | Tool | Purpose |
 |---|---|
@@ -12,6 +12,7 @@ Provides six tools to any MCP-compatible client (Claude Code, Cursor, Cline, Con
 | `mneme_prime` | Inject preflight context at session start. |
 | `mneme_summarize` | Summarize a topic across multiple sessions. |
 | `mneme_timeline` | Temporal query against the knowledge graph. |
+| `mneme_propose` | Queue a redacted memory-edit proposal for policy-gated review. |
 
 ## Installation
 

@@ -101,7 +101,7 @@ Removes only the `mcpServers.mneme` entry; all other servers are preserved.
 
 ## MCP tools (all tiers)
 
-All six tools are served by `mneme-mcp` regardless of which tier you use.
+All seven tools are served by `mneme-mcp` regardless of which tier you use.
 
 | Tool | Default behaviour | Gated behaviour |
 |---|---|---|

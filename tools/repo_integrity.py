@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -50,6 +51,15 @@ def main() -> int:
         errors.append("README must describe lite as seven MCP tools")
     if "mneme upgrade --profile=standard" not in readme:
         errors.append("README must document the supported upgrade command")
+
+    mcp_pkg = json.loads(_read("packages/mneme-mcp/package.json"))
+    if mcp_pkg.get("mcpName") != "io.github.TheGoatPsy/mneme":
+        errors.append(
+            "mneme-mcp package.json must declare the MCP Registry mcpName "
+            "(a tree snapshot once dropped it; npm metadata is immutable)"
+        )
+    if "7 tools" not in mcp_pkg.get("description", ""):
+        errors.append("mneme-mcp package.json description must say 7 tools")
     if "## [1.0.1]" not in changelog or "## [1.0.0]" not in changelog:
         errors.append("CHANGELOG must contain separate 1.0.1 and 1.0.0 sections")
     if not (REPO_ROOT / "docs/RELEASE.md").is_file():
@@ -64,6 +74,8 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         if "--upgrade-profile" in text:
             errors.append(f"stale --upgrade-profile docs in {path.relative_to(REPO_ROOT)}")
+        if "six tools" in text.lower():
+            errors.append(f"stale six-tools claim in {path.relative_to(REPO_ROOT)}")
 
     codes = _error_codes_from_ts()
     for code in sorted(codes):

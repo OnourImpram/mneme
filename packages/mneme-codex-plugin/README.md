@@ -7,9 +7,9 @@ Codex gets the same tools and the same vault with no loss of fidelity.
 
 ## What this plugin wires into Codex
 
-- **MCP server** (`mneme-mcp`): six tools, `mneme_search`,
+- **MCP server** (`mneme-mcp`): seven tools, `mneme_search`,
   `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`,
-  `mneme_timeline`.
+  `mneme_timeline`, `mneme_propose`.
 - **Skills**: `mneme-prime` (preflight context) and `mneme-search`
   (vault recall).
 - **Lifecycle hooks** via the shared `mneme hook <event>` command:

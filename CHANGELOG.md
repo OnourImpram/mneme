@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.0.1] - 2026-06-12
+
+### Fixed
+
+- Restore the `mcpName` field in the npm package manifest. The 3.0.0 release
+  tree was snapshotted from the development line, which never carried the
+  2.0.1/2.0.2 public-main-only commits that introduced `mcpName`; npm
+  metadata is immutable, so the MCP Registry entry required this patch
+  release. `tools/repo_integrity.py` now guards the field.
+- Correct stale "six tools" claims to seven (`mneme_propose` shipped in
+  3.0.0) across the npm package description, the MCP/codex/antigravity
+  plugin READMEs, `docs/MCP.md`, and `docs/INTEGRATIONS.md`. The integrity
+  gate now rejects any tracked six-tools claim.
+
+### Changed
+
+- Node engines floor raised from `>=20` to `>=22`. Node 20 reached
+  end-of-life in April 2026, better-sqlite3 12.x ships no Node 20 Windows
+  prebuild, and the CI matrix now tests Node 22 and 24.
+- CI runs on Node 24 action runtimes (checkout v6, setup-node v6,
+  setup-python v6, pnpm-setup v6, artifact v7/v8, gh-release v3) ahead of
+  the June 16 forced-runtime cutover, with pnpm resolved from the
+  `packageManager` pin.
+- The README status line is now the fourteenth lockstep version source
+  (`semver-prose` flavor in `tools/version_bump.py`), so the front-page
+  version claim can no longer drift.
+
 ## [3.0.0] - 2026-06-12
 
 The next-level release: the remaining capability-matrix gaps close on mneme's

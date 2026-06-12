@@ -3,14 +3,14 @@
 mneme is vault-native memory, born Claude-Code-native and extended to
 Antigravity (Google's agentic IDE). The retrieval core (`mneme-core`),
 the MCP server (`mneme-mcp`), and the vault markdown contract are
-client-neutral, so Antigravity gets the same six tools and the same
+client-neutral, so Antigravity gets the same seven tools and the same
 vault with no loss of fidelity.
 
 ## What this extension wires into Antigravity
 
-- **MCP server** (`mneme-mcp`): six tools — `mneme_search`,
+- **MCP server** (`mneme-mcp`): seven tools — `mneme_search`,
   `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`,
-  `mneme_timeline`.
+  `mneme_timeline`, `mneme_propose`.
 - **Skills**: `mneme-prime` (preflight context) and `mneme-search`
   (vault recall).
 - **Lifecycle hooks** via the shared `mneme hook <event>` command:
