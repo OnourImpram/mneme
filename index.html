@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>mneme — Accountable, vault-native memory for Claude Code and any MCP client</title>
-<meta name="description" content="mneme is an open-source, MIT-licensed memory layer for Claude Code and any MCP client. Your Markdown vault stays the source of truth. Every derived store is rebuildable. Redaction before every write.">
+<meta name="description" content="mneme is an open-source, Apache-2.0-licensed memory layer for Claude Code and any MCP client. Your Markdown vault stays the source of truth. Every derived store is rebuildable. Redaction before every write.">
 <meta property="og:title" content="mneme — Accountable, vault-native memory for Claude Code">
 <meta property="og:description" content="Open-source, local-first memory layer. Markdown vault as source of truth. Deterministic capture, no LLM on the critical path. On the official MCP Registry.">
 <meta property="og:type" content="website">
@@ -1512,7 +1512,7 @@ footer {
   "name": "mneme",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Any",
-  "license": "https://opensource.org/licenses/MIT",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "url": "https://thegoatpsy.github.io/mneme/",
   "codeRepository": "https://github.com/TheGoatPsy/mneme",
   "downloadUrl": [
@@ -1520,8 +1520,8 @@ footer {
     "https://pypi.org/project/mneme-cc-plugin/",
     "https://www.npmjs.com/package/mneme-mcp-server"
   ],
-  "softwareVersion": "2.0.2",
-  "description": "Accountable, vault-native memory for Claude Code and any MCP client. Local-first, MIT licensed, on the official MCP Registry."
+  "softwareVersion": "3.0.0",
+  "description": "Accountable, vault-native memory for Claude Code and any MCP client. Local-first, Apache-2.0 licensed, on the official MCP Registry."
 }
 </script>
 </head>
@@ -1539,7 +1539,7 @@ footer {
         <path d="M6 8h10M6 11h7M6 14h9" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
       mneme
-      <span class="logo-ver">v2.0.2</span>
+      <span class="logo-ver">v3.0.0</span>
     </a>
 
     <ul class="nav-links" role="list">
@@ -1579,7 +1579,7 @@ footer {
   <div class="container">
     <div class="hero-badge">
       <span class="dot"></span>
-      Open source · MIT · v2.0.2 · On the official MCP Registry
+      Open source · Apache-2.0 · v3.0.0 · On the official MCP Registry
     </div>
 
     <h1 class="hero-h1">
@@ -1604,9 +1604,9 @@ footer {
       </a>
     </div>
 
-    <p class="hero-note">Open source, MIT. Any MCP client.</p>
+    <p class="hero-note">Open source, Apache-2.0. Any MCP client.</p>
     <div class="hero-meta-pills" aria-label="Distribution channels">
-      <span class="hero-pill">MIT</span>
+      <span class="hero-pill">Apache-2.0</span>
       <span class="hero-pill">PyPI</span>
       <span class="hero-pill">npm</span>
       <span class="hero-pill">MCP Registry</span>
@@ -2170,7 +2170,7 @@ footer {
           </tr>
           <tr>
             <td>License</td>
-            <td class="col-mneme">MIT</td>
+            <td class="col-mneme">Apache-2.0</td>
             <td class="col-other">Apache-2.0</td>
             <td class="col-other">Apache-2.0</td>
             <td class="col-other">Apache-2.0</td>
@@ -2178,8 +2178,8 @@ footer {
             <td class="col-other">open source</td>
           </tr>
           <tr>
-            <td>Cloud-hosted team memory with a web graph UI today</td>
-            <td class="col-mneme">&#8212;</td>
+            <td>Team memory with a web graph UI (mneme: self-hosted git sync + local console)</td>
+            <td class="col-mneme">&#10003;</td>
             <td class="col-other">&#8212;</td>
             <td class="col-other">~</td>
             <td class="col-other">&#8212;</td>
@@ -2187,26 +2187,26 @@ footer {
             <td class="col-other">&#10003;</td>
           </tr>
           <tr>
-            <td>Agent autonomously rewrites its own memory</td>
+            <td>Agent autonomously rewrites its own memory (mneme: policy-graduated, rollback, audit chain)</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+          </tr>
+          <tr>
+            <td>Auto-summarization at session end, on by default (mneme: deterministic zero-LLM)</td>
+            <td class="col-mneme">&#10003;</td>
+            <td class="col-other">&#10003;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">&#8212;</td>
+            <td class="col-other">~</td>
+            <td class="col-other">~</td>
+          </tr>
+          <tr>
+            <td>Localized observation-prompt presets (mneme: en + tr)</td>
             <td class="col-mneme">~</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Auto-summarization at session end, on by default</td>
-            <td class="col-mneme">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-          </tr>
-          <tr>
-            <td>Localized observation-prompt presets</td>
-            <td class="col-mneme">&#8212;</td>
             <td class="col-other">&#10003;</td>
             <td class="col-other">&#8212;</td>
             <td class="col-other">&#8212;</td>
@@ -2338,8 +2338,8 @@ footer {
             <circle cx="7.5" cy="6" r="0.8" fill="rgba(45,212,191,0.5)"/>
           </svg>
         </div>
-        <h3>Offline Audit Console</h3>
-        <p>Read-only HTML audit console. Inspect your vault index, redaction log, and retrieval results entirely offline — no server, no external calls.</p>
+        <h3>Audit Console &amp; Web Explorer</h3>
+        <p>Read-only audit surface in two forms: a static offline HTML report, and a loopback-only web explorer (<code>mneme-console --serve</code>) with graph, claims, changes, and audit-chain views. GET-only, refuses non-loopback binds.</p>
         <div class="module-tags">
           <span class="module-tag-tech">HTML</span>
           <span class="module-tag">opt-in</span>
@@ -2370,7 +2370,7 @@ footer {
           </svg>
         </div>
         <h3>Temporal Extraction</h3>
-        <p>Extracts temporal claims from vault notes and exports them to Graphiti-compatible format for timeline reasoning and knowledge-graph queries.</p>
+        <p>The deterministic claim lifecycle — valid-from/to, supersedes, as-of queries, and <code>memory blame</code> provenance — is built in on every profile. This module adds optional LLM claim extraction and Graphiti export for knowledge-graph timelines.</p>
         <div class="module-tags">
           <span class="module-tag-tech">Graphiti</span>
           <span class="module-tag">opt-in</span>
@@ -2392,6 +2392,39 @@ footer {
         <div class="module-tags">
           <span class="module-tag-tech">Obsidian</span>
           <span class="module-tag-tech">GitHub</span>
+          <span class="module-tag">opt-in</span>
+        </div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Team sync icon">
+            <circle cx="5" cy="5" r="2.2" stroke="#2dd4bf" stroke-width="1.2"/>
+            <circle cx="13" cy="5" r="2.2" stroke="#2dd4bf" stroke-width="1.2"/>
+            <path d="M2.5 14.5c0-2 1.2-3.5 2.5-3.5s2.5 1.5 2.5 3.5M10.5 14.5c0-2 1.2-3.5 2.5-3.5s2.5 1.5 2.5 3.5" stroke="rgba(45,212,191,0.6)" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Team Vault Sync</h3>
+        <p>Share memory over any plain git remote — no vendor cloud. Every file is redacted before it leaves the machine and a post-copy leak rescan aborts the push fail-closed. Optional age end-to-end encryption. Pulls never overwrite local notes.</p>
+        <div class="module-tags">
+          <span class="module-tag-tech">git remote</span>
+          <span class="module-tag-tech">age E2E</span>
+          <span class="module-tag">opt-in</span>
+        </div>
+      </div>
+
+      <div class="module-card">
+        <div class="module-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Policy autonomy icon">
+            <path d="M9 2L3.5 4.5v4c0 3.2 2.3 6 5.5 7 3.2-1 5.5-3.8 5.5-7v-4L9 2z" stroke="#2dd4bf" stroke-width="1.2" stroke-linejoin="round"/>
+            <path d="M6.5 9l1.8 1.8L11.8 7" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Policy-Graduated Autonomy</h3>
+        <p>A declarative policy file allows low-risk edit classes (dedup, typo, tags) to apply autonomously. Every change is journalled for one-command rollback and chained into a tamper-evident HMAC audit log. Durable categories always keep a human in the loop.</p>
+        <div class="module-tags">
+          <span class="module-tag-tech">policy.json</span>
+          <span class="module-tag-tech">rollback</span>
           <span class="module-tag">opt-in</span>
         </div>
       </div>
@@ -2538,7 +2571,7 @@ footer {
           </svg>
         </button>
         <div class="faq-body" id="faq-body-4" hidden>
-          <p>mneme is MIT-licensed and published on <a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI</a> and <a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm</a> with a reproducible benchmark harness you can run locally. For an honest account of maturity, fit, and known limitations, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">capability matrix</a>.</p>
+          <p>mneme is Apache-2.0-licensed and published on <a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI</a> and <a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm</a> with a reproducible benchmark harness you can run locally. For an honest account of maturity, fit, and known limitations, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">capability matrix</a>.</p>
         </div>
       </div>
 
@@ -2554,7 +2587,7 @@ footer {
     <div class="footer-inner">
       <div class="footer-brand">
         <div class="fb-name">mneme</div>
-        <p>Accountable, vault-native memory for Claude Code and any MCP client. Open source, MIT licensed.</p>
+        <p>Accountable, vault-native memory for Claude Code and any MCP client. Open source, Apache-2.0 licensed.</p>
       </div>
 
       <div class="footer-links">
@@ -2581,8 +2614,8 @@ footer {
     </div>
 
     <div class="footer-bottom">
-      <p>Built by Onour Impram. MIT License.</p>
-      <span class="license">MIT</span>
+      <p>Built by Onour Impram. Apache-2.0 License.</p>
+      <span class="license">Apache-2.0</span>
     </div>
   </div>
 </footer>
