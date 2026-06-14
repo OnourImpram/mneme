@@ -27,7 +27,7 @@
  *   - [salience 0.75] Another item
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { VaultConfig } from "../vault/config.js";

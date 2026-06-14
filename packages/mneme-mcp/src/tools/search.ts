@@ -15,14 +15,14 @@ import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { redact } from "../privacy.js";
-import { type Fts5Hit, buildFts5Query, fts5Search } from "../retrieval/fts5.js";
+import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
 import { emitSearchTelemetry } from "../retrieval/telemetry.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
 	DEFAULT_STOPWORDS,
-	type ToolResult,
 	isoDateToUnix,
 	isoDateToUnixEndOfDay,
+	type ToolResult,
 } from "./common.js";
 
 /**
