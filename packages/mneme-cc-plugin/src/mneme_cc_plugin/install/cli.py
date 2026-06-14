@@ -389,13 +389,6 @@ _AG_HOOKS_JSON: dict[str, object] = {
         "PreCompact": [
             {"hooks": [{"type": "command", "command": "mneme hook pre-compact"}]}
         ],
-        "UserPromptSubmit": [
-            {
-                "hooks": [
-                    {"type": "command", "command": "mneme hook user-prompt-submit"}
-                ]
-            }
-        ],
     }
 }
 
