@@ -77,6 +77,7 @@ HOOK_TIMEOUTS_S: dict[str, int] = {
     "Stop": 10,
     "PreCompact": 5,
     "SessionEnd": 10,
+    "UserPromptSubmit": 5,
 }
 
 # Map PascalCase hook events to their `mneme hook <event>` console-script
@@ -89,6 +90,7 @@ HOOK_EVENT_COMMAND: dict[str, str] = {
     "Stop": "stop",
     "PreCompact": "pre-compact",
     "SessionEnd": "session-end",
+    "UserPromptSubmit": "user-prompt-submit",
 }
 
 HOOK_MODULES: dict[str, str] = {
@@ -97,6 +99,7 @@ HOOK_MODULES: dict[str, str] = {
     "Stop": "mneme_cc_plugin.hooks.stop",
     "PreCompact": "mneme_cc_plugin.hooks.pre_compact",
     "SessionEnd": "mneme_cc_plugin.hooks.session_end",
+    "UserPromptSubmit": "mneme_cc_plugin.hooks.user_prompt_submit",
 }
 
 HOOK_MATCHERS: dict[str, str | None] = {
@@ -201,8 +204,13 @@ class Installer:
         if self.config.dry_run:
             self._say("npm (dry-run): would install -g mneme-mcp-server")
             return
-        cmd = ["npm", "install", "-g", "mneme-mcp-server"]
-        self._say(f"npm: {' '.join(cmd)}")
+        # Resolve the executable up front. On Windows ``npm`` is ``npm.cmd``
+        # and a bare ``["npm", ...]`` argv handed to subprocess (no shell)
+        # raises FileNotFoundError; ``shutil.which`` honors PATHEXT, the same
+        # resolution the doctor check already relies on.
+        npm = shutil.which("npm") or "npm"
+        cmd = [npm, "install", "-g", "mneme-mcp-server"]
+        self._say("npm: npm install -g mneme-mcp-server")
         res = self.runner(cmd)
         if res.returncode != 0:
             raise click.ClickException(
@@ -380,6 +388,13 @@ _AG_HOOKS_JSON: dict[str, object] = {
         ],
         "PreCompact": [
             {"hooks": [{"type": "command", "command": "mneme hook pre-compact"}]}
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {"type": "command", "command": "mneme hook user-prompt-submit"}
+                ]
+            }
         ],
     }
 }
@@ -1157,7 +1172,14 @@ def version_cmd() -> None:
 @click.argument(
     "event",
     type=click.Choice(
-        ["session-start", "post-tool-use", "stop", "pre-compact", "session-end"]
+        [
+            "session-start",
+            "post-tool-use",
+            "stop",
+            "pre-compact",
+            "session-end",
+            "user-prompt-submit",
+        ]
     ),
 )
 def hook(event: str) -> None:
@@ -1170,6 +1192,7 @@ def hook(event: str) -> None:
         session_end,
         session_start,
         stop,
+        user_prompt_submit,
     )
 
     mains: dict[str, Callable[[], int]] = {
@@ -1178,6 +1201,7 @@ def hook(event: str) -> None:
         "stop": stop.main,
         "pre-compact": pre_compact.main,
         "session-end": session_end.main,
+        "user-prompt-submit": user_prompt_submit.main,
     }
     sys.exit(mains[event]())
 

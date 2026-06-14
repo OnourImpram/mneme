@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.2.0] - 2026-06-14
+
+### Added
+
+- **Context Continuity Engine (`mneme_core.cce`)**: opt-in (default off), zero-LLM hot path. Proactive working-set checkpoints at a configurable context-fill threshold (default 65%) or on salient events (explicit keyword, git commit in a Bash response, large tool response >8 KB). Post-compaction loss detection on `SessionStart` loads the latest checkpoint, identifies items the host summary dropped via normalized string search, and re-injects them salience-ranked within a configurable token budget (default 4 000 tokens). Checkpoints are plain markdown in `vault/.mneme/checkpoints/`, indexed by a JSONL sidecar, git-visible and Obsidian-browsable. Seven engine modules: `config.py`, `checkpoint.py`, `budget.py`, `salience.py`, `triggers.py`, `build.py`, `loss_detect.py`.
+- **`UserPromptSubmit` hook** (`hooks/user_prompt_submit.py`): evaluates checkpoint triggers on every user prompt; gated behind `CceConfig.enabled` (default off); exits 0 immediately when CCE is not enabled.
+- **CCE integration in existing hooks**: `PostToolUse` sets trigger flags on large tool responses and detected git commits; `SessionStart` runs post-compaction loss detection and rehydration after the normal preflight injection; `PreCompact` builds and persists a working-set snapshot unconditionally before the host compacts. All CCE paths are gated behind `CceConfig.enabled` and fail-soft.
+- **Two new MCP tools**: `mneme_checkpoint_list` returns the checkpoint JSONL index as structured data; `mneme_working_set_load` re-injects a named checkpoint's items into the session, salience-ranked, within the token budget.
+- **Benchmark F** (`benchmarks/compaction_recall/`): synthetic seeded fixture (`MNEME_BENCH_SEED=42`). Baseline recall 0.40 (no CCE) vs self-heal recall 1.00 (CCE enabled); gain +0.60; zero invented facts verified. Regression anchor only — not a real-world quality claim.
+
 ## [3.1.0] - 2026-06-12
 
 ### Security

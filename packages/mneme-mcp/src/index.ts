@@ -27,17 +27,25 @@ import {
 import type { z } from "zod";
 import { toMnemeError } from "./errors.js";
 import { isToolError } from "./tool_error.js";
+import {
+	CheckpointListInputSchema,
+	checkpointListTool,
+} from "./tools/checkpoint_list.js";
 import { PrimeInputSchema, primeTool } from "./tools/prime.js";
 import { ProposeInputSchema, proposeTool } from "./tools/propose.js";
 import { RecallInputSchema, recallTool } from "./tools/recall.js";
 import { SearchInputSchema, searchTool } from "./tools/search.js";
 import { SummarizeInputSchema, summarizeTool } from "./tools/summarize.js";
 import { TimelineInputSchema, timelineTool } from "./tools/timeline.js";
+import {
+	WorkingSetLoadInputSchema,
+	workingSetLoadTool,
+} from "./tools/working_set_load.js";
 import { WriteInputSchema, writeTool } from "./tools/write.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "3.1.0";
+const SERVER_VERSION = "3.2.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 
@@ -273,6 +281,61 @@ const TOOLS: ToolDef[] = [
 		},
 		handler: (args, vault) =>
 			proposeTool(ProposeInputSchema.parse(args), vault),
+	},
+	{
+		name: "mneme_checkpoint_list",
+		description:
+			"List recent Context Continuity Engine checkpoints from the " +
+			"append-only index at <vault>/.mneme/checkpoints/index.jsonl. " +
+			"Returns up to `limit` entries newest-first, each carrying anchor, " +
+			"created timestamp, session_id, item_count, and top_salience. " +
+			"Use this to discover available anchors before calling " +
+			"mneme_working_set_load. Missing index file returns an empty list.",
+		zodSchema: CheckpointListInputSchema,
+		inputSchema: {
+			type: "object",
+			properties: {
+				limit: {
+					type: "integer",
+					default: 20,
+					maximum: 200,
+					description: "Maximum number of checkpoint entries to return.",
+				},
+			},
+		},
+		handler: (args, vault) =>
+			checkpointListTool(CheckpointListInputSchema.parse(args), vault),
+	},
+	{
+		name: "mneme_working_set_load",
+		description:
+			"Load the working-set items from a Context Continuity Engine " +
+			"checkpoint for cross-agent handoff or JIT context injection. " +
+			"Resolves the anchor via the checkpoint index, reads the checkpoint " +
+			"markdown, parses salience bullets, and returns items sorted by " +
+			"descending salience. Pass top_k to limit retrieval to the highest- " +
+			"salience items. Unknown anchor returns a not-found result, not an error.",
+		zodSchema: WorkingSetLoadInputSchema,
+		inputSchema: {
+			type: "object",
+			properties: {
+				anchor: {
+					type: "string",
+					description:
+						"Checkpoint anchor string (e.g. 'abc123'). " +
+						"Use mneme_checkpoint_list to discover available anchors.",
+				},
+				top_k: {
+					type: "integer",
+					maximum: 500,
+					description:
+						"Return only the top_k items by salience. Omit for all items.",
+				},
+			},
+			required: ["anchor"],
+		},
+		handler: (args, vault) =>
+			workingSetLoadTool(WorkingSetLoadInputSchema.parse(args), vault),
 	},
 ];
 

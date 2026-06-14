@@ -7,6 +7,8 @@ surfaces as conversation preamble. The bundle contains:
   - The last few headings from any session document modified today.
   - A short git status summary if the vault is a git repository.
   - The five most recently modified session-typed documents.
+  - (CCE only) A self-heal block listing items dropped by the last
+    compaction, recovered from the most recent checkpoint.
 
 Each block is optional. If any source is missing the block is
 silently omitted rather than reported as an error. The hook's job is
@@ -22,6 +24,7 @@ git block rather than blowing the budget by seconds.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -30,7 +33,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from mneme_core.cce.budget import estimate_tokens
+from mneme_core.cce.checkpoint import WorkingSetItem
+from mneme_core.cce.config import read_config
+from mneme_core.cce.loss_detect import detect_dropped, load_latest_checkpoint
 from mneme_core.injection import wrap_untrusted
+from mneme_core.vault.atomic_write import atomic_write_text
 from mneme_core.vault.config import VaultConfig
 
 from .lib import emit, run_hook
@@ -42,6 +50,11 @@ GIT_STATUS_LINE_LIMIT = 10
 # below this; the budget only bites when git is slow or hung, where we
 # would rather drop the git block than make every session wait.
 GIT_BUDGET_SECONDS = 1.5
+
+# State.json key written by PreCompact and read here to detect compaction.
+_STATE_FILENAME = "state.json"
+_KEY_LAST_PRECOMPACT = "last_precompact_at"
+_KEY_LAST_REHYDRATED = "last_rehydrated_precompact_at"
 
 
 def _today_iso() -> str:
@@ -149,7 +162,150 @@ def _block_recent_sessions(vault: VaultConfig) -> str:
     return "\n".join(out) + "\n"
 
 
-def _build_context(vault: VaultConfig) -> str:
+def _is_post_compaction(event: dict[str, Any], vault: VaultConfig) -> bool:
+    """Return True when this session start follows a compaction event.
+
+    Two detection mechanisms, evaluated in order:
+
+    1. ``event["source"] == "compact"`` — direct signal from Claude Code.
+    2. Fallback: ``state.json["last_precompact_at"]`` is set and differs
+       from ``state.json["last_rehydrated_precompact_at"]``, meaning a
+       PreCompact stamp exists that has not yet been rehydrated.
+    """
+    if event.get("source") == "compact":
+        return True
+
+    state_path = vault.state_dir / _STATE_FILENAME
+    try:
+        if not state_path.is_file():
+            return False
+        state: dict[str, Any] = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    last_precompact = state.get(_KEY_LAST_PRECOMPACT)
+    if not last_precompact:
+        return False
+    last_rehydrated = state.get(_KEY_LAST_REHYDRATED)
+    return bool(last_precompact != last_rehydrated)
+
+
+def _mark_rehydrated(vault: VaultConfig, last_precompact_at: str) -> None:
+    """Stamp ``last_rehydrated_precompact_at`` into state.json.
+
+    Prevents the self-heal block from firing again for the same compaction.
+    Fails silently so the main context preamble is always emitted.
+    """
+    state_path = vault.state_dir / _STATE_FILENAME
+    try:
+        if state_path.is_file():
+            state: dict[str, Any] = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
+        else:
+            state = {}
+        state[_KEY_LAST_REHYDRATED] = last_precompact_at
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(
+            state_path,
+            json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        )
+    except OSError:
+        pass
+
+
+def _read_last_precompact_at(vault: VaultConfig) -> str:
+    """Return the ``last_precompact_at`` value from state.json, or empty string."""
+    state_path = vault.state_dir / _STATE_FILENAME
+    try:
+        if not state_path.is_file():
+            return ""
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            return ""
+        val = state.get(_KEY_LAST_PRECOMPACT, "")
+        return str(val) if val else ""
+    except (OSError, json.JSONDecodeError):
+        return ""
+
+
+def _block_self_heal(
+    vault: VaultConfig,
+    event: dict[str, Any],
+    budget_chars: int,
+) -> tuple[str, str]:
+    """Build a self-heal rehydration block for post-compaction session starts.
+
+    Returns ``(block_text, last_precompact_at)`` where ``block_text`` is
+    the markdown block to append (empty string when nothing to inject) and
+    ``last_precompact_at`` is the stamp to record once the block is emitted.
+    The block is truncated to fit within *budget_chars*.
+
+    Gated on:
+    - CCE enabled in vault config.
+    - Compaction detected via ``_is_post_compaction``.
+    - A latest checkpoint existing with at least one item.
+    - A transcript path available in the event.
+
+    Fails silently and returns ``("", "")`` on any error.
+    """
+    try:
+        cce_config = read_config(vault.cce_config_path)
+        if not cce_config.enabled:
+            return "", ""
+
+        if not _is_post_compaction(event, vault):
+            return "", ""
+
+        last_precompact_at = _read_last_precompact_at(vault)
+
+        checkpoint = load_latest_checkpoint(vault.checkpoint_index)
+        if checkpoint is None or not checkpoint.items:
+            return "", last_precompact_at
+
+        transcript_path_str = event.get("transcript_path") or ""
+        transcript_path = Path(transcript_path_str) if transcript_path_str else Path("")
+
+        dropped = detect_dropped(checkpoint, transcript_path)
+        if not dropped:
+            return "", last_precompact_at
+
+        # Greedily select dropped items up to the rehydration token budget.
+        selected: list[WorkingSetItem] = []
+        tokens_used = 0
+        for item in dropped:
+            item_tokens = estimate_tokens(item.text)
+            if tokens_used + item_tokens > cce_config.rehydration_token_budget:
+                break
+            selected.append(item)
+            tokens_used += item_tokens
+
+        if not selected:
+            return "", last_precompact_at
+
+        truncated = len(selected) < len(dropped)
+        remaining = len(dropped) - len(selected)
+
+        lines: list[str] = ["### Recovered from compaction", ""]
+        for item in selected:
+            lines.append(f"- [{item.kind}, salience {item.salience:.2f}] {item.text}")
+        if truncated:
+            lines.append(
+                f"\n({remaining} more checkpoint item{'s' if remaining != 1 else ''}"
+                " in the vault, ask mneme to expand)"
+            )
+        block = "\n".join(lines) + "\n"
+
+        # Truncate to the remaining character budget.
+        if len(block) > budget_chars:
+            block = block[:budget_chars]
+
+        return block, last_precompact_at
+    except Exception:
+        return "", ""
+
+
+def _build_context(vault: VaultConfig, event: dict[str, Any] | None = None) -> str:
     # Vault-derived blocks are untrusted: a crafted note title, section
     # heading, or commit message could carry prompt-injection text that
     # would otherwise be surfaced as authoritative preamble. Fence them
@@ -170,6 +326,21 @@ def _build_context(vault: VaultConfig) -> str:
     full = "\n".join(p for p in parts if p)
     if len(full) > MAX_CHARS:
         full = full[:MAX_CHARS] + "\n\n[CONTEXT TRUNCATED]"
+        return full
+
+    # CCE self-heal block: append after existing content, within MAX_CHARS.
+    ev = event or {}
+    budget_chars = MAX_CHARS - len(full) - 1  # -1 for the joining newline
+    if budget_chars > 0:
+        heal_block, last_precompact_at = _block_self_heal(vault, ev, budget_chars)
+        if heal_block:
+            full = full + "\n" + heal_block
+            if len(full) > MAX_CHARS:
+                full = full[:MAX_CHARS]
+            # Record that this compaction has been rehydrated.
+            if last_precompact_at:
+                _mark_rehydrated(vault, last_precompact_at)
+
     return full
 
 
@@ -177,7 +348,7 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="SessionStart")
         return
-    context = _build_context(vault)
+    context = _build_context(vault, event)
     emit(hook_event_name="SessionStart", additional_context=context)
 
 

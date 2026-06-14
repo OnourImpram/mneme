@@ -1,6 +1,6 @@
 .PHONY: install-dev test test-parity lint bench-all bench-retrieval \
         bench-latency bench-cost bench-migration bench-head-to-head \
-        bench-longmemeval clean help
+        bench-longmemeval bench-compaction-recall clean help
 
 PY ?= python
 PYTEST ?= $(PY) -m pytest
@@ -21,6 +21,7 @@ help:
 	@echo "  make bench-migration      benchmark D: claude-mem migration validation"
 	@echo "  make bench-head-to-head   benchmark E: head-to-head adapter comparison"
 	@echo "  make bench-longmemeval    LongMemEval: FTS5 recall on synthetic fixture"
+	@echo "  make bench-compaction-recall  benchmark F: CCE compaction-recall self-heal"
 	@echo "  make clean                remove caches and build artifacts"
 
 install-dev:
@@ -83,7 +84,13 @@ bench-longmemeval: $(BENCH_OUT)
 	$(PY) benchmarks/longmemeval/run.py --output $(BENCH_OUT)/longmemeval.json
 	$(PY) benchmarks/longmemeval/regression_guard.py $(BENCH_OUT)/longmemeval.json
 
-bench-all: bench-retrieval bench-latency bench-cost bench-migration bench-head-to-head bench-longmemeval
+bench-compaction-recall: $(BENCH_OUT)
+	MNEME_BENCH_SEED=$(BENCH_SEED) $(PY) benchmarks/compaction-recall/run.py \
+	  --output-format=json --seed=$(BENCH_SEED) \
+	  --output $(BENCH_OUT)/compaction-recall.json
+	$(PY) benchmarks/compaction-recall/regression_guard.py $(BENCH_OUT)/compaction-recall.json
+
+bench-all: bench-retrieval bench-latency bench-cost bench-migration bench-head-to-head bench-longmemeval bench-compaction-recall
 	@echo "All benchmarks complete. Results in $(BENCH_OUT)/."
 
 clean:

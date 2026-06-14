@@ -163,3 +163,26 @@ jobs:
         with:
           name: bench-head-to-head
           path: benchmarks/_runs/head-to-head*.json
+
+  compaction-recall:
+    name: Benchmark F - Compaction Recall (self-heal recovery)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install mneme-core
+        working-directory: packages/mneme-core
+        run: pip install -e ".[dev]"
+      - name: Run compaction-recall benchmark
+        run: |
+          mkdir -p benchmarks/_runs
+          python benchmarks/compaction-recall/run.py --output-format=json \
+            --output benchmarks/_runs/compaction-recall.json
+      - name: Regression guard (recall@k, headline_gain, negative probe)
+        run: python benchmarks/compaction-recall/regression_guard.py benchmarks/_runs/compaction-recall.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-compaction-recall
+          path: benchmarks/_runs/compaction-recall.json

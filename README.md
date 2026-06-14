@@ -13,13 +13,15 @@
   <a href="https://github.com/TheGoatPsy/mneme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheGoatPsy/mneme/ci.yml?branch=main&label=CI" alt="CI"></a>
   <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/pypi/pyversions/mneme-core" alt="Python versions">
+  <a href="https://doi.org/10.5281/zenodo.20674727"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20674727.svg" alt="DOI"></a>
+  <a href="https://glama.ai/mcp/servers/TheGoatPsy/mneme"><img src="https://glama.ai/mcp/servers/TheGoatPsy/mneme/badge" alt="Glama quality"></a>
 </p>
 
 <p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>
 
 FTS5 retrieval, RRF-fused hybrid core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
 
-**Status**: 3.1.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
+**Status**: 3.2.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Why mneme
 
@@ -33,6 +35,7 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 - **Temporal reasoning.** The deterministic claim lifecycle (valid-from/to, supersedes, as-of queries, contradiction detection, `temporal blame` provenance time-travel) is built in on every profile — pure SQLite, no extra dependency. Graphiti export and LLM claim extraction remain optional and never run on the Stop or critical path.
 - **Pattern and trajectory memory.** First-class vault-markdown primitives for Signal/Action/Outcome patterns and per-session step recorders, queryable via the same retrieval pipeline.
 - **Agent security and domain modes.** A capability firewall, data-flow taint tracking, and a human-approval gate for durable edits ship in 2.0. Domain privacy modes (clinical, security-review) block external extraction and artifact upload at the config layer. A mode can never weaken built-in privacy guarantees or disable redaction.
+- **Context Continuity Engine (opt-in).** Proactive working-set checkpoints at configurable fill thresholds make compaction loss recoverable: after a compaction event the engine detects what the host summary dropped and re-injects only those items, salience-ranked, within a token budget. Checkpoints are plain markdown in the vault, zero-LLM, default off.
 
 ### On vaults and Obsidian
 

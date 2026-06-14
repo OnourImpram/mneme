@@ -126,6 +126,21 @@ class VaultConfig:
         """Phase F.6 directory for per-session trajectory transcripts."""
         return self.root / "trajectories"
 
+    @property
+    def cce_config_path(self) -> Path:
+        """CCE opt-in config JSON. Default is ``enabled = false``."""
+        return self.state_dir / "cce.json"
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        """CCE markdown checkpoint documents (git-visible, human-readable)."""
+        return self.root / "checkpoints"
+
+    @property
+    def checkpoint_index(self) -> Path:
+        """CCE JSONL index for fast checkpoint lookup."""
+        return self.state_dir / "checkpoints" / "index.jsonl"
+
     @classmethod
     def resolve(cls, explicit: Path | None = None) -> VaultConfig:
         """Resolve the vault root via the documented priority order."""

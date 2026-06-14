@@ -11,6 +11,7 @@ mneme registers five Claude Code hooks. Each has a strict latency budget and a d
 | `Stop` | `hooks/stop.py` | 1000 ms p95 | **2 ms** (Benchmark B, seed 42) | Append session summary deterministically. No LLM call. |
 | `PreCompact` | `hooks/pre_compact.py` | 200 ms p95 | sub-millisecond | Snapshot pre-compaction state for recovery. |
 | `SessionEnd` | `hooks/session_end.py` | 500 ms p95 | sub-millisecond | Stamp session state and launch opt-in background compression only when compression is enabled, no pause flag is present, and provider auth is in env. |
+| `UserPromptSubmit` | `hooks/user_prompt_submit.py` | non-blocking | sub-millisecond (gated) | Evaluate whether the current context fill or event type warrants a checkpoint; if so, build and persist a working-set checkpoint. Gated behind `CceConfig.enabled` (default off). |
 
 Latency reference numbers come from `benchmarks/latency/run.py` on operator hardware (Windows 11, Python 3.13, NTFS SSD), seeded with `MNEME_BENCH_SEED=42`. CI guard at `benchmarks/latency/p95_guard.py` enforces the 1000 ms Stop budget.
 
@@ -98,3 +99,17 @@ mneme uninstall
 ```
 
 Removes hook entries from `settings.json` and preserves all non-mneme entries. The command leaves the vault directory and `.mneme/` indexes untouched so uninstall is reversible.
+
+## Context Continuity Engine (CCE) Hook Integration
+
+The CCE adds `UserPromptSubmit` as a sixth hook, registered only when `CceConfig.enabled` is `true` (default `false`). The remaining five hooks each gained a CCE integration path, also gated behind the same config flag.
+
+**UserPromptSubmit** (`hooks/user_prompt_submit.py`): fires on every user prompt. The hook estimates current context fill from the JSONL transcript and evaluates the trigger hierarchy in `triggers.should_checkpoint`: explicit keyword ("remember this" / "hatirla") > fill threshold (default 65%) > git commit detected in a recent Bash response > large tool response (>8 KB serialized). When a trigger fires and the debounce counter allows it, `build.build_checkpoint` extracts touched files, decisions, and TODOs from the staging records, and `build.write_checkpoint` persists the checkpoint as a plain markdown file in `vault/.mneme/checkpoints/` and appends a line to the JSONL index. If CCE is not enabled the hook exits 0 immediately with no work done.
+
+**PostToolUse**: the existing capture path gains two CCE trigger checks. A tool response whose serialized size exceeds 8 KB sets the large-response trigger flag in session state. A Bash tool response that contains a git commit SHA pattern sets the git-commit trigger flag. Both flags are consumed on the next `UserPromptSubmit` evaluation.
+
+**SessionStart**: after the normal preflight vault injection, the CCE path runs `loss_detect.load_latest_checkpoint` to read the most recent checkpoint from the JSONL index. It then runs `loss_detect.detect_dropped` to compare the checkpoint items against the current transcript, identifying any items the host's post-compaction summary dropped. Dropped items are scored by `salience.score_item`, sorted descending, and re-injected into the session preamble within the configured token budget (default 4 000 tokens). If no checkpoint exists, or no items were dropped, the path is a no-op.
+
+**PreCompact**: before the host compacts, this hook builds and persists a working-set checkpoint unconditionally (no trigger evaluation needed — the compaction event is itself the trigger). This ensures the most current working set is captured regardless of whether the fill threshold or a salient event already fired earlier in the session.
+
+**All CCE paths are fail-soft.** Every CCE code path is wrapped in a try/except block and always exits 0. A broken CCE never breaks the user's session. The CCE does not control or trigger the host's compaction; it makes the aftermath recoverable.

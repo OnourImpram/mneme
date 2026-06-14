@@ -7,13 +7,13 @@
     "url": "https://github.com/TheGoatPsy/mneme",
     "source": "github"
   },
-  "version": "3.1.0",
+  "version": "3.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mneme-mcp-server",
-      "version": "3.1.0",
+      "version": "3.2.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

@@ -35,6 +35,13 @@
           { "type": "command", "command": "mneme hook session-end", "timeout": 10 }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mneme hook user-prompt-submit", "timeout": 5 }
+        ]
+      }
     ]
   }
 }

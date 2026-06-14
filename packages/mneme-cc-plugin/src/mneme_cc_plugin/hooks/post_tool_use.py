@@ -10,6 +10,11 @@ The full ``capture_event`` implementation lives in
 ``mneme_core.compression.staging``. This module is a thin Claude Code
 adapter that constructs a StagingConfig pointing at the resolved vault
 and forwards the event payload.
+
+CCE integration (Phase 2): after the existing staging capture, this hook
+increments the CCE debounce counter and (when CCE is enabled and a salient
+event is detected) writes a checkpoint. The CCE path is gated behind
+``config.enabled`` so there is zero overhead when CCE is off.
 """
 
 from __future__ import annotations
@@ -17,6 +22,14 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from mneme_core.cce.build import build_checkpoint, write_checkpoint
+from mneme_core.cce.config import read_config as read_cce_config
+from mneme_core.cce.triggers import (
+    increment_event_counter,
+    read_cce_state,
+    should_checkpoint,
+    update_cce_state,
+)
 from mneme_core.compression.staging import StagingConfig, capture_event
 from mneme_core.distill.shell_compress import (
     ShellCompressOpts,
@@ -60,6 +73,46 @@ def _compress_bash_payload(event: dict[str, Any]) -> None:
             resp[key] = stats.compressed_text
 
 
+def _run_cce_check(event: dict[str, Any], vault: VaultConfig) -> None:
+    """Increment the CCE counter and checkpoint on a salient event.
+
+    Gated entirely behind ``cce_config.enabled`` so this is a fast
+    single-file read and early return when CCE is off.  Must never
+    raise; callers wrap it in try/except.
+    """
+    cce_config = read_cce_config(vault.cce_config_path)
+    if not cce_config.enabled:
+        return
+
+    events_since = increment_event_counter(vault.state_dir)
+    state = read_cce_state(vault.state_dir)
+    prev_anchor: str | None = state.get("last_checkpoint_anchor")
+
+    # Context fill is not estimated here (no transcript path on PostToolUse)
+    # so fill_pct is 0.0 — only salient-event and git-commit triggers fire.
+    trigger, reason = should_checkpoint(
+        fill_pct=0.0,
+        config=cce_config,
+        event=event,
+        events_since_last=events_since,
+    )
+
+    if trigger:
+        session_id = str(event.get("session_id") or "unknown")
+        transcript_path = str(event.get("transcript_path") or "")
+        cp = build_checkpoint(vault, session_id, transcript_path, prev_anchor)
+        write_checkpoint(vault, cp)
+        update_cce_state(
+            vault.state_dir,
+            last_checkpoint_anchor=cp.anchor,
+            events_since_checkpoint=0,
+        )
+        sys.stderr.write(
+            f"[mneme:PostToolUse] CCE checkpoint {cp.anchor} written"
+            f" (reason={reason})\n"
+        )
+
+
 def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if vault is None:
         emit(hook_event_name="PostToolUse")
@@ -87,6 +140,12 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
         stage_event(event, kg_config_from_vault(vault))
     except Exception as exc:
         sys.stderr.write(f"[mneme:PostToolUse] kg stage skipped: {exc}\n")
+
+    # CCE Phase 2: salient-event checkpoint (zero overhead when CCE disabled).
+    try:
+        _run_cce_check(event, vault)
+    except Exception as exc:
+        sys.stderr.write(f"[mneme:PostToolUse] CCE check skipped: {exc}\n")
 
     emit(hook_event_name="PostToolUse")
 

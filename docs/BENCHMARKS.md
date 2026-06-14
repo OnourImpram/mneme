@@ -1,6 +1,6 @@
 # Benchmarks
 
-mneme publishes five reproducible benchmarks. Run them with `make bench-all` or individually as documented below.
+mneme publishes six reproducible benchmarks. Run them with `make bench-all` or individually as documented below.
 
 ## Reproducibility Contract
 
@@ -82,6 +82,8 @@ The locked public headline comes from `benchmarks/head-to-head/baseline.json`. R
 
 ## Locked Reference Numbers (operator hardware, seed=42)
 
+Benchmark F numbers are in the [Benchmark F section](#benchmark-f-compaction-recall-1) above.
+
 These numbers are the published baselines for the v1.0 release line. CI regression guards lock the deltas relative to these. Hardware metadata is written next to every run. Reproduce on any machine with `make bench-all`.
 
 ### Benchmark A: Retrieval Quality
@@ -141,6 +143,66 @@ Synthetic claude-mem fixture, TS CLI invoked via `npx tsx`, four invariants chec
 | claude-mem | gated (not installed in CI) | n/a | n/a |
 
 Real-data head-to-head against installed claude-mem is a Phase J dogfood week deliverable.
+
+## Benchmark F: Compaction Recall
+
+Measures how much information the CCE self-heal recovers after a host
+compaction drops a deterministic subset of session working-set items.
+
+**What this measures, and what it does not.** This is a synthetic seeded
+regression anchor (ADR-012 discipline). The compaction pattern (which items
+survive), the token text length, and the rehydration budget are all under our
+control. The numbers bound regression on this specific fixture; they are not a
+claim about real-world compaction behavior or recall on arbitrary sessions.
+
+**Method.** A seeded RNG builds K=50 synthetic `WorkingSetItem` facts and
+wraps them in a `Checkpoint`. A second seeded RNG selects ~40 % of items to
+survive compaction. A JSONL transcript is written containing only the surviving
+items. Two conditions are measured:
+
+- `baseline_no_selfheal`: recall = survivors / K (no self-heal, what the host
+  left behind).
+- `mneme_selfheal`: recall = (survivors ∪ rehydrated) / K, where `detect_dropped`
+  finds the missing items and greedy rehydration fills them highest-salience first
+  within the `rehydration_token_budget` (default 4000 tokens).
+
+A negative probe confirms `recovered ⊆ original` — self-heal never invents a fact.
+
+**Seed-42 result (locked baseline):**
+
+| Condition | recall@K |
+|---|---|
+| baseline_no_selfheal | 0.40 |
+| **mneme_selfheal** | **1.00** |
+| headline_recall_gain | **+0.60** |
+
+Self-heal achieves perfect recall on this fixture because the 30 dropped items
+fit entirely within the 4000-token rehydration budget (each synthetic fact text
+is ~50 chars / ~12 tokens). On real sessions with longer fact texts or a tighter
+budget, partial recovery is expected and the regression guard allows up to a
+0.05 absolute drop from this anchor.
+
+```bash
+make bench-compaction-recall
+```
+
+CI regression guard: `mneme_selfheal.recall_at_k` drop > 0.05 or
+`headline_recall_gain` drop > 0.05 or `negative_probe.all_passed = false`
+fails the build.
+
+### Benchmark F: Compaction Recall
+
+50-fact synthetic working set, 30 facts dropped by seeded compaction, 4000-token
+rehydration budget, greedy highest-salience-first selection.
+
+| Condition | recall@K |
+|---|---|
+| baseline_no_selfheal | 0.40 |
+| **mneme_selfheal** | **1.00** |
+
+`headline_recall_gain = +0.60`. `negative_probe.all_passed = true`
+(0 invented facts). `benchmarks/compaction-recall/regression_guard.py` enforces
+these anchors in CI.
 
 ## Historical Reference Numbers from Predecessor
 

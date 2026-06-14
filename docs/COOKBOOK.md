@@ -335,3 +335,70 @@ Session-end summaries are extractive and zero-LLM, on by default. Configure per 
 ```
 
 Set `"deterministic": false` to fall back to the 2.x placeholder behaviour. The opt-in LLM compression layer (`mneme compress`) is independent and accepts the same `language` for its Turkish rubric.
+
+## 16. Enable the Context Continuity Engine (lite)
+
+The CCE is opt-in and off by default. Enable it by writing a config file to your vault.
+
+```bash
+# Write the CCE config (all fields shown with their defaults)
+cat > "$MNEME_VAULT/.mneme/cce.json" << 'EOF'
+{
+  "enabled": true,
+  "fill_threshold": 0.65,
+  "budget_tokens": 4000,
+  "max_checkpoints": 20,
+  "large_response_bytes": 8192
+}
+EOF
+```
+
+The minimal enable is just `{"enabled": true}` — all other fields default as shown above.
+
+**What to expect**: on every `UserPromptSubmit` the engine estimates context fill from the JSONL transcript. When fill crosses 65% (or a salient event fires first), it writes a checkpoint markdown file:
+
+```
+vault/.mneme/checkpoints/2026-06-14-decisions.md
+vault/.mneme/checkpoints/2026-06-14-touched-files.md
+...
+vault/.mneme/checkpoints/checkpoints.jsonl   ← JSONL index sidecar
+```
+
+Salient events that trigger a checkpoint regardless of fill:
+
+- An explicit keyword in your prompt: "remember this", "hatirla", or similar.
+- A git commit detected in a Bash tool response.
+- A tool response larger than 8 KB serialized.
+- The `PreCompact` hook firing (the host is about to compact).
+
+Each checkpoint is a plain markdown file with YAML frontmatter and kind-sectioned bullet body. It is git-visible and Obsidian-readable — the same vault-native ground truth as every other mneme artifact.
+
+**Inspect checkpoints** using the MCP tool:
+
+```
+mneme_checkpoint_list
+```
+
+Returns the JSONL index as structured data: anchor, timestamp, path, and item count for every checkpoint. You can also browse `vault/.mneme/checkpoints/` directly in any text editor, `git log`, or Obsidian.
+
+**Load a checkpoint** to re-inject its working-set items into the current session:
+
+```
+mneme_working_set_load  anchor="2026-06-14-decisions"
+```
+
+The engine scores each item with `salience.score_item` (a weighted sum clamped to [0, 1]), sorts descending, and injects items into the session within the configured token budget (default 4 000 tokens). Only items not already present in the current transcript are injected.
+
+**What happens automatically after a compaction**: on the next `SessionStart` after a compaction event, the engine loads the latest checkpoint, compares it against the post-compaction transcript using normalized string search, identifies dropped items, and re-injects only the missing ones — salience-ranked, within the token budget. No manual action required.
+
+Expected SessionStart output when dropped items are detected:
+
+```
+[mneme CCE] latest checkpoint: 2026-06-14-decisions (14 items)
+[mneme CCE] detected 6 dropped items after compaction
+[mneme CCE] rehydrated 6 items (1 843 tokens, budget 4 000)
+```
+
+If no checkpoint exists yet, or nothing was dropped, the CCE path is silent.
+
+**Disabling**: set `enabled` to `false` in `cce.json` or delete the file entirely. All CCE hooks exit immediately when the config is absent or disabled — zero overhead.

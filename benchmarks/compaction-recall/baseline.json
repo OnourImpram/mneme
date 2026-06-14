@@ -1,0 +1,29 @@
+{
+  "benchmark": "compaction-recall",
+  "seed": 42,
+  "recorded_at": "2026-06-14",
+  "notes": "Locked baseline for Benchmark F. Pinned MNEME_BENCH_SEED=42. conditions.mneme_selfheal.recall_at_k and headline_recall_gain are the primary anchors enforced by regression_guard.py. negative_probe.all_passed is also enforced. Self-heal achieves perfect recall (1.0) on this fixture because the 30 dropped items fit entirely within the 4000-token rehydration budget (each synthetic fact text is ~50 chars / ~12 tokens).",
+  "corpus": {
+    "facts": 50,
+    "survivors": 20,
+    "dropped": 30,
+    "survival_rate": 0.4,
+    "token_budget": 4000
+  },
+  "conditions": {
+    "baseline_no_selfheal": {
+      "recall_at_k": 0.4
+    },
+    "mneme_selfheal": {
+      "recall_at_k": 1.0
+    }
+  },
+  "headline_recall_gain": 0.6,
+  "negative_probe": {
+    "criterion": "recovered facts must be a subset of original checkpoint facts",
+    "recovered_count": 30,
+    "original_count": 50,
+    "invented_count": 0,
+    "all_passed": true
+  }
+}

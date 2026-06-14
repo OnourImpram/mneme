@@ -54,6 +54,20 @@ mneme is built on three convictions:
 
 The diagram above is the Claude Code path, mneme's native origin. Everything from `mneme-mcp` down is client-neutral. Codex drives the same `mneme-mcp` core and the same `mneme hook` entry through the Codex plugin (`packages/mneme-codex-plugin`). See ADR-014 and `docs/CODEX.md`.
 
+The CCE subsystem (`mneme_core.cce`) sits inside mneme-core. Checkpoints are written to `vault/.mneme/checkpoints/` as plain markdown and indexed in `checkpoints.jsonl`. The CCE is opt-in (default off) and adds no nodes to the critical path.
+
+### Context Continuity Engine (CCE)
+
+Seven modules compose the CCE subsystem (`packages/mneme-core/src/mneme_core/cce/`):
+
+- **config.py**: `CceConfig` dataclass; reads/writes `vault/.mneme/cce.json`; safe defaults on missing or corrupt config.
+- **checkpoint.py**: `WorkingSetItem` and `Checkpoint` frozen dataclasses; markdown roundtrip (YAML frontmatter + kind-sectioned bullet body); `delta()` for new-items-only diffing; `append_index()` for the JSONL sidecar.
+- **budget.py**: `estimate_tokens` (len // 4) and `estimate_context_fill` (JSONL transcript reader); zero-LLM, zero-network, fail-soft.
+- **salience.py**: `score_item` — weighted sum clamped to [0, 1]; pure function, no IO.
+- **triggers.py**: `should_checkpoint` — trigger hierarchy: explicit keyword > fill threshold > git commit > large response; debounce counter in `state.json`.
+- **build.py**: `build_checkpoint` — extracts touched files, decisions, TODOs; `write_checkpoint` — atomic write + index append + prune oldest.
+- **loss_detect.py**: `detect_dropped` — normalized string search against post-compaction transcript; `load_latest_checkpoint` — reads last JSONL line, resolves path, parses markdown.
+
 ## Architecture Decision Records
 
 Each ADR has the form: Context, Decision, Consequences. Decisions live in the codebase and on disk, not in a wiki.
@@ -179,6 +193,16 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 **Decision**: License the 3.0 line under the Apache License 2.0. `LICENSE` carries the verbatim license text, `NOTICE` carries the copyright statement. Published 1.x and 2.x artifacts permanently remain MIT. Contributions are inbound = outbound under Apache-2.0. The relicensing was decided unanimously by the maintainers on 2026-06-10 (sole maintainer and sole copyright holder at the time; the lone third-party commit was an automated image recompression with no copyrightable code) and announced ahead of the 3.0.0 release per the GOVERNANCE.md notice requirement.
 
 **Consequences**: Explicit patent grant for users and contributors, license parity with the competitive set so license choice is never an adoption blocker, and unchanged permissiveness in practice (Apache-2.0 remains enterprise-friendly and fork-friendly). Trade-off: slightly heavier compliance surface (NOTICE propagation in redistributions) and GPLv2-incompatibility, which does not affect any current integration.
+
+### ADR-016: Context Continuity Engine — capture, detect, rehydrate
+
+**Context**: The host (Claude Code) owns context compaction entirely. A plugin cannot trigger, delay, or control when the host compacts. Prior to the CCE, compaction events silently dropped items from the working set — decisions, touched files, open TODOs — with no recovery mechanism. The plugin had no way to know what the host's post-compaction summary had omitted.
+
+**Decision**: Implement a capture-detect-rehydrate pattern that makes compaction loss recoverable without attempting to control compaction itself. Three proactive triggers write a working-set checkpoint to `vault/.mneme/checkpoints/YYYY-MM-DD-{anchor}.md`: (1) estimated context fill crossing a configurable threshold (default 65%), (2) salient events — an explicit keyword ("remember this" / "hatirla"), a git commit in a Bash tool response, or a large tool response (>8 KB serialized), and (3) an explicit PreCompact hook firing just before the host compacts. Each checkpoint is a plain markdown file with YAML frontmatter and kind-sectioned bullet body; a JSONL sidecar (`checkpoints.jsonl`) maintains the index. On the next SessionStart after a compaction, `loss_detect.detect_dropped` compares the latest checkpoint against the post-compaction transcript using normalized string search and identifies items the host summary dropped. Rehydration re-injects only the dropped items, scored by `salience.score_item` (weighted sum clamped to [0, 1]), within a configurable token budget (default 4 000 tokens). The CCE is opt-in with `CceConfig.enabled = False` as the default. Every code path is zero-LLM and zero-network. Two new MCP tools expose the checkpoint index to the host: `mneme_checkpoint_list` returns the JSONL index as structured data; `mneme_working_set_load` re-injects a checkpoint's items into the session on demand.
+
+Why NOT in-session pruning or compaction suppression: controlling what the host compacts or actively pruning the live context window is the token-optimizer / Adaptive Context Layer's domain. The CCE's concern is durable memory and loss recovery after the fact, not in-session budget management or handoff compression.
+
+**Consequences**: Recovery is measurable in Benchmark F (`benchmarks/compaction_recall/`), a synthetic seeded fixture (`MNEME_BENCH_SEED=42`). Baseline recall (no CCE) is 0.40; self-heal recall (CCE enabled) is 1.00; gain is +0.60; zero invented facts verified. This is a synthetic regression anchor, not a real-world quality claim. Checkpoints are plain markdown, git-visible, and Obsidian-browsable — the same vault-native ground truth as every other mneme artifact. All CCE paths fail-soft: every path is wrapped in try/except and always exits 0, so a broken CCE never breaks the user's session. The UserPromptSubmit hook (the sixth hook) is added and gated behind `CceConfig.enabled`; users who do not enable the CCE incur zero overhead.
 
 ## Out of Scope for v1.0
 

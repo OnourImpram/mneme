@@ -30,6 +30,8 @@ const EXPECTED_TOOL_NAMES = [
   "mneme_timeline",
   "mneme_prime",
   "mneme_propose",
+  "mneme_checkpoint_list",
+  "mneme_working_set_load",
 ];
 
 describe("mneme-mcp server end-to-end", () => {
@@ -56,7 +58,7 @@ describe("mneme-mcp server end-to-end", () => {
     await client?.close();
   });
 
-  it("lists all seven mneme_ tools", async () => {
+  it("lists all nine mneme_ tools", async () => {
     const res = await client.listTools();
     const names = res.tools.map((t) => t.name).sort();
     expect(names.sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
