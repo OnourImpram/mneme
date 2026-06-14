@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.7,<3",
-    "structlog>=24.1,<25",
+    "structlog>=24.1,<27",
     "click>=8.1,<9",
     "pyyaml>=6.0,<7"
 ]
@@ -43,7 +43,7 @@ standard = [
 # so installing without this extra is a clean no-op.
 full = [
     "onnxruntime>=1.18,<2",
-    "neo4j>=5.21,<6",
+    "neo4j>=5.21,<7",
     "graphiti-core>=0.3,<1",
     "anthropic>=0.28,<1"
 ]
