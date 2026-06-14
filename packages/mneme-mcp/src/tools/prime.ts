@@ -33,7 +33,7 @@ import { wrapUntrusted } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { redact } from "../privacy.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
-import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
+import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import { DEFAULT_STOPWORDS, type ToolResult } from "./common.js";
 

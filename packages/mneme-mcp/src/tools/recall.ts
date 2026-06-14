@@ -13,12 +13,12 @@ import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
 import { redact } from "../privacy.js";
-import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
+import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
-	type ToolResult,
 	isoDateToUnix,
 	isoDateToUnixEndOfDay,
+	type ToolResult,
 } from "./common.js";
 
 export const RecallInputSchema = z
