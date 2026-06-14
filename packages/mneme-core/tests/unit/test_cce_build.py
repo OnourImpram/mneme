@@ -130,7 +130,9 @@ class TestWriteCheckpoint:
         write_checkpoint(vault, cp)
         assert vault.checkpoint_index.is_file()
         lines = [
-            l for l in vault.checkpoint_index.read_text(encoding="utf-8").splitlines() if l.strip()
+            ln
+            for ln in vault.checkpoint_index.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
         ]
         assert len(lines) == 1
         record = json.loads(lines[0])
@@ -169,12 +171,12 @@ class TestWriteCheckpoint:
         cp3 = build_checkpoint(vault, "s3", "", cp2.anchor)
         write_checkpoint(vault, cp3)
         index_lines = [
-            l
-            for l in vault.checkpoint_index.read_text(encoding="utf-8").splitlines()
-            if l.strip()
+            ln
+            for ln in vault.checkpoint_index.read_text(encoding="utf-8").splitlines()
+            if ln.strip()
         ]
         # Only anchors for surviving files should remain in the index.
-        surviving_anchors = {json.loads(l)["anchor"] for l in index_lines}
+        surviving_anchors = {json.loads(ln)["anchor"] for ln in index_lines}
         existing_md_anchors = {
             p.stem.split("-", 3)[-1] for p in vault.checkpoints_dir.glob("*.md")
         }

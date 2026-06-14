@@ -13,11 +13,8 @@ Assertions:
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-
-import pytest
 
 # Allow importing the benchmark module directly without installing it.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -35,7 +32,6 @@ from run import (  # type: ignore[import-not-found]  # noqa: E402
     _negative_probe,
     _write_post_compaction_transcript,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

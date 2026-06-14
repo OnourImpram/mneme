@@ -22,7 +22,6 @@ from mneme_core.vault.config import VaultConfig
 
 from mneme_cc_plugin.hooks import pre_compact, session_start
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -296,7 +295,7 @@ class TestSessionStartSelfHealPrecompactDelta:
             salience=0.9,
         )
         _write_checkpoint(vault, items=(item,))
-        stamp = _stamp_precompact(vault)
+        _stamp_precompact(vault)
         transcript = _write_transcript(vault, "unrelated content xyz")
 
         # First call — should inject and write the marker.
@@ -368,7 +367,8 @@ class TestPreCompactCceDisabled:
         )
         assert "last_precompact_at" in state
         # No checkpoint markdown should exist.
-        assert not list(vault.checkpoints_dir.glob("*.md")) if vault.checkpoints_dir.exists() else True
+        if vault.checkpoints_dir.exists():
+            assert not list(vault.checkpoints_dir.glob("*.md"))
 
     def test_no_checkpoint_written_when_cce_disabled(
         self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig

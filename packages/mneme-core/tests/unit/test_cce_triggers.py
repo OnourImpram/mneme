@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from mneme_core.cce.config import CceConfig
 from mneme_core.cce.triggers import (
     increment_event_counter,

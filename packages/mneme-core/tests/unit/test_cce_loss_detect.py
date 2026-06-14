@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from mneme_core.cce.checkpoint import Checkpoint, WorkingSetItem, render_markdown
 from mneme_core.cce.loss_detect import detect_dropped, load_latest_checkpoint
-
 
 # ---------------------------------------------------------------------------
 # Helpers
