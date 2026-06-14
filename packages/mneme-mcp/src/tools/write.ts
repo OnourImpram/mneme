@@ -20,9 +20,9 @@ import { appendAuditRecord } from "../audit.js";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
 import {
-	VaultPathError,
 	assertWithinVault,
 	atomicWriteText,
+	VaultPathError,
 } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";

@@ -20,18 +20,18 @@ import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import {
-	type TimelineFact,
 	closeDriver,
 	createDriverFromVault,
 	isKgActive,
+	type TimelineFact,
 	timelineForSubject,
 } from "../retrieval/graphiti.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
 	DEFAULT_STOPWORDS,
-	type ToolResult,
 	isoDateToUnix,
 	isoDateToUnixEndOfDay,
+	type ToolResult,
 } from "./common.js";
 
 export const TimelineInputSchema = z.object({

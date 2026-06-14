@@ -1,4 +1,4 @@
-/**
+﻿/**
  * mneme_propose — Queue a memory-edit proposal for a policy drain.
  *
  * The accountable-autonomy contract (conflict-resolution #4): the MCP
@@ -26,7 +26,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
-import { VaultPathError, assertWithinVault } from "../vault/atomic_write.js";
+import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
@@ -34,7 +34,7 @@ import type { ToolResult } from "./common.js";
 const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
 
 export const ProposeInputSchema = z.object({
-	action: z.enum(["create", "update", "delete"]),
+	action: z.enum(["create", "update", "delete"] as const),
 	path: z.string().min(1),
 	content: z.string().default(""),
 	category: z
@@ -45,7 +45,7 @@ export const ProposeInputSchema = z.object({
 			"clinical",
 			"legal",
 			"financial",
-		])
+		] as const)
 		.default("ephemeral"),
 	edit_class: z
 		.enum([
@@ -54,7 +54,7 @@ export const ProposeInputSchema = z.object({
 			"tag-normalize",
 			"supersede-link",
 			"stale-archive",
-		])
+		] as const)
 		.optional(),
 });
 
