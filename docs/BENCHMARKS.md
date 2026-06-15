@@ -92,11 +92,11 @@ These numbers are the published baselines for the v1.0 release line. CI regressi
 
 | Condition | nDCG@5 | Recall@10 | MRR |
 |---|---|---|---|
-| baseline_fts5_only | 0.801 | 0.92 | 0.776 |
-| pipeline_fts5_only | 0.801 | 0.92 | 0.776 |
-| **pipeline_rrf_fts5_plus_bow** | **0.893** | 0.96 | 0.872 |
+| baseline_fts5_only | 0.801 | 1.00 | 0.734 |
+| pipeline_fts5_only | 0.801 | 1.00 | 0.734 |
+| **pipeline_rrf_fts5_plus_bow** | **0.893** | 1.00 | 0.671 |
 
-Delta: RRF fusion gains **+9.2 nDCG@5 points** over FTS5 alone. `benchmarks/retrieval/regression_guard.py` fails CI on any drop greater than 0.02.
+Delta: RRF fusion gains **+9.2 nDCG@5 points** over FTS5 alone. Recall@10 saturates at 1.00 for every condition on this title-anchored corpus, so the headline gain is ranking quality (nDCG@5), not recall. MRR dips slightly under RRF because the bag-of-words leg is a synthetic surrogate for the roadmap dense backend, which is expected to recover it. These are the seed-42 figures committed in `benchmarks/retrieval/baseline.json`; `benchmarks/retrieval/regression_guard.py` fails CI on any nDCG@5 drop greater than 0.02.
 
 ### Benchmark B: Latency
 
