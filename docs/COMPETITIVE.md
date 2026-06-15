@@ -1,6 +1,6 @@
 # Competitive Landscape
 
-A living document tracking other memory tools in the Claude Code, MCP, and Python agent ecosystems. Updated monthly. **Last reviewed: 2026-06-12.**
+A living document tracking other memory tools in the Claude Code, MCP, and Python agent ecosystems. Updated monthly. **Last reviewed: 2026-06-14.**
 
 ## What Changed in the v1.0 Release Line
 
@@ -40,15 +40,15 @@ The 3.0 line closes the remaining capability-matrix gaps without giving up the l
 
 We rate each competitor on the six axes mneme commits to (see `docs/ARCHITECTURE.md`). Numbers are honest assessments, including dimensions where mneme is not the leader.
 
-| Axis | mneme | claude-mem v13.2.0 | mem0 | letta | zep | supermemory | episodic-memory |
-|---|---|---|---|---|---|---|---|
-| Vault-native transparency | strong (markdown) | weak (SQLite) | weak (vectors) | medium | weak | weak (cloud) | weak |
-| Hybrid retrieval depth | strong (FTS5 plus local dense fused via RRF, shipped) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak |
-| Zero-LLM-Stop latency | strong (under 1s, seeded p95 ~3 ms) | weak (LLM summarization at session end) | n/a | n/a | n/a | n/a | n/a |
-| Privacy redaction | strong (built-in) | absent | absent | absent | absent | absent | absent |
-| Temporal reasoning | strong (built-in claim lifecycle, blame/as-of; Graphiti export gated) | absent | weak | medium | strong | weak | absent |
-| Adaptive context layer | strong (built-in) | absent | absent | absent | absent | absent | absent |
-| Agent security (capability firewall, taint, approval gate) | strong (built-in) | absent | absent | absent | absent | absent | absent |
+| Axis | mneme | claude-mem v13.2.0 | mem0 | letta | zep | supermemory | episodic-memory | claude-obsidian |
+|---|---|---|---|---|---|---|---|---|
+| Vault-native transparency | strong (markdown) | weak (SQLite) | weak (vectors) | medium | weak | weak (cloud) | weak | strong (markdown) |
+| Hybrid retrieval depth | strong (FTS5 plus local dense fused via RRF, shipped) | medium (FTS5 OR ChromaDB) | weak (vector only) | medium | strong | strong | weak | strong (BM25 plus rerank) |
+| Zero-LLM-Stop latency | strong (under 1s, seeded p95 ~3 ms) | weak (LLM summarization at session end) | n/a | n/a | n/a | n/a | n/a | weak (LLM ingest/extract) |
+| Privacy redaction | strong (built-in) | absent | absent | absent | absent | absent | absent | absent |
+| Temporal reasoning | strong (built-in claim lifecycle, blame/as-of; Graphiti export gated) | absent | weak | medium | strong | weak | absent | weak (contradiction flags) |
+| Adaptive context layer | strong (built-in) | absent | absent | absent | absent | absent | absent | medium (hot cache) |
+| Agent security (capability firewall, taint, approval gate) | strong (built-in) | absent | absent | absent | absent | absent | absent | absent |
 
 ## Detailed Notes
 
@@ -76,6 +76,10 @@ Cloud-first memory product with browser extension and API. Server-side processin
 
 Lightweight episodic memory plugin in the OMC ecosystem. Smaller scope than mneme, no hybrid retrieval, no compression.
 
+### claude-obsidian
+
+MIT licensed, the most visible tool in the Claude-Code-plus-markdown niche (6.8k stars, v1.9.2 at last review) and the only Obsidian-native entry. A self-organizing second brain: Claude ingests sources dropped into a raw folder, extracts entities and concepts, and files them into a cross-referenced wiki with hot-cache session memory, hybrid retrieval (BM25 plus contextual-prefix plus cosine rerank), per-file advisory locking, and contradiction flagging. It leads on autonomous research (an autoresearch command runs multi-round gap-filling), Obsidian-native UX (a Bases dashboard plus Zettelkasten, PARA, and LYT methodology modes), and mindshare. The design philosophy is the inverse of mneme's. Ingestion and organization are LLM-driven, and although it does sanitize fetched content against script injection and SSRF, it has no redaction-before-store of private spans and no capability firewall or human-approval gate over what ingested content can do once it is in the wiki. It also targets a single client (Claude Code with Obsidian). mneme keeps the LLM off the Stop path, redacts before every store, firewalls tainted ingested content behind a human-approval gate, and runs across Claude Code, Codex, and Antigravity. Different tools for different jobs. Use claude-obsidian for an autonomous Obsidian research wiki, mneme for an auditable, privacy-first agent-memory substrate.
+
 ## Update Cadence
 
 This document is reviewed monthly. If you maintain a competing tool and our characterization is unfair or outdated, please open an issue. We will correct promptly and credit the correction.
@@ -88,6 +92,7 @@ This document is reviewed monthly. If you maintain a competing tool and our char
 - You are not using Claude Code or an MCP-compatible client at all: use mem0 in your agent stack.
 - You need 26 language-tuned observation prompts today (mneme ships English and Turkish presets; more land on demand): use claude-mem.
 - You need per-user access control and team dashboards on shared memory: use a hosted product (mneme sync has no ACL layer; everyone with the remote sees the shared redacted trees).
+- You want an Obsidian-first autonomous research wiki with a visual Bases dashboard and PKM methodologies (Zettelkasten, PARA, LYT): use claude-obsidian (mneme is an agent-memory substrate for coding agents, not a human-PKM organizer, and it keeps source ingestion behind redaction and a capability firewall rather than autonomously building the wiki).
 
 In all of those cases, the right tool for the job is not mneme. We list these honestly because long-term credibility beats short-term install count.
 
