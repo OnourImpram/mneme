@@ -476,6 +476,11 @@ class TestStopHandleTimingFullProfile:
         _activate_kg(vault)
         from mneme_cc_plugin.hooks import stop as stop_mod
 
+        # Warm-up: prime imports, code paths, and FS caches so cold-start I/O
+        # on loaded CI runners does not inflate the timed measurement below.
+        _capture(monkeypatch)
+        stop_mod.handle({"session_id": "s-timing-warmup"}, vault)
+
         emit_elapsed_ms: list[float] = []
 
         real_emit = stop_mod.emit  # type: ignore[attr-defined]
@@ -486,6 +491,7 @@ class TestStopHandleTimingFullProfile:
             emit_elapsed_ms.append((time.perf_counter() - t0) * 1000)
 
         monkeypatch.setattr(stop_mod, "emit", _timed_emit)
+        # Reset capture buffer so only the measured run's JSON line is present.
         buf = _capture(monkeypatch)
 
         t_start = time.perf_counter()
