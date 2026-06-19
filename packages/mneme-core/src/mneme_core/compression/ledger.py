@@ -31,6 +31,7 @@ keep their original soft-fail semantics for backwards compatibility.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -42,7 +43,26 @@ from ..vault.file_lock import file_lock
 
 DEFAULT_LEDGER_KIND = "compression"
 RESERVATION_KIND_SUFFIX = "-reserved"
-_LOCK_TIMEOUT_S = 5.0
+_DEFAULT_LOCK_TIMEOUT_S = 5.0
+
+
+def _lock_timeout_s() -> float:
+    """Lock-acquisition timeout for the ledger sidecar lock.
+
+    Defaults to ``_DEFAULT_LOCK_TIMEOUT_S`` (5 s) and is overridable via the
+    ``MNEME_LEDGER_LOCK_TIMEOUT_S`` environment variable so heavily-contended
+    hosts (and the concurrency stress test) can widen the acquisition window
+    without changing the production default. A missing, malformed, or
+    non-positive value falls back to the default rather than raising.
+    """
+    raw = os.environ.get("MNEME_LEDGER_LOCK_TIMEOUT_S")
+    if raw is None:
+        return _DEFAULT_LOCK_TIMEOUT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_LOCK_TIMEOUT_S
+    return value if value > 0 else _DEFAULT_LOCK_TIMEOUT_S
 
 
 class LedgerCorruptError(Exception):
@@ -99,7 +119,7 @@ def append_cost(
         "host": host,
     }
     try:
-        with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
+        with file_lock(_lock_path_for(ledger_path), timeout_s=_lock_timeout_s()):
             try:
                 ledger_path.parent.mkdir(parents=True, exist_ok=True)
                 with ledger_path.open("a", encoding="utf-8") as fp:
@@ -278,7 +298,7 @@ def reserve_cost(
     """
     reservation_id = str(uuid.uuid4())
     now = now or datetime.now(UTC)
-    with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
+    with file_lock(_lock_path_for(ledger_path), timeout_s=_lock_timeout_s()):
         try:
             spend = month_to_date_spend(ledger_path, kind=kind, now=now)
         except LedgerCorruptError as exc:
@@ -343,7 +363,7 @@ def settle_reservation(
         "settled_from_reservation": reservation_id,
     }
     target_kind = kind + RESERVATION_KIND_SUFFIX
-    with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
+    with file_lock(_lock_path_for(ledger_path), timeout_s=_lock_timeout_s()):
         kept = _read_lines_dropping_reservation(
             ledger_path, reservation_id=reservation_id, target_kind=target_kind
         )
@@ -364,7 +384,7 @@ def rollback_reservation(
     the audit CLI and clean up manually.
     """
     target_kind = kind + RESERVATION_KIND_SUFFIX
-    with file_lock(_lock_path_for(ledger_path), timeout_s=_LOCK_TIMEOUT_S):
+    with file_lock(_lock_path_for(ledger_path), timeout_s=_lock_timeout_s()):
         kept = _read_lines_dropping_reservation(
             ledger_path, reservation_id=reservation_id, target_kind=target_kind
         )

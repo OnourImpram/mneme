@@ -14,7 +14,6 @@
   <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/pypi/pyversions/mneme-core" alt="Python versions">
   <a href="https://doi.org/10.5281/zenodo.20674727"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20674727.svg" alt="DOI"></a>
-  <a href="https://glama.ai/mcp/servers/TheGoatPsy/mneme"><img src="https://glama.ai/mcp/servers/TheGoatPsy/mneme/badge" alt="Glama quality"></a>
 </p>
 
 <p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>

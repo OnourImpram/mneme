@@ -106,7 +106,14 @@ if __name__ == "__main__":
 """
 
 
-def test_no_committed_record_lost_under_concurrency(tmp_path: Path) -> None:
+def test_no_committed_record_lost_under_concurrency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Widen the sidecar-lock acquisition window so that, under heavy CI
+    # contention, no append soft-drops on the 5 s timeout (the never-raises
+    # path in append_cost). Workers spawned below inherit this via os.environ,
+    # which is the production default that the env var only ever widens.
+    monkeypatch.setenv("MNEME_LEDGER_LOCK_TIMEOUT_S", "60")
     ledger = tmp_path / "cost.jsonl"
     n_procs = 4
     iters = 15
@@ -230,3 +237,53 @@ def test_injected_append_survives_concurrent_settle(
     assert month_to_date_spend(ledger, kind="compression") == pytest.approx(
         0.10, abs=1e-9
     )
+
+
+class TestLockTimeoutEnvKnob:
+    """The ledger lock timeout honors ``MNEME_LEDGER_LOCK_TIMEOUT_S``.
+
+    The default stays at 5 s (unchanged production behavior); the env var only
+    overrides it with a positive float and otherwise falls back to the default,
+    so a missing or malformed value can never break the cost-cap lock.
+    """
+
+    def test_defaults_to_five_seconds_when_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mneme_core.compression.ledger import (
+            _DEFAULT_LOCK_TIMEOUT_S,
+            _lock_timeout_s,
+        )
+
+        monkeypatch.delenv("MNEME_LEDGER_LOCK_TIMEOUT_S", raising=False)
+        assert _lock_timeout_s() == _DEFAULT_LOCK_TIMEOUT_S == 5.0
+
+    def test_reads_positive_override_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mneme_core.compression.ledger import _lock_timeout_s
+
+        monkeypatch.setenv("MNEME_LEDGER_LOCK_TIMEOUT_S", "42.5")
+        assert _lock_timeout_s() == 42.5
+
+    def test_malformed_value_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mneme_core.compression.ledger import (
+            _DEFAULT_LOCK_TIMEOUT_S,
+            _lock_timeout_s,
+        )
+
+        monkeypatch.setenv("MNEME_LEDGER_LOCK_TIMEOUT_S", "not-a-number")
+        assert _lock_timeout_s() == _DEFAULT_LOCK_TIMEOUT_S
+
+    def test_nonpositive_value_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mneme_core.compression.ledger import (
+            _DEFAULT_LOCK_TIMEOUT_S,
+            _lock_timeout_s,
+        )
+
+        monkeypatch.setenv("MNEME_LEDGER_LOCK_TIMEOUT_S", "0")
+        assert _lock_timeout_s() == _DEFAULT_LOCK_TIMEOUT_S
