@@ -9,6 +9,7 @@ updates:
     groups:
       npm-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: pip
     directory: "/packages/mneme-core"
     schedule:
@@ -16,6 +17,7 @@ updates:
     groups:
       pip-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: pip
     directory: "/packages/mneme-cc-plugin"
     schedule:
@@ -23,6 +25,7 @@ updates:
     groups:
       pip-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: pip
     directory: "/packages/mneme-graph"
     schedule:
@@ -30,6 +33,7 @@ updates:
     groups:
       pip-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: pip
     directory: "/packages/mneme-code"
     schedule:
@@ -37,6 +41,7 @@ updates:
     groups:
       pip-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -44,3 +49,4 @@ updates:
     groups:
       actions-all:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
