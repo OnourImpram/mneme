@@ -112,5 +112,7 @@ describe("mneme-mcp CLI metadata", () => {
     expect(res.stdout).toMatch(/mneme-mcp \d+\.\d+\.\d+/);
     expect(res.stderr).not.toContain("VaultNotFound");
     expect(res.stderr).not.toContain("[mneme-mcp] fatal");
-  });
+    // Cold `npx tsx` spawn on a loaded Windows CI runner can exceed vitest's
+    // 5s default; match the beforeAll budget. This asserts behavior, not latency.
+  }, 60_000);
 });
