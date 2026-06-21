@@ -2,15 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%2228%22%20height%3D%2228%22%20rx%3D%227%22%20fill%3D%22%230b0f14%22%20stroke%3D%22%232dd4bf%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M8%2011h16M8%2016h11M8%2021h13%22%20stroke%3D%22%232dd4bf%22%20stroke-width%3D%222.2%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E">
-
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="assets/favicon.png">
 <title>mneme — Accountable, vault-native memory for Claude Code and any MCP client</title>
 <meta name="description" content="mneme is an open-source, Apache-2.0-licensed memory layer for Claude Code and any MCP client. Your Markdown vault stays the source of truth. Every derived store is rebuildable. Redaction before every write.">
 <meta property="og:title" content="mneme — Accountable, vault-native memory for Claude Code">
 <meta property="og:description" content="Open-source, local-first memory layer. Markdown vault as source of truth. Deterministic capture, no LLM on the critical path. On the official MCP Registry.">
 <meta property="og:type" content="website">
-<meta name="theme-color" content="#0b0f14">
+<meta name="theme-color" content="#f7f7f4">
 <link rel="canonical" href="https://thegoatpsy.github.io/mneme/">
 <meta property="og:url" content="https://thegoatpsy.github.io/mneme/">
 <meta property="og:image" content="https://thegoatpsy.github.io/mneme/mneme-og.png">
@@ -22,1490 +21,13 @@
 <meta name="twitter:description" content="Open-source, local-first memory layer. Markdown vault as source of truth. On the official MCP Registry.">
 <meta name="twitter:image" content="https://thegoatpsy.github.io/mneme/mneme-og.png">
 <meta name="twitter:image:alt" content="mneme accountable vault-native memory for Claude Code and any MCP client">
-<style>
-/* ============================================================
-   RESET & BASE
-   ============================================================ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; font-size: 16px; }
 
-:root {
-  --bg:        #0b0f14;
-  --bg-card:   #111827;
-  --bg-card2:  #0f1923;
-  --border:    rgba(45,212,191,0.12);
-  --border-hi: rgba(45,212,191,0.28);
-  --accent:    #2dd4bf;
-  --accent-dim:#1a7a70;
-  --accent-glo:rgba(45,212,191,0.15);
-  --accent-glo2:rgba(45,212,191,0.06);
-  --text:      #e2e8f0;
-  --text-muted:#94a3b8;
-  --text-faint:#64748b;
-  --code-bg:   #0d1f17;
-  --code-fg:   #34d399;
-  --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --sans: Inter, 'Segoe UI', Helvetica, Arial, sans-serif;
-  --radius: 10px;
-  --radius-lg: 16px;
-  --nav-h: 60px;
-}
-
-body {
-  background-color: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  line-height: 1.65;
-  min-height: 100vh;
-  overflow-x: hidden;
-}
-
-/* Background grid */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(45,212,191,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(45,212,191,0.035) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-body::after {
-  content: '';
-  position: fixed;
-  top: -30vh;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 900px;
-  height: 700px;
-  background: radial-gradient(ellipse at center, rgba(45,212,191,0.06) 0%, transparent 70%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* ============================================================
-   LAYOUT HELPERS
-   ============================================================ */
-.container {
-  position: relative;
-  z-index: 1;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
-
-section { padding: 96px 0; }
-section + section { border-top: 1px solid var(--border); }
-
-h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
-h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); color: var(--text); margin-bottom: 12px; }
-
-/* Variant B: section-eyebrow pattern */
-.section-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 10px;
-}
-.section-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.section-eyebrow-line {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(45,212,191,0.35) 0%, transparent 100%);
-}
-
-.section-sub {
-  color: var(--text-muted);
-  font-size: 1.05rem;
-  max-width: 620px;
-  margin-bottom: 56px;
-}
-
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* ============================================================
-   NAV
-   ============================================================ */
-nav {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  height: var(--nav-h);
-  background: rgba(11,15,20,0.88);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
-}
-
-.nav-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 0 24px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.nav-logo {
-  font-family: var(--mono);
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.03em;
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.nav-logo span.logo-ver {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--text-faint);
-  align-self: flex-end;
-  padding-bottom: 2px;
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  list-style: none;
-}
-
-.nav-links a {
-  color: var(--text-muted);
-  font-size: 0.875rem;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-  text-decoration: none;
-}
-
-.nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-
-.nav-gh {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px !important;
-  border: 1px solid var(--border-hi) !important;
-  border-radius: 6px !important;
-  color: var(--accent) !important;
-  background: var(--accent-glo2) !important;
-  font-size: 0.82rem !important;
-  transition: background 0.15s, border-color 0.15s !important;
-}
-.nav-gh:hover { background: var(--accent-glo) !important; border-color: var(--accent) !important; text-decoration: none !important; }
-
-/* Variant C: animated hamburger → X morphing via CSS transforms */
-.nav-hamburger {
-  display: none;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 0;
-  cursor: pointer;
-  padding: 6px;
-  background: none;
-  border: none;
-  width: 34px;
-  height: 34px;
-  position: relative;
-}
-.nav-hamburger span {
-  display: block;
-  width: 22px;
-  height: 2px;
-  background: var(--text-muted);
-  border-radius: 2px;
-  position: absolute;
-  transition: transform 0.25s ease, opacity 0.2s ease;
-}
-.nav-hamburger span:nth-child(1) { transform: translateY(-6px); }
-.nav-hamburger span:nth-child(2) { transform: translateY(0); }
-.nav-hamburger span:nth-child(3) { transform: translateY(6px); }
-
-.nav-hamburger.is-open span:nth-child(1) { transform: translateY(0) rotate(45deg); }
-.nav-hamburger.is-open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
-.nav-hamburger.is-open span:nth-child(3) { transform: translateY(0) rotate(-45deg); }
-
-.nav-mobile-menu {
-  display: none;
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  background: rgba(11,15,20,0.97);
-  border-bottom: 1px solid var(--border);
-  padding: 20px 24px;
-  z-index: 99;
-  flex-direction: column;
-  gap: 4px;
-}
-.nav-mobile-menu.open { display: flex; }
-.nav-mobile-menu a {
-  color: var(--text-muted);
-  font-size: 1rem;
-  padding: 10px 14px;
-  border-radius: 6px;
-  transition: background 0.15s;
-}
-.nav-mobile-menu a:hover { background: rgba(255,255,255,0.05); color: var(--text); text-decoration: none; }
-
-@media (max-width: 720px) {
-  .nav-links { display: none; }
-  .nav-hamburger { display: flex; }
-}
-
-/* ============================================================
-   HERO
-   ============================================================ */
-#hero {
-  padding: 120px 0 96px;
-  border-top: none;
-  text-align: center;
-}
-
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--border-hi);
-  border-radius: 100px;
-  padding: 5px 14px 5px 10px;
-  font-size: 0.78rem;
-  color: var(--accent);
-  background: var(--accent-glo2);
-  margin-bottom: 28px;
-  font-weight: 500;
-}
-.hero-badge .dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.hero-h1 {
-  font-size: clamp(2.4rem, 6vw, 4rem);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
-  margin-bottom: 24px;
-  color: #f1f5f9;
-}
-.hero-h1 em {
-  font-style: normal;
-  color: var(--accent);
-}
-
-.hero-tagline {
-  font-size: clamp(1rem, 2vw, 1.2rem);
-  color: var(--text-muted);
-  max-width: 560px;
-  margin: 0 auto 40px;
-  line-height: 1.7;
-}
-
-.hero-ctas {
-  display: flex;
-  gap: 14px;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-bottom: 64px;
-}
-
-/* Variant C: responsive breakpoint at 560px for hero CTAs */
-@media (max-width: 560px) {
-  .hero-h1 { font-size: 2rem; }
-  .hero-ctas { flex-direction: column; align-items: center; }
-}
-/* Fix 11: additional 480px breakpoint */
-@media (max-width: 480px) {
-  .hero-ctas { flex-direction: column; align-items: center; }
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 28px;
-  background: var(--accent);
-  color: #0b0f14;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 0.9rem;
-  transition: opacity 0.15s, transform 0.15s;
-  text-decoration: none;
-}
-.btn-primary:hover { opacity: 0.88; transform: translateY(-1px); text-decoration: none; }
-
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border: 1px solid var(--border-hi);
-  color: var(--text-muted);
-  border-radius: 8px;
-  font-weight: 500;
-  font-size: 0.9rem;
-  background: rgba(255,255,255,0.03);
-  transition: border-color 0.15s, color 0.15s, transform 0.15s;
-  text-decoration: none;
-}
-.btn-secondary:hover { border-color: var(--accent); color: var(--text); transform: translateY(-1px); text-decoration: none; }
-
-.hero-note {
-  font-size: 0.8rem;
-  color: var(--text-faint);
-}
-
-/* ============================================================
-   INVARIANTS (3 Cards)
-   ============================================================ */
-.invariants-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-
-@media (max-width: 768px) { .invariants-grid { grid-template-columns: 1fr; } }
-@media (min-width: 769px) and (max-width: 900px) { .invariants-grid { grid-template-columns: repeat(2, 1fr); } }
-
-.inv-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 28px;
-  transition: border-color 0.2s, transform 0.2s;
-}
-.inv-card:hover { border-color: var(--border-hi); transform: translateY(-2px); }
-
-.inv-icon {
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  background: var(--accent-glo);
-  border: 1px solid var(--border-hi);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 18px;
-  flex-shrink: 0;
-}
-
-.inv-card h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 10px;
-}
-.inv-card p {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  line-height: 1.7;
-}
-.inv-stat {
-  display: inline-block;
-  margin-top: 14px;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--accent);
-  background: var(--accent-glo2);
-  border: 1px solid var(--border);
-  padding: 3px 10px;
-  border-radius: 100px;
-}
-
-/* ============================================================
-   HOW IT WORKS — Architecture Diagram
-   ============================================================ */
-.arch-wrap {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 48px 36px;
-  overflow-x: auto;
-}
-
-.arch-svg-container {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-/* ============================================================
-   INSTALL
-   ============================================================ */
-.install-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-
-@media (max-width: 820px) { .install-grid { grid-template-columns: 1fr; } }
-
-.install-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-.install-card:hover { border-color: var(--border-hi); }
-
-.install-card-header {
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Variant C: color-coded install badges */
-.install-card-header .ic-badge {
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 2px 8px;
-  border-radius: 100px;
-  border: 1px solid;
-}
-.ic-badge-cc {
-  color: var(--accent);
-  background: var(--accent-glo2);
-  border-color: var(--border-hi);
-}
-.ic-badge-py {
-  color: #f59e0b;
-  background: rgba(245,158,11,0.08);
-  border-color: rgba(245,158,11,0.3);
-}
-.ic-badge-npm {
-  color: #f87171;
-  background: rgba(248,113,113,0.08);
-  border-color: rgba(248,113,113,0.3);
-}
-
-.install-card-header h3 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.code-block {
-  position: relative;
-  background: var(--code-bg);
-  padding: 20px 22px;
-}
-
-.code-block pre {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--code-fg);
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.copy-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: rgba(45,212,191,0.1);
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-family: var(--sans);
-  cursor: pointer;
-  padding: 4px 10px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  transition: background 0.15s, color 0.15s;
-}
-.copy-btn:hover { background: var(--accent-glo); color: var(--accent); }
-.copy-btn.copied { color: var(--accent); border-color: var(--accent); }
-
-.install-note {
-  padding: 12px 22px 18px;
-  font-size: 0.78rem;
-  color: var(--text-faint);
-  line-height: 1.6;
-}
-
-/* ============================================================
-   MCP REGISTRY
-   ============================================================ */
-.registry-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 40px 44px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
-  align-items: center;
-}
-
-@media (max-width: 700px) {
-  .registry-card { grid-template-columns: 1fr; padding: 28px 24px; gap: 24px; }
-}
-
-.registry-id {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 0.92rem;
-  color: var(--accent);
-  background: var(--code-bg);
-  border: 1px solid var(--border-hi);
-  padding: 8px 16px;
-  border-radius: 8px;
-  margin: 16px 0;
-}
-
-.registry-card p {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  line-height: 1.75;
-}
-
-.registry-visual {
-  display: flex;
-  justify-content: center;
-}
-
-/* ============================================================
-   BENCHMARKS — Variant B bench-panel + cell separators
-   ============================================================ */
-.bench-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.bench-panel-header {
-  padding: 20px 28px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.bench-panel-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.bench-run-badge {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--accent);
-  background: var(--accent-glo2);
-  border: 1px solid var(--border-hi);
-  padding: 3px 10px;
-  border-radius: 100px;
-}
-
-.bench-caveat {
-  background: rgba(45,212,191,0.04);
-  border-left: 3px solid var(--accent);
-  padding: 14px 20px;
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  margin-bottom: 0;
-  font-family: var(--mono);
-  line-height: 1.7;
-}
-.bench-caveat strong { color: var(--accent); }
-
-.bench-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-}
-
-@media (max-width: 680px) { .bench-grid { grid-template-columns: 1fr; } }
-
-/* Variant B: border-right / border-bottom cell separator approach */
-.bench-gauge-card {
-  background: var(--bg-card);
-  padding: 32px 24px 24px;
-  text-align: center;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  transition: background 0.2s;
-}
-.bench-gauge-card:hover { background: rgba(45,212,191,0.02); }
-.bench-gauge-card:last-of-type { border-right: none; }
-
-@media (max-width: 680px) {
-  .bench-gauge-card { border-right: none; }
-}
-
-.gauge-svg { overflow: visible; }
-
-.gauge-track {
-  fill: none;
-  stroke: rgba(45,212,191,0.08);
-  stroke-width: 10;
-  stroke-linecap: round;
-}
-
-.gauge-fill {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 10;
-  stroke-linecap: round;
-  transform-origin: 60px 60px;
-  transform: rotate(-220deg);
-  stroke-dasharray: 0 320;
-  /* Fix 3: correct keyframe for nDCG: 0.893 × 275 ≈ 245 */
-  animation: gauge-draw 1.4s cubic-bezier(0.4,0,0.2,1) 0.3s forwards;
-}
-
-.gauge-fill-full {
-  stroke-dasharray: 0 320;
-  /* Fix 3: Recall@10 full sweep = 275 out of 275-unit track */
-  animation: gauge-draw-full 1.4s cubic-bezier(0.4,0,0.2,1) 0.3s forwards;
-}
-
-@keyframes gauge-draw {
-  /* Fix 3: 0.893 × 275 = 245.575 ≈ 245 */
-  to { stroke-dasharray: 245 320; }
-}
-@keyframes gauge-draw-full {
-  /* Fix 3: full sweep = 275 (track circumference segment) */
-  to { stroke-dasharray: 275 320; }
-}
-
-.gauge-value {
-  font-family: var(--mono);
-  font-size: 1.5rem;
-  font-weight: 700;
-  fill: var(--accent);
-}
-.gauge-label-svg {
-  font-family: var(--sans);
-  font-size: 0.7rem;
-  fill: var(--text-faint);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.bench-label {
-  margin-top: 14px;
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.bench-raw {
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  color: var(--text-faint);
-  margin-top: 4px;
-}
-
-/* Latency track — full width below gauges */
-.bench-latency-card {
-  background: var(--bg-card);
-  padding: 32px 30px;
-  border-bottom: 1px solid var(--border);
-  grid-column: 1 / -1;
-  transition: background 0.2s;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 24px 40px;
-  align-items: start;
-}
-.bench-latency-card:hover { background: rgba(45,212,191,0.02); }
-
-.latency-main { }
-
-.latency-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.latency-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.latency-stat {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.latency-rail {
-  position: relative;
-  height: 32px;
-  background: rgba(45,212,191,0.06);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  overflow: hidden;
-  margin-bottom: 10px;
-}
-
-.latency-budget {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0px,
-    transparent 18px,
-    rgba(45,212,191,0.03) 18px,
-    rgba(45,212,191,0.03) 20px
-  );
-}
-
-.latency-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  width: 0.3%;
-  background: linear-gradient(90deg, var(--accent), #34d399);
-  border-radius: 100px;
-  min-width: 4px;
-  /* Fix 4: removed conflicting transition:width declaration */
-  animation: latency-in 1.5s cubic-bezier(0.4,0,0.2,1) 0.5s both;
-}
-
-@keyframes latency-in {
-  from { width: 0; }
-  to { width: 0.3%; }
-}
-
-.latency-marker {
-  position: absolute;
-  right: 0;
-  top: -6px;
-  bottom: -6px;
-  width: 2px;
-  background: rgba(45,212,191,0.3);
-}
-.latency-marker::after {
-  content: '1000 ms CI budget';
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.7rem;
-  font-family: var(--mono);
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-.latency-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.72rem;
-  color: var(--text-faint);
-  font-family: var(--mono);
-}
-
-.latency-actual-label {
-  font-size: 0.8rem;
-  color: var(--accent);
-  font-family: var(--mono);
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.latency-actual-label::before {
-  content: '';
-  display: inline-block;
-  width: 20px;
-  height: 8px;
-  background: linear-gradient(90deg, var(--accent), #34d399);
-  border-radius: 4px;
-}
-
-/* Variant C: large monospace number callout for latency */
-.latency-callout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-glo2);
-  border: 1px solid var(--border-hi);
-  border-radius: var(--radius);
-  padding: 20px 28px;
-  text-align: center;
-  min-width: 120px;
-}
-.latency-callout-num {
-  font-family: var(--mono);
-  font-size: 2.8rem;
-  font-weight: 700;
-  color: var(--accent);
-  line-height: 1;
-}
-.latency-callout-unit {
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-top: 4px;
-}
-.latency-callout-sub {
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-top: 2px;
-}
-
-@media (max-width: 680px) {
-  .bench-latency-card { grid-template-columns: 1fr; }
-  .latency-callout { flex-direction: row; gap: 16px; align-items: baseline; min-width: unset; }
-  .latency-callout-num { font-size: 2rem; }
-}
-
-/* Horizontal bars */
-.bench-bars-card {
-  background: var(--bg-card);
-  padding: 32px 30px;
-  border-bottom: 1px solid var(--border);
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
-  transition: background 0.2s;
-}
-.bench-bars-card:hover { background: rgba(45,212,191,0.02); }
-
-@media (max-width: 600px) { .bench-bars-card { grid-template-columns: 1fr; } }
-
-.bar-metric-name {
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-  font-weight: 500;
-}
-.bar-track {
-  height: 12px;
-  background: rgba(45,212,191,0.06);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-.bar-fill {
-  height: 100%;
-  border-radius: 100px;
-  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
-  width: 0;
-}
-.bar-fill-88 { animation: bar-in-88 1.2s cubic-bezier(0.4,0,0.2,1) 0.6s forwards; }
-.bar-fill-95 { animation: bar-in-95 1.2s cubic-bezier(0.4,0,0.2,1) 0.8s forwards; }
-
-@keyframes bar-in-88 { to { width: 88%; } }
-@keyframes bar-in-95 { to { width: 95%; } }
-
-.bar-val {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--accent);
-  font-weight: 700;
-}
-.bar-val-label { color: var(--text-faint); font-size: 0.72rem; margin-left: 4px; }
-
-/* Claude-mem migration checks */
-.bench-checks-card {
-  background: var(--bg-card);
-  padding: 32px 30px;
-  grid-column: 1 / -1;
-  transition: background 0.2s;
-}
-.bench-checks-card:hover { background: rgba(45,212,191,0.02); }
-
-.checks-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 20px;
-}
-
-.checks-row {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.check-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(45,212,191,0.06);
-  border: 1px solid var(--border-hi);
-  border-radius: 8px;
-  padding: 10px 18px;
-  opacity: 0;
-  animation: check-pop 0.4s ease forwards;
-}
-.check-item:nth-child(1) { animation-delay: 0.3s; }
-.check-item:nth-child(2) { animation-delay: 0.55s; }
-.check-item:nth-child(3) { animation-delay: 0.8s; }
-.check-item:nth-child(4) { animation-delay: 1.05s; }
-
-@keyframes check-pop {
-  from { opacity: 0; transform: scale(0.85); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-.check-label {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  font-family: var(--mono);
-}
-
-.checks-summary {
-  margin-top: 16px;
-  font-size: 0.82rem;
-  color: var(--text-faint);
-}
-.checks-summary strong {
-  color: var(--accent);
-  font-family: var(--mono);
-}
-
-/* ============================================================
-   ADVANCED MODULES
-   ============================================================ */
-.modules-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-@media (max-width: 1000px) { .modules-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 500px) { .modules-grid { grid-template-columns: 1fr; } }
-
-.module-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px 20px;
-  transition: border-color 0.2s, transform 0.2s;
-}
-.module-card:hover { border-color: var(--border-hi); transform: translateY(-2px); }
-
-.module-icon {
-  width: 34px; height: 34px;
-  border-radius: 8px;
-  background: var(--accent-glo2);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 14px;
-}
-
-.module-card h3 {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-.module-card p {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  line-height: 1.65;
-}
-.module-tags {
-  display: flex;
-  gap: 6px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-/* Variant C: technology-specific tags */
-.module-tag {
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 100px;
-  border: 1px solid var(--border);
-  color: var(--text-faint);
-}
-.module-tag-tech {
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 100px;
-  border: 1px solid rgba(45,212,191,0.2);
-  color: var(--accent);
-  background: var(--accent-glo2);
-}
-
-/* ============================================================
-   FAQ — Variant B accordion with aria-expanded + hidden attr
-   ============================================================ */
-.faq-list {
-  display: grid;
-  gap: 12px;
-}
-
-.faq-item {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-.faq-item:hover { border-color: var(--border-hi); }
-
-.faq-trigger {
-  width: 100%;
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 22px 28px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--text);
-  font-family: var(--sans);
-}
-
-.faq-trigger h3 {
-  font-size: 0.96rem;
-  font-weight: 600;
-  color: var(--text);
-  margin: 0;
-}
-
-.faq-chevron {
-  flex-shrink: 0;
-  transition: transform 0.25s ease;
-  color: var(--text-faint);
-}
-.faq-trigger[aria-expanded="true"] .faq-chevron {
-  transform: rotate(180deg);
-  color: var(--accent);
-}
-
-.faq-body {
-  padding: 0 28px 22px;
-}
-.faq-body[hidden] { display: none; }
-
-.faq-body p {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  line-height: 1.75;
-}
-.faq-body a { color: var(--accent); text-decoration: underline; text-decoration-color: rgba(45,212,191,0.35); }
-
-/* ============================================================
-   HONEST FIT
-   ============================================================ */
-.honest-block {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 32px 36px;
-}
-
-.honest-block .hb-icon {
-  flex-shrink: 0;
-  width: 44px; height: 44px;
-  border-radius: 10px;
-  background: var(--accent-glo);
-  border: 1px solid var(--border-hi);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.honest-block p {
-  font-size: 0.92rem;
-  color: var(--text-muted);
-  line-height: 1.75;
-}
-.honest-block a {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-/* ============================================================
-   FOOTER
-   ============================================================ */
-footer {
-  border-top: 1px solid var(--border);
-  padding: 48px 0 36px;
-  position: relative;
-  z-index: 1;
-}
-
-.footer-inner {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 40px;
-  flex-wrap: wrap;
-  margin-bottom: 40px;
-}
-
-.footer-brand .fb-name {
-  font-family: var(--mono);
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 8px;
-}
-.footer-brand p {
-  font-size: 0.82rem;
-  color: var(--text-faint);
-  max-width: 260px;
-  line-height: 1.7;
-}
-
-.footer-links {
-  display: flex;
-  gap: 48px;
-  flex-wrap: wrap;
-}
-
-.footer-col h4 {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  margin-bottom: 14px;
-}
-
-.footer-col ul {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.footer-col a {
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  text-decoration: none;
-  transition: color 0.15s;
-}
-.footer-col a:hover { color: var(--accent); }
-
-.footer-bottom {
-  border-top: 1px solid var(--border);
-  padding-top: 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.footer-bottom p {
-  font-size: 0.78rem;
-  color: var(--text-faint);
-}
-
-.footer-bottom .license {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--accent);
-  background: var(--accent-glo2);
-  border: 1px solid var(--border);
-  padding: 3px 10px;
-  border-radius: 100px;
-}
-
-/* ============================================================
-   SCROLL REVEAL
-   ============================================================ */
-.reveal {
-  opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.55s ease, transform 0.55s ease;
-}
-.reveal.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* Stagger children */
-.stagger > * {
-  opacity: 0;
-  transform: translateY(14px);
-  transition: opacity 0.45s ease, transform 0.45s ease;
-}
-.stagger.visible > *:nth-child(1) { opacity:1; transform:none; transition-delay: 0.05s; }
-.stagger.visible > *:nth-child(2) { opacity:1; transform:none; transition-delay: 0.15s; }
-.stagger.visible > *:nth-child(3) { opacity:1; transform:none; transition-delay: 0.25s; }
-.stagger.visible > *:nth-child(4) { opacity:1; transform:none; transition-delay: 0.35s; }
-.stagger.visible > *:nth-child(5) { opacity:1; transform:none; transition-delay: 0.45s; }
-.stagger.visible > *:nth-child(6) { opacity:1; transform:none; transition-delay: 0.55s; }
-.stagger.visible > *:nth-child(7) { opacity:1; transform:none; transition-delay: 0.65s; }
-.stagger.visible > *:nth-child(8) { opacity:1; transform:none; transition-delay: 0.75s; }
-
-
-/* ============================================================
-   PREFERS-REDUCED-MOTION
-   ============================================================ */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-delay: 0ms !important;
-    transition-duration: 0.001ms !important;
-  }
-  .reveal, .stagger > * {
-    opacity: 1 !important;
-    transform: none !important;
-  }
-  .stagger.visible > * { transition-delay: 0ms !important; }
-  html { scroll-behavior: auto; }
-}
-
-/* ============================================================
-   SCROLL-MARGIN-TOP — clear sticky nav on anchor jump
-   ============================================================ */
-#hero, #invariants, #how-it-works, #install,
-#benchmarks, #compare, #modules, #registry, #fit, #faq {
-  scroll-margin-top: calc(var(--nav-h) + 8px);
-}
-
-/* ============================================================
-   HOW IT COMPARES — capability matrix
-   ============================================================ */
-.compare-section { }
-.compare-caveat {
-  background: rgba(45,212,191,0.04);
-  border-left: 3px solid var(--accent);
-  padding: 14px 20px;
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  line-height: 1.75;
-  margin-bottom: 24px;
-  border-radius: 0 6px 6px 0;
-}
-.compare-scroll-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-.compare-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-  min-width: 680px;
-}
-.compare-table th,
-.compare-table td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  vertical-align: middle;
-  line-height: 1.45;
-}
-.compare-table th:last-child,
-.compare-table td:last-child {
-  border-right: none;
-}
-.compare-table thead th {
-  background: var(--bg-card2);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.compare-table thead th.col-mneme {
-  color: var(--accent);
-  background: rgba(45,212,191,0.06);
-}
-/* sticky first column */
-.compare-table th:first-child,
-.compare-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background: var(--bg-card);
-  min-width: 220px;
-  max-width: 260px;
-  font-weight: 500;
-  color: var(--text);
-  border-right: 1px solid var(--border-hi);
-}
-.compare-table thead th:first-child {
-  background: var(--bg-card2);
-  color: var(--text-muted);
-}
-.compare-table tbody tr:last-child td {
-  border-bottom: none;
-}
-.compare-table tbody tr:hover td {
-  background: rgba(45,212,191,0.025);
-}
-.compare-table tbody tr:hover td:first-child {
-  background: var(--bg-card);
-}
-/* mneme column accent */
-.compare-table td.col-mneme {
-  color: var(--accent);
-  font-weight: 600;
-  background: rgba(45,212,191,0.04);
-}
-.compare-table td.col-other {
-  color: var(--text-muted);
-}
-.compare-table td.col-na {
-  color: var(--text-faint);
-  font-style: italic;
-}
-.compare-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 18px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-.compare-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.compare-legend-glyph {
-  font-family: var(--mono);
-  color: var(--accent);
-  min-width: 18px;
-  text-align: center;
-}
-.compare-legend-glyph.dim { color: var(--text-faint); }
-.compare-detail-link {
-  margin-top: 16px;
-  font-size: 0.84rem;
-  color: var(--text-muted);
-}
-.compare-detail-link a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-color: rgba(45,212,191,0.35);
-}
-
-/* ============================================================
-   HERO META PILLS
-   ============================================================ */
-.hero-meta-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 18px;
-}
-.hero-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  padding: 3px 10px;
-  border-radius: 100px;
-  border: 1px solid var(--border-hi);
-  color: var(--accent);
-  background: var(--accent-glo2);
-}
-
-/* ============================================================
-   INSTALL COPY BUTTON — toolbar row approach
-   ============================================================ */
-.code-block-v2 {
-  background: var(--code-bg);
-}
-.code-block-v2 .cb-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px 12px 0 12px;
-}
-.code-block-v2 .cb-code {
-  padding: 8px 22px 18px;
-}
-.code-block-v2 pre {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--code-fg);
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.copy-btn-v2 {
-  background: rgba(45,212,191,0.1);
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-family: var(--sans);
-  cursor: pointer;
-  padding: 4px 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: background 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-.copy-btn-v2:hover { background: var(--accent-glo); color: var(--accent); }
-.copy-btn-v2.copied { color: var(--accent); border-color: var(--accent); }
-
-</style>
+<!--
+  mneme — site redesign "Engineering Ledger".
+  Self-contained: no framework, no build step.
+  Fonts self-hosted (fonts/), SIL OFL 1.1: Mona Sans (github/mona-sans),
+  Spline Sans Mono (SorkinType/SplineSansMono). See fonts/OFL-*.txt.
+-->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -1526,545 +48,1016 @@ footer {
   "description": "Accountable, vault-native memory for Claude Code and any MCP client. Local-first, Apache-2.0 licensed, on the official MCP Registry."
 }
 </script>
+
+<style>
+/* ============================================================
+   FONTS (self-hosted, variable, SIL OFL 1.1)
+   ============================================================ */
+@font-face{
+  font-family:'Mona Sans';
+  src:url('fonts/mona-sans-wght.woff2') format('woff2');
+  font-weight:200 900; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'Spline Sans Mono';
+  src:url('fonts/spline-sans-mono-wght.woff2') format('woff2');
+  font-weight:300 700; font-style:normal; font-display:swap;
+}
+
+/* ============================================================
+   TOKENS — "Engineering Ledger"
+   cool drafting paper · near-black ink · one stamp-red signature
+   ============================================================ */
+:root{
+  /* surface (cool paper, never warm cream) — bright plates that sit ON the stone */
+  --paper:    oklch(0.986 0.003 240);
+  --paper-2:  oklch(0.967 0.004 240);
+  --paper-3:  oklch(0.945 0.006 245);
+  /* stone — Pentelic marble: the antiquity material carried across the whole page */
+  --stone:    oklch(0.971 0.005 248);
+  --stone-2:  oklch(0.951 0.007 250);
+  --dusk:     oklch(0.930 0.016 256);
+  /* ink */
+  --ink:      oklch(0.235 0.014 250);
+  --ink-2:    oklch(0.420 0.014 250);
+  --ink-3:    oklch(0.500 0.012 250);
+  /* rules (ledger hairlines) */
+  --rule:     oklch(0.900 0.006 245);
+  --rule-2:   oklch(0.835 0.008 245);
+  /* stamp-red signature (audit seal / provenance, not alarm) */
+  --stamp:        oklch(0.470 0.160 27);
+  --stamp-deep:   oklch(0.400 0.150 27);
+  --stamp-tint:   oklch(0.955 0.025 27);
+  --stamp-tint-2: oklch(0.928 0.040 27);
+  /* verified (functional only) */
+  --ok:       oklch(0.495 0.110 150);
+  --ok-tint:  oklch(0.950 0.030 150);
+  /* antiquity — Mnemosyne / Greek zones */
+  --gold:        oklch(0.800 0.105 84);
+  --gold-2:      oklch(0.700 0.100 80);
+  --gold-border: oklch(0.800 0.105 84 / 0.30);
+  --night:    oklch(0.205 0.045 260);
+  --night-2:  oklch(0.255 0.050 262);
+
+  --font-sans:'Mona Sans', ui-sans-serif, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono:'Spline Sans Mono', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* spacing scale — no magic numbers */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px;
+  --s-6:24px; --s-7:28px; --s-8:32px; --s-10:40px; --s-12:48px; --s-16:64px;
+  /* shared horizontal page gutter */
+  --pad-x:28px;
+  /* display weight (Mona Sans variable axis — intentional, below 400) */
+  --w-display:340;
+
+  --r:3px; --r-2:6px; --r-3:10px;
+  --nav-h:62px;
+  --maxw:1140px;
+  --shadow-1:0 1px 2px oklch(0.235 0.014 250 / 0.05), 0 2px 10px oklch(0.235 0.014 250 / 0.04);
+  --shadow-2:0 2px 6px oklch(0.235 0.014 250 / 0.07), 0 12px 34px oklch(0.235 0.014 250 / 0.08);
+
+  --ease:cubic-bezier(0.23,1,0.32,1);
+  --dur-fast:140ms; --dur:220ms; --dur-slow:440ms;
+
+  --z-nav:100; --z-menu:200;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px;-webkit-text-size-adjust:100%}
+html{scroll-padding-top:calc(var(--nav-h) + 14px)}
+
+body{
+  background:
+    radial-gradient(125% 85% at 50% -8%, oklch(0.990 0.004 250) 0%, transparent 52%),
+    radial-gradient(90% 55% at 86% 6%, oklch(0.965 0.020 88 / 0.40) 0%, transparent 60%),
+    var(--stone);
+  background-attachment:fixed;
+  color:var(--ink);
+  font-family:var(--font-sans);
+  font-weight:400;
+  line-height:1.6;
+  letter-spacing:-0.006em;
+  font-feature-settings:"ss01","cv01";
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  min-height:100vh;
+  overflow-x:clip;
+}
+
+/* layer 1 — Pentelic marble: the antiquity material, veined faintly across the whole page */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.6;
+  mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'780'%20height%3D'780'%3E%3Cfilter%20id%3D'v'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'0.009%200.022'%20numOctaves%3D'4'%20seed%3D'11'%20stitchTiles%3D'stitch'%20result%3D'n'%2F%3E%3CfeColorMatrix%20in%3D'n'%20type%3D'matrix'%20values%3D'0%200%200%200%200.40%200%200%200%200%200.44%200%200%200%200%200.52%200.34%200.34%200.30%200%20-0.34'%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D'780'%20height%3D'780'%20filter%3D'url(%23v)'%2F%3E%3C%2Fsvg%3E");
+  background-size:780px 780px;
+}
+
+/* layer 2 — the Muses' night sky: faint gilt constellations drawn over the marble */
+body::after{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.62;
+  background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'560'%20height%3D'560'%3E%3Cg%20fill%3D'rgb(201%2C162%2C74)'%3E%3Ccircle%20cx%3D'80'%20cy%3D'40'%20r%3D'1.6'%2F%3E%3Ccircle%20cx%3D'70'%20cy%3D'60'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'95'%20cy%3D'95'%20r%3D'1.5'%2F%3E%3Ccircle%20cx%3D'60'%20cy%3D'120'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'40'%20cy%3D'95'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'200'%20cy%3D'70'%20r%3D'1.5'%2F%3E%3Ccircle%20cx%3D'250'%20cy%3D'55'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'235'%20cy%3D'110'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'320'%20cy%3D'80'%20r%3D'1.3'%2F%3E%3Ccircle%20cx%3D'350'%20cy%3D'60'%20r%3D'1.6'%2F%3E%3Ccircle%20cx%3D'380'%20cy%3D'90'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'410'%20cy%3D'65'%20r%3D'1.5'%2F%3E%3Ccircle%20cx%3D'440'%20cy%3D'95'%20r%3D'1.3'%2F%3E%3Ccircle%20cx%3D'120'%20cy%3D'200'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'150'%20cy%3D'185'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'185'%20cy%3D'188'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'210'%20cy%3D'205'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'250'%20r%3D'1.5'%2F%3E%3Ccircle%20cx%3D'335'%20cy%3D'245'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'370'%20cy%3D'260'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'400'%20cy%3D'250'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'430'%20cy%3D'235'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'460'%20cy%3D'250'%20r%3D'1.3'%2F%3E%3Ccircle%20cx%3D'120'%20cy%3D'420'%20r%3D'1.3'%2F%3E%3Ccircle%20cx%3D'160'%20cy%3D'440'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'150'%20cy%3D'400'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'300'%20cy%3D'460'%20r%3D'1.4'%2F%3E%3Ccircle%20cx%3D'340'%20cy%3D'450'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'370'%20cy%3D'470'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'500'%20cy%3D'130'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'520'%20cy%3D'300'%20r%3D'1.3'%2F%3E%3Ccircle%20cx%3D'480'%20cy%3D'420'%20r%3D'0.9'%2F%3E%3Ccircle%20cx%3D'60'%20cy%3D'300'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'250'%20cy%3D'330'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'450'%20cy%3D'360'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'90'%20cy%3D'490'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'520'%20cy%3D'500'%20r%3D'0.9'%2F%3E%3Ccircle%20cx%3D'280'%20cy%3D'180'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'180'%20cy%3D'300'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'420'%20cy%3D'180'%20r%3D'1.2'%2F%3E%3Ccircle%20cx%3D'40'%20cy%3D'200'%20r%3D'0.9'%2F%3E%3Ccircle%20cx%3D'150'%20cy%3D'520'%20r%3D'1'%2F%3E%3Ccircle%20cx%3D'260'%20cy%3D'520'%20r%3D'0.9'%2F%3E%3Ccircle%20cx%3D'330'%20cy%3D'360'%20r%3D'1.1'%2F%3E%3Ccircle%20cx%3D'500'%20cy%3D'210'%20r%3D'1'%2F%3E%3C%2Fg%3E%3Cg%20stroke%3D'rgb(201%2C162%2C74)'%20stroke-width%3D'.6'%20fill%3D'none'%20opacity%3D'.5'%3E%3Cpath%20d%3D'M80%2040%20L70%2060%20L95%2095%20L60%20120%20L40%2095%20L70%2060'%2F%3E%3Cpath%20d%3D'M200%2070%20L250%2055%20L235%20110%20Z'%2F%3E%3Cpath%20d%3D'M320%2080%20L350%2060%20L380%2090%20L410%2065%20L440%2095'%2F%3E%3Cpath%20d%3D'M120%20200%20L150%20185%20L185%20188%20L210%20205'%2F%3E%3Cpath%20d%3D'M300%20250%20L335%20245%20L370%20260%20L400%20250%20L430%20235%20L460%20250'%2F%3E%3Cpath%20d%3D'M120%20420%20L160%20440%20L150%20400%20Z'%2F%3E%3Cpath%20d%3D'M300%20460%20L340%20450%20L370%20470'%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  background-size:560px 560px;
+}
+main{position:relative;z-index:1}
+
+/* ============================================================
+   PRIMITIVES
+   ============================================================ */
+.wrap{width:100%;max-width:var(--maxw);margin:0 auto;padding:0 28px}
+section{padding:clamp(60px,8.5vw,118px) 0}
+section + section{border-top:1px solid var(--rule)}
+
+h1,h2,h3,h4{line-height:1.08;letter-spacing:-0.025em;color:var(--ink);text-wrap:balance}
+h2{font-size:clamp(1.65rem,3.1vw,2.45rem);font-weight:650}
+h3{font-size:1.12rem;font-weight:650;letter-spacing:-0.018em}
+p{text-wrap:pretty}
+
+a{color:var(--stamp);text-decoration:none;text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{text-decoration:underline}
+
+.mono{font-family:var(--font-mono);font-feature-settings:"zero","tnum"}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* ledger line-item header (replaces the AI eyebrow kicker) */
+.led-head{display:flex;align-items:baseline;gap:16px;margin-bottom:18px}
+.led-mark{
+  font-family:var(--font-mono);font-size:0.78rem;font-weight:500;
+  color:var(--stamp);letter-spacing:0.02em;flex-shrink:0;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.led-rule{flex:1;height:1px;background:var(--rule-2);align-self:center;transform:translateY(1px)}
+.lead{color:var(--ink-2);font-size:1.075rem;max-width:60ch;margin-top:14px}
+.lead--spaced{margin-bottom:var(--s-4)}
+
+/* focus ring (designed) */
+:focus-visible{outline:2px solid var(--stamp);outline-offset:3px;border-radius:2px}
+:focus:not(:focus-visible){outline:none}
+
+.skip{
+  position:absolute;left:14px;top:-60px;z-index:300;
+  background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:var(--r);
+  font-size:0.85rem;transition:top var(--dur) var(--ease);
+}
+.skip:focus{top:12px;text-decoration:none}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--font-sans);font-size:0.92rem;font-weight:550;
+  padding:11px 18px;border-radius:var(--r);border:1px solid transparent;
+  cursor:pointer;transition:transform var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+  letter-spacing:-0.01em;line-height:1;white-space:nowrap;
+}
+.btn:active{transform:scale(0.972)}
+.btn-primary{background:var(--stamp);color:oklch(0.99 0.01 60);border-color:var(--stamp)}
+.btn-primary:hover{background:var(--stamp-deep);border-color:var(--stamp-deep);text-decoration:none}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--rule-2)}
+.btn-ghost:hover{background:var(--paper-2);border-color:var(--ink-3);text-decoration:none}
+.btn svg{width:16px;height:16px;flex-shrink:0}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+nav{
+  position:sticky;top:0;z-index:var(--z-nav);height:var(--nav-h);
+  background:oklch(0.986 0.003 240 / 0.86);
+  backdrop-filter:blur(12px) saturate(1.4);
+  -webkit-backdrop-filter:blur(12px) saturate(1.4);
+  border-bottom:1px solid var(--rule);
+}
+.nav-in{max-width:var(--maxw);margin:0 auto;padding:0 28px;height:100%;
+  display:flex;align-items:center;justify-content:space-between;gap:18px}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0;color:var(--ink)}
+.brand:hover{text-decoration:none}
+.brand-mark{width:28px;height:28px;flex-shrink:0;border-radius:50%;object-fit:cover;box-shadow:0 1px 5px oklch(0.25 0.05 260 / 0.35)}
+.brand-name{font-family:var(--font-mono);font-weight:600;font-size:1.08rem;letter-spacing:-0.02em;color:var(--ink)}
+.brand-ver{font-family:var(--font-mono);font-size:0.66rem;font-weight:500;color:var(--paper);
+  background:var(--ink-2);padding:2px 6px;border-radius:3px;letter-spacing:0.01em;align-self:center}
+.nav-links{display:flex;align-items:center;gap:2px;list-style:none}
+.nav-links a{color:var(--ink-2);font-size:0.875rem;font-weight:500;padding:7px 11px;border-radius:var(--r);
+  transition:color var(--dur-fast),background var(--dur-fast)}
+.nav-links a:hover{color:var(--ink);background:var(--paper-3);text-decoration:none}
+.nav-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.nav-gh{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font-size:0.875rem;font-weight:500;
+  padding:7px 11px;border-radius:var(--r);transition:color var(--dur-fast),background var(--dur-fast)}
+.nav-gh:hover{color:var(--ink);background:var(--paper-3);text-decoration:none}
+.nav-gh svg{width:17px;height:17px}
+.nav-cta{padding:8px 15px;font-size:0.86rem}
+
+.burger{display:none;width:38px;height:38px;border:1px solid var(--rule-2);border-radius:var(--r);
+  background:transparent;cursor:pointer;position:relative;flex-shrink:0}
+.burger span{position:absolute;left:50%;top:50%;width:17px;height:1.8px;background:var(--ink);border-radius:2px;
+  transform:translate(-50%,-50%);transition:transform var(--dur) var(--ease),opacity var(--dur-fast)}
+.burger span:nth-child(1){transform:translate(-50%,calc(-50% - 5px))}
+.burger span:nth-child(3){transform:translate(-50%,calc(-50% + 5px))}
+.burger.open span:nth-child(1){transform:translate(-50%,-50%) rotate(45deg)}
+.burger.open span:nth-child(2){opacity:0;transform:translate(-50%,-50%) scaleX(0)}
+.burger.open span:nth-child(3){transform:translate(-50%,-50%) rotate(-45deg)}
+
+.mobile{display:none;position:fixed;inset:var(--nav-h) 0 auto 0;z-index:var(--z-menu);
+  background:var(--paper);border-bottom:1px solid var(--rule);padding:10px 28px 20px;box-shadow:var(--shadow-2)}
+.mobile.open{display:block}
+.mobile a{display:block;color:var(--ink);font-size:1rem;font-weight:500;padding:13px 4px;
+  border-bottom:1px solid var(--rule)}
+.mobile a:hover{text-decoration:none;color:var(--stamp)}
+.mobile .btn{margin-top:16px;width:100%;justify-content:center}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero{padding-top:clamp(48px,6vw,80px);padding-bottom:clamp(56px,7vw,96px)}
+.hero-grid{display:grid;grid-template-columns:1.02fr 0.98fr;gap:clamp(32px,4vw,56px);align-items:center}
+.hero-eyebrow{font-family:var(--font-mono);font-size:0.78rem;color:var(--ink-2);
+  display:inline-flex;align-items:center;gap:10px;margin-bottom:22px;flex-wrap:wrap;line-height:1.4}
+.hero-eyebrow .dot{width:5px;height:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-tint)}
+.hero h1{font-size:clamp(2.9rem,6.1vw,5.1rem);font-weight:455;line-height:1.0;letter-spacing:-0.043em;color:var(--ink)}
+.hero h1 .key{position:relative;font-weight:740;white-space:nowrap}
+.hero h1 .key::after{content:"";position:absolute;left:-2%;right:-2%;bottom:-0.13em;height:0.2em;
+  background:no-repeat center/100% 100% url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20220%2014'%20preserveAspectRatio='none'%3E%3Cpath%20d='M5%208%20Q%2056%202.5%20110%206.5%20T%20215%206'%20fill='none'%20stroke='%23a83a22'%20stroke-width='4'%20stroke-linecap='round'/%3E%3C/svg%3E")}
+.hero h1 .muted{font-weight:455;color:var(--ink-3)}
+.hero-sub{margin-top:24px;color:var(--ink-2);font-size:1.12rem;line-height:1.62;max-width:46ch}
+.hero-sub b{color:var(--ink);font-weight:600}
+.hero-cta{margin-top:34px;display:flex;flex-direction:column;gap:14px;max-width:580px}
+.hero-cta-row{display:flex;gap:12px;flex-wrap:wrap}
+.hero-fit{font-size:0.9rem;color:var(--ink-2)}
+.hero-fit a{font-weight:550;color:var(--ink-2);text-decoration:none;text-underline-offset:3px}
+.hero-fit a:hover{color:var(--stamp);text-decoration:underline}
+
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px}
+.pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:0.74rem;
+  color:var(--ink-2);background:var(--paper-2);border:1px solid var(--rule);
+  padding:5px 10px;border-radius:20px;letter-spacing:0.01em}
+.pill .tick{color:var(--ok);font-weight:700}
+
+/* command CTA (the real command is the hero element) */
+.cmd{display:flex;align-items:center;gap:11px;background:var(--paper-2);border:1px solid var(--rule-2);
+  border-radius:var(--r-2);padding:13px 14px 13px 16px;font-family:var(--font-mono);font-size:0.84rem;
+  color:var(--ink);box-shadow:var(--shadow-1);position:relative;min-width:0}
+.cmd .prompt{color:var(--stamp);font-weight:600;flex-shrink:0;user-select:none}
+.cmd code{overflow-x:auto;white-space:nowrap;scrollbar-width:none;flex:1;min-width:0}
+.cmd code::-webkit-scrollbar{display:none}
+.copy{margin-left:auto;flex-shrink:0;display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--font-sans);font-size:0.76rem;font-weight:550;color:var(--ink-2);
+  background:var(--paper);border:1px solid var(--rule-2);border-radius:var(--r);
+  padding:11px 12px;min-height:44px;cursor:pointer;
+  transition:color var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast)}
+.copy:hover{color:var(--ink);border-color:var(--ink-3)}
+.copy.copied{color:var(--ok);border-color:var(--ok)}
+.copy svg{width:13px;height:13px}
+
+/* ---- signature: ledger of derivation ---- */
+.ledger{background:var(--paper);border:1px solid var(--rule-2);border-radius:var(--r-3);
+  box-shadow:0 4px 14px oklch(0.235 0.014 250/0.07), 0 26px 64px oklch(0.235 0.014 250/0.15);
+  overflow:visible;position:relative}
+.ledger-top{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:13px 18px;background:var(--paper-2);border-bottom:1px solid var(--rule-2);
+  border-radius:var(--r-3) var(--r-3) 0 0}
+.ledger-title{font-family:var(--font-mono);font-size:0.76rem;color:var(--ink-2);letter-spacing:0.02em}
+.ledger-title b{color:var(--ink);font-weight:600}
+.ledger-src{display:flex;gap:7px;align-items:center;font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-3)}
+.ledger-top .md{background:var(--paper-3);border:1px solid var(--rule);border-radius:3px;padding:2px 6px;color:var(--ink-2)}
+.ledger-body{padding:6px 0}
+.lrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  padding:13px 18px;border-bottom:1px solid var(--rule);position:relative}
+.lrow:last-child{border-bottom:none}
+.lrow-l{display:flex;align-items:center;gap:11px;min-width:0}
+.lrow .chk{width:18px;height:18px;flex-shrink:0;border-radius:50%;background:var(--ok-tint);
+  display:grid;place-items:center;color:var(--ok)}
+.lrow .chk svg{width:11px;height:11px}
+.lrow-name{font-weight:600;font-size:0.94rem}
+.lrow-kind{font-family:var(--font-mono);font-size:0.7rem;color:var(--ink-3);margin-top:1px}
+.lrow-r{text-align:right;font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-2);line-height:1.5}
+.lrow-r .sha{color:var(--ink-3)}
+.lrow-r .tag{color:var(--ok);font-weight:500}
+.ledger-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:14px 18px;background:var(--paper-2);border-top:1px solid var(--rule-2);
+  border-radius:0 0 var(--r-3) var(--r-3)}
+.ledger-foot .note{font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-2)}
+.ledger-foot .note b{color:var(--ink)}
+.seal{flex-shrink:0;width:88px;height:88px;position:absolute;right:14px;top:-30px}
+.seal-t{fill:oklch(0.99 0.02 72);font-family:var(--font-mono);font-weight:600}
+
+/* ============================================================
+   INVARIANTS — three ledger tenets
+   ============================================================ */
+.tenets{display:grid;gap:0;border-top:1px solid var(--rule);margin-top:38px}
+.tenet{display:grid;grid-template-columns:auto 1fr auto;gap:clamp(18px,3vw,40px);
+  align-items:start;padding:30px 4px;border-bottom:1px solid var(--rule)}
+.tenet-num{font-family:var(--font-mono);font-size:1.05rem;font-weight:600;color:var(--stamp);
+  letter-spacing:0.02em;padding-top:2px}
+.tenet-main h3{margin-bottom:8px}
+.tenet-main p{color:var(--ink-2);max-width:62ch;font-size:0.99rem}
+.tenet-tag{font-family:var(--font-mono);font-size:0.74rem;color:var(--ink-3);white-space:nowrap;
+  border:1px solid var(--rule-2);border-radius:20px;padding:5px 12px;align-self:center}
+@media(max-width:720px){
+  .tenet{grid-template-columns:auto 1fr;gap:16px}
+  .tenet-tag{grid-column:2;justify-self:start;margin-top:10px}
+}
+
+/* ============================================================
+   PIPELINE (how it works)
+   ============================================================ */
+.pipe{display:grid;grid-template-columns:1fr auto 1fr auto 1.2fr;gap:14px;align-items:stretch;margin-top:8px}
+.pzone{border:1px solid var(--rule-2);border-radius:var(--r-2);background:var(--paper);overflow:hidden;
+  display:flex;flex-direction:column}
+.pzone-tab{font-family:var(--font-mono);font-size:0.7rem;font-weight:600;letter-spacing:0.08em;
+  padding:8px 14px;border-bottom:1px solid var(--rule);color:var(--ink-2);background:var(--paper-2)}
+.pzone-body{padding:16px 14px;flex:1;display:flex;flex-direction:column;gap:9px}
+.pzone-h{font-weight:600;font-size:0.98rem}
+.pzone-meta{font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-2);line-height:1.6}
+.pzone-meta .ok{color:var(--ok)}
+.md-stack{display:flex;gap:5px;margin-top:2px}
+.md-stack span{font-family:var(--font-mono);font-size:0.66rem;color:var(--ink-3);background:var(--paper-3);
+  border:1px solid var(--rule);border-radius:3px;padding:2px 6px}
+.md-stack--push{margin-top:auto}
+.md-stack--accent{border-color:var(--stamp-tint-2);color:var(--stamp)}
+.parr{display:grid;place-items:center;color:var(--ink-3)}
+.parr svg{width:22px;height:22px}
+.pzone.gate{background:var(--stamp-tint)}
+.pzone.gate .pzone-tab{background:var(--stamp-tint-2);color:var(--stamp-deep)}
+.derived-list{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.derived-list .d{font-family:var(--font-mono);font-size:0.74rem;color:var(--ink-2);
+  border:1px solid var(--rule);border-radius:4px;padding:6px 9px;background:var(--paper-2)}
+.derived-list .d b{color:var(--ink);font-weight:600}
+.pipe--single{grid-template-columns:1fr;margin-top:14px}
+.pipe-foot{margin-top:18px;display:flex;align-items:center;gap:10px;font-family:var(--font-mono);
+  font-size:0.82rem;color:var(--ink-2);flex-wrap:wrap}
+.mono--stamp{color:var(--stamp)}
+@media(max-width:860px){
+  .pipe{grid-template-columns:1fr;gap:8px}
+  .parr{transform:rotate(90deg);padding:2px 0}
+}
+
+/* ============================================================
+   INSTALL
+   ============================================================ */
+.inst-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:6px}
+.inst{border:1px solid var(--rule-2);border-radius:var(--r-2);background:var(--paper);min-width:0;
+  padding:20px;display:flex;flex-direction:column;gap:0;transition:border-color var(--dur),box-shadow var(--dur),transform var(--dur)}
+@media(hover:hover){.inst:hover{border-color:var(--ink-3);box-shadow:var(--shadow-1);transform:translateY(-2px)}}
+.inst-tag{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.inst-eyebrow{font-family:var(--font-mono);font-size:0.7rem;color:var(--ink-3);letter-spacing:0.04em}
+.inst h3{font-size:1.05rem}
+.inst-cmd{display:flex;align-items:center;gap:8px;background:var(--paper-2);border:1px solid var(--rule-2);
+  border-radius:var(--r);padding:11px 12px;margin:14px 0 12px;font-family:var(--font-mono);font-size:0.8rem;color:var(--ink)}
+.inst-cmd code{overflow-x:auto;white-space:nowrap;scrollbar-width:none;flex:1;min-width:0}
+.inst-cmd code::-webkit-scrollbar{display:none}
+.inst-cmd .prompt{color:var(--stamp);flex-shrink:0;user-select:none}
+.inst-cmd .copy{padding:10px 10px;min-height:44px}
+.inst p{font-size:0.88rem;color:var(--ink-2);line-height:1.55}
+.inst .src{margin-top:auto;padding-top:12px;font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-3)}
+@media(max-width:860px){.inst-grid{grid-template-columns:1fr}}
+
+/* ============================================================
+   BENCHMARKS — honest ledger figures
+   ============================================================ */
+.bench-panel{border:1px solid var(--rule-2);border-radius:var(--r-3);overflow:hidden;background:var(--paper);margin-top:6px}
+.bench-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  padding:14px 20px;background:var(--paper-2);border-bottom:1px solid var(--rule-2)}
+.bench-top .t{font-family:var(--font-mono);font-size:0.78rem;color:var(--ink-2)}
+.bench-top .t b{color:var(--ink)}
+.bench-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0}
+.bcell{padding:24px 20px;border-bottom:1px solid var(--rule)}
+.bcell:nth-child(odd){border-right:1px solid var(--rule)}
+.bfig{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:clamp(2rem,4vw,2.9rem);letter-spacing:-0.03em;color:var(--ink);line-height:1}
+.bfig .unit{font-size:0.9rem;font-weight:500;color:var(--ink-3);margin-left:6px}
+.bcell .blabel{font-weight:600;margin-top:10px;font-size:0.95rem}
+.bcell .bmeta{font-family:var(--font-mono);font-size:0.74rem;color:var(--ink-2);margin-top:4px}
+.bmeta--gap{margin-top:var(--s-2)}
+.barwrap{margin-top:14px}
+.bar{height:10px;border-radius:6px;background:var(--paper-3);border:1px solid var(--rule);overflow:hidden;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ok);border-radius:6px;display:block}
+.bar.lat i{background:var(--stamp);width:0.2%;min-width:5px}
+.barscale{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:0.66rem;color:var(--ink-3);margin-top:6px}
+.bench-lat{padding:24px 20px;border-bottom:1px solid var(--rule)}
+.bench-lat .lat-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.bench-lat .lat-h .l{font-weight:600;font-size:0.95rem}
+.bench-lat .lat-h .r{font-family:var(--font-mono);font-size:0.76rem;color:var(--ink-2)}
+.bench-extra{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.bex{padding:20px;border-bottom:1px solid var(--rule)}
+.bex:first-child{border-right:1px solid var(--rule)}
+.bex .n{font-family:var(--font-mono);font-weight:600;font-size:1.5rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.bex .d{font-size:0.86rem;color:var(--ink-2);margin-top:4px}
+.bench-mig{padding:20px}
+.bench-mig .mh{font-weight:600;margin-bottom:12px;font-size:0.95rem}
+.mig-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mig-list .m{display:flex;align-items:center;gap:9px;font-size:0.88rem;color:var(--ink-2);font-family:var(--font-mono)}
+.mig-list .m .chk{width:16px;height:16px;border-radius:50%;background:var(--ok-tint);color:var(--ok);
+  display:grid;place-items:center;flex-shrink:0}
+.mig-list .m .chk svg{width:10px;height:10px}
+.bench-mig .pass{margin-top:14px;font-family:var(--font-mono);font-size:0.78rem;color:var(--ink-2)}
+.bench-mig .pass b{color:var(--ok)}
+@media(max-width:680px){.bench-grid,.bench-extra,.mig-list{grid-template-columns:1fr}
+  .bcell:nth-child(odd),.bex:first-child{border-right:none}}
+
+/* ============================================================
+   COMPARE — capability ledger
+   ============================================================ */
+.cmp-intro{max-width:70ch;color:var(--ink-2);margin-top:2px}
+.cmp-scroll{margin-top:26px;overflow-x:auto;border:1px solid var(--rule-2);border-radius:var(--r-2);
+  -webkit-overflow-scrolling:touch}
+table.cmp{border-collapse:collapse;width:100%;min-width:840px;font-size:0.85rem}
+table.cmp th,table.cmp td{padding:11px 12px;text-align:center;border-bottom:1px solid var(--rule);
+  border-right:1px solid var(--rule)}
+table.cmp thead th{background:var(--paper-2);font-family:var(--font-mono);font-weight:600;font-size:0.74rem;
+  color:var(--ink-2);position:sticky;top:0;letter-spacing:0;white-space:nowrap}
+table.cmp thead th.mn{color:var(--stamp);background:var(--stamp-tint)}
+table.cmp tbody td:first-child,table.cmp thead th:first-child{text-align:left;position:sticky;left:0;z-index:1;
+  background:var(--paper);min-width:280px;font-weight:500;color:var(--ink);border-right:1px solid var(--rule-2)}
+table.cmp thead th:first-child{background:var(--paper-2)}
+table.cmp td.mn{background:var(--stamp-tint);font-weight:600}
+table.cmp tbody tr:hover td{background:var(--paper-2)}
+table.cmp tbody tr:hover td.mn{background:var(--stamp-tint-2)}
+table.cmp tbody tr:hover td:first-child{background:var(--paper-2)}
+.cell-y{color:var(--ok);font-weight:700;font-family:var(--font-mono)}
+.cell-n{color:var(--ink-3);font-family:var(--font-mono)}
+.cell-p{color:var(--ink-2);font-family:var(--font-mono)}
+.cell-g{color:var(--stamp);font-family:var(--font-mono);font-size:0.72rem;font-weight:600}
+.cell-na{color:var(--ink-3);font-family:var(--font-mono);font-size:0.72rem}
+.cell-lic{font-family:var(--font-mono);font-size:0.72rem;color:var(--ink-2)}
+.cmp-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:18px;font-size:0.8rem;color:var(--ink-2)}
+.cmp-legend span{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono)}
+.cmp-note{margin-top:16px;color:var(--ink-2);font-size:0.92rem;max-width:70ch}
+
+/* ============================================================
+   MODULES
+   ============================================================ */
+.mod-list{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border-top:1px solid var(--rule);margin-top:34px}
+.mod{padding:24px 20px;border-bottom:1px solid var(--rule)}
+.mod:nth-child(odd){border-right:1px solid var(--rule)}
+.mod-h{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
+.mod-h h3{font-size:1rem}
+.mod p{font-size:0.9rem;color:var(--ink-2);line-height:1.55}
+.mod-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:13px}
+.mtag{font-family:var(--font-mono);font-size:0.68rem;color:var(--ink-2);background:var(--paper-2);
+  border:1px solid var(--rule);border-radius:4px;padding:3px 8px;letter-spacing:0.01em}
+.mtag.off{color:var(--stamp);border-color:var(--stamp-tint-2);background:var(--stamp-tint)}
+@media(max-width:760px){.mod-list{grid-template-columns:1fr}.mod:nth-child(odd){border-right:none}}
+
+/* ============================================================
+   REGISTRY
+   ============================================================ */
+.reg{display:grid;grid-template-columns:1.1fr 0.9fr;gap:clamp(28px,4vw,56px);align-items:center;margin-top:6px}
+.reg p{color:var(--ink-2);max-width:54ch}
+.reg-card{border:1px solid var(--rule-2);border-radius:var(--r-2);background:var(--paper);
+  box-shadow:var(--shadow-1);overflow:hidden}
+.reg-card .rc-top{padding:14px 18px;background:var(--paper-2);border-bottom:1px solid var(--rule-2);
+  font-family:var(--font-mono);font-size:0.74rem;color:var(--ink-2);display:flex;align-items:center;gap:8px}
+.reg-card .rc-top .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.reg-card .rc-body{padding:20px 18px}
+.reg-ns{font-family:var(--font-mono);font-size:0.96rem;color:var(--ink);word-break:break-all}
+.reg-ns .own{color:var(--stamp)}
+.reg-ns .nm{color:var(--ink)}
+.reg-verified{display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-family:var(--font-mono);
+  font-size:0.74rem;color:var(--ok);background:var(--ok-tint);border-radius:20px;padding:5px 12px}
+.reg-verified svg{width:13px;height:13px}
+.reg-btn{margin-top:18px}
+@media(max-width:760px){.reg{grid-template-columns:1fr}}
+
+/* ============================================================
+   HONEST FIT — signed statement
+   ============================================================ */
+.honest{background:var(--stamp-tint);border:1px solid var(--stamp-tint-2);border-top:2px solid var(--stamp);border-radius:var(--r-3);
+  padding:clamp(28px,5vw,52px);position:relative;overflow:hidden}
+.honest h2{font-size:clamp(1.5rem,3vw,2.1rem)}
+.honest p{color:var(--ink-2);max-width:60ch;margin-top:14px;font-size:1.04rem}
+.honest .seal-line{display:flex;align-items:center;gap:14px;margin-top:24px;flex-wrap:wrap}
+.honest .seal-sm{width:54px;height:54px;flex-shrink:0}
+.honest .doc-link{font-family:var(--font-mono);font-size:0.85rem}
+
+/* ============================================================
+   FAQ
+   ============================================================ */
+.faq-list{margin-top:30px;border-top:1px solid var(--rule)}
+.faq-item{border-bottom:1px solid var(--rule)}
+.faq-q{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:22px 4px;
+  display:flex;align-items:center;justify-content:space-between;gap:18px;font-family:var(--font-sans);
+  font-size:1.05rem;font-weight:600;color:var(--ink);letter-spacing:-0.015em;
+  transition:background var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease);
+  border-radius:var(--r);margin:0 -4px;padding-left:4px;padding-right:4px}
+.faq-q:hover{background:var(--paper-2);color:var(--ink)}
+.faq-q .ic{width:22px;height:22px;flex-shrink:0;position:relative}
+.faq-q .ic::before,.faq-q .ic::after{content:"";position:absolute;left:50%;top:50%;background:var(--stamp);
+  transition:transform var(--dur) var(--ease)}
+.faq-q .ic::before{width:12px;height:1.8px;transform:translate(-50%,-50%)}
+.faq-q .ic::after{width:1.8px;height:12px;transform:translate(-50%,-50%)}
+.faq-q[aria-expanded="true"] .ic::after{transform:translate(-50%,-50%) scaleY(0)}
+.faq-a{padding:0 4px 24px;color:var(--ink-2);max-width:72ch;font-size:0.99rem;line-height:1.65}
+.faq-a[hidden]{display:none}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;background:var(--stone-2)}
+.foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:clamp(28px,4vw,56px)}
+.foot-brand .brand{margin-bottom:14px}
+.foot-brand p{color:var(--ink-2);font-size:0.92rem;max-width:42ch}
+.foot-col h4{font-family:var(--font-mono);font-size:0.72rem;font-weight:600;letter-spacing:0.06em;
+  color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.foot-col ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+.foot-col a{color:var(--ink-2);font-size:0.9rem}
+.foot-col a:hover{color:var(--ink)}
+.foot-bottom{max-width:var(--maxw);margin:40px auto 0;padding:22px 28px 0;border-top:1px solid var(--rule);
+  display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  font-size:0.82rem;color:var(--ink-3);font-family:var(--font-mono)}
+.foot-bottom .lic{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rule-2);
+  border-radius:20px;padding:4px 11px;color:var(--ink-2)}
+@media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}.foot-brand{grid-column:1/-1}}
+
+/* ============================================================
+   MNEMOSYNE BAND — the Greek soul (real banner + gold meander)
+   ============================================================ */
+/* myth section — Mnemosyne as a LIVING CINEMAGRAPH: autonomous ambient motion, pure HTML/CSS/SVG, no video file */
+.myth{position:relative;padding:clamp(54px,8vw,104px) 28px;
+  display:flex;flex-direction:column;align-items:center;gap:clamp(14px,2.4vw,26px);
+  background:radial-gradient(120% 70% at 50% 40%, var(--dusk) 0%, transparent 72%)}
+.myth-frame{max-width:min(960px,92vw);width:100%;margin:0}
+.myth-stage{position:relative;border-radius:var(--r-2);overflow:hidden;
+  border:1px solid var(--gold-border);
+  box-shadow:0 22px 64px oklch(0.30 0.045 262 / 0.34), 0 3px 12px oklch(0.30 0.045 262 / 0.20)}
+/* wrapper keeps img + overlays registered; fully static so the statue and sphere never move */
+.myth-zoom{position:relative}
+.myth-banner{display:block;width:100%;height:auto}
+/* light-only motion layer — additive over the dark art via screen blend */
+.myth-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen}
+/* twinkling stars wrapped in a slow whole-sky drift = celestial movement */
+.fx-sky{transform-box:view-box;transform-origin:760px 150px;animation:fx-drift 78s ease-in-out infinite alternate}
+@keyframes fx-drift{0%{transform:rotate(-0.7deg) translateX(-7px)}100%{transform:rotate(0.7deg) translateX(7px)}}
+.fx-star{fill:#ffe7ad;transform-box:fill-box;transform-origin:center;animation:fx-tw var(--d,4s) ease-in-out var(--t,0s) infinite}
+@keyframes fx-tw{0%,100%{opacity:.14;transform:scale(.6)}50%{opacity:1;transform:scale(1.35)}}
+/* the painted river itself flows — animated displacement of the image's own water pixels (true cinemagraph) */
+.myth-river{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+/* the armillary sphere and the statue are static — original, no motion */
+/* a gold gleam sweeps across the mneme wordmark */
+.fx-shine{transform-box:view-box;transform-origin:0 0;animation:fx-sweep 8s ease-in-out 1.4s infinite}
+@keyframes fx-sweep{0%,60%{transform:translateX(-380px);opacity:0}68%{opacity:.85}84%{opacity:.85}100%{transform:translateX(560px);opacity:0}}
+/* dust motes rise near the river and the statue base */
+.fx-mote{fill:#ffedc2;transform-box:fill-box;animation:fx-rise var(--md,11s) linear var(--mt,0s) infinite}
+@keyframes fx-rise{0%{opacity:0;transform:translateY(12px)}14%{opacity:.7}86%{opacity:.45}100%{opacity:0;transform:translateY(-48px)}}
+.myth-cap{margin:0;text-align:center}
+.myth-cap p{color:var(--ink-2);font-size:1.05rem;line-height:1.62;max-width:62ch;margin:0 auto}
+.myth-cap p b{color:var(--ink);font-weight:650}
+.meander{height:22px;background-repeat:repeat-x;background-position:center;max-width:940px;width:100%;
+  margin:0;opacity:.9;background-size:22px 22px;
+  background-image:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20fill='none'%3E%3Cpath%20d='M2%2021V3H18V18H6V9H12V15'%20stroke='%23b5832b'%20stroke-width='2.4'/%3E%3C/svg%3E")}
+.meander.flip{transform:scaleY(-1)}
+@media(prefers-reduced-motion:reduce){
+  .fx-star,.fx-sky,.fx-shine,.fx-mote{animation:none!important}
+  .myth-fx{opacity:.62}.myth-zoom{transform:none}
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media(max-width:920px){
+  .hero-grid{grid-template-columns:1fr;gap:44px}
+  .hero-vis{max-width:520px}
+  .nav-links,.nav-gh{display:none}
+  .burger{display:block}
+}
+@media(max-width:520px){
+  .wrap,.nav-in{padding-left:20px;padding-right:20px}
+  .hero h1{font-size:clamp(2.1rem,9vw,2.8rem)}
+}
+
+/* ============================================================
+   MOTION (emil framework) — one orchestrated reveal
+   ============================================================ */
+.reveal{transition:opacity var(--dur-slow) var(--ease),transform var(--dur-slow) var(--ease)}
+.js .reveal{opacity:0;transform:translateY(12px)}
+.reveal.visible{opacity:1;transform:none}
+.js .seal{opacity:0;transform:scale(0.78) rotate(-14deg)}
+.ledger.visible .seal{opacity:1;transform:scale(1) rotate(-7deg);
+  transition:opacity var(--dur-slow) var(--ease) 240ms,transform 560ms var(--ease) 240ms}
+
+@media(prefers-reduced-motion:reduce){
+  *{scroll-behavior:auto !important}
+  .reveal,.seal{opacity:1 !important;transform:none !important;transition:none !important}
+}
+</style>
+<script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 
-<!-- ============================================================
-     NAV
-     Fix 2: removed role="banner" from nav; added aria-label="Main navigation"
-     ============================================================ -->
+<!-- ===================== NAV ===================== -->
 <nav aria-label="Main navigation">
-  <div class="nav-inner">
-    <a href="#hero" class="nav-logo" aria-label="mneme home">
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-        <rect x="1" y="1" width="20" height="20" rx="5" stroke="#2dd4bf" stroke-width="1.5"/>
-        <path d="M6 8h10M6 11h7M6 14h9" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      mneme
-      <span class="logo-ver">v3.2.0</span>
+  <div class="nav-in">
+    <a class="brand" href="#top" aria-label="mneme home">
+      <img class="brand-mark" src="assets/mneme-mark.jpg" width="28" height="28" alt="mneme emblem" decoding="async">
+      <span class="brand-name">mneme</span>
+      <span class="brand-ver">v3.2.0</span>
     </a>
-
-    <ul class="nav-links" role="list">
+    <ul class="nav-links">
+      <li><a href="#how">How it works</a></li>
       <li><a href="#install">Install</a></li>
-      <li><a href="#how-it-works">How it works</a></li>
       <li><a href="#benchmarks">Benchmarks</a></li>
+      <li><a href="#compare">Compare</a></li>
       <li><a href="#modules">Modules</a></li>
       <li><a href="#registry">Registry</a></li>
-      <li><a href="#compare">Compare</a></li>
-      <li>
-        <a href="https://github.com/TheGoatPsy/mneme" class="nav-gh" target="_blank" rel="noopener" aria-label="View mneme on GitHub">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          GitHub
-        </a>
-      </li>
     </ul>
-
-    <!-- Variant C: animated hamburger with 3-bars → X morph -->
-    <button class="nav-hamburger" id="navHam" aria-label="Open navigation menu" aria-expanded="false" aria-controls="navMobile">
-      <span></span><span></span><span></span>
-    </button>
+    <div class="nav-right">
+      <a class="nav-gh" href="https://github.com/TheGoatPsy/mneme" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.5v-1.8c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary nav-cta" href="#install">Install</a>
+      <button class="burger" id="burger" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
   </div>
 </nav>
-
-<div class="nav-mobile-menu" id="navMobile" role="navigation" aria-label="Mobile navigation">
-  <a href="#install" onclick="closeMobileNav()">Install</a>
-  <a href="#how-it-works" onclick="closeMobileNav()">How it works</a>
-  <a href="#benchmarks" onclick="closeMobileNav()">Benchmarks</a>
-  <a href="#modules" onclick="closeMobileNav()">Modules</a>
-  <a href="#registry" onclick="closeMobileNav()">Registry</a>
-  <a href="#compare" onclick="closeMobileNav()">Compare</a>
+<div class="mobile" id="mobile">
+  <a href="#how">How it works</a>
+  <a href="#install">Install</a>
+  <a href="#benchmarks">Benchmarks</a>
+  <a href="#compare">Compare</a>
+  <a href="#modules">Modules</a>
+  <a href="#registry">Registry</a>
   <a href="https://github.com/TheGoatPsy/mneme" target="_blank" rel="noopener">GitHub</a>
+  <a class="btn btn-primary" href="#install">Install mneme</a>
 </div>
 
-<!-- ============================================================
-     HERO
-     ============================================================ -->
-<section id="hero">
-  <div class="container">
-    <div class="hero-badge">
-      <span class="dot"></span>
-      Open source · Apache-2.0 · 3.2 line · On the official MCP Registry
-    </div>
+<span id="top"></span>
+<main id="main">
 
-    <h1 class="hero-h1">
-      Accountable, <em>vault-native</em><br>memory for Claude Code
-    </h1>
+<!-- ===================== HERO ===================== -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <div class="hero-eyebrow">
+          <span class="dot" aria-hidden="true"></span>
+          Open source · Apache-2.0 · v3.2.0 · On the official MCP Registry
+        </div>
+        <h1>Memory you can <span class="key">audit</span>,<br>not just <span class="muted">trust</span>.</h1>
+        <p class="hero-sub">Accountable, vault-native memory for Claude Code and any MCP client.
+          Your <b>Markdown vault stays the source of truth</b>. Everything derived from it is
+          rebuildable, never authoritative. No LLM on the critical path. Redaction before every store.</p>
+        <div class="hero-cta">
+          <div class="cmd">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code id="cmd-hero">pipx install mneme-cc-plugin &amp;&amp; mneme install</code>
+            <button class="copy" data-copy="cmd-hero" aria-label="Copy install command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <div class="hero-cta-row">
+            <a class="btn btn-ghost" href="https://github.com/TheGoatPsy/mneme" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.5v-1.8c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+              View on GitHub
+            </a>
+            <span class="hero-fit"><a href="#compare">Honest fit matrix →</a></span>
+          </div>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="tick">✓</span> Apache-2.0</span>
+          <span class="pill"><span class="tick">✓</span> PyPI</span>
+          <span class="pill"><span class="tick">✓</span> npm</span>
+          <span class="pill"><span class="tick">✓</span> MCP Registry</span>
+        </div>
+      </div>
 
-    <p class="hero-tagline">
-      Your Markdown vault stays the source of truth. Everything derived from it is rebuildable — never authoritative. No LLM on the critical path. Redaction before every store.
-    </p>
-
-    <div class="hero-ctas">
-      <a href="#install" class="btn-primary">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1v8M5 6l3 3 3-3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Install mneme
-      </a>
-      <a href="https://github.com/TheGoatPsy/mneme" class="btn-secondary" target="_blank" rel="noopener">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        View on GitHub
-      </a>
-      <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" class="btn-secondary" target="_blank" rel="noopener">
-        Honest fit matrix →
-      </a>
-    </div>
-
-    <p class="hero-note">Open source, Apache-2.0. Any MCP client.</p>
-    <div class="hero-meta-pills" aria-label="Distribution channels">
-      <span class="hero-pill">Apache-2.0</span>
-      <span class="hero-pill">PyPI</span>
-      <span class="hero-pill">npm</span>
-      <span class="hero-pill">MCP Registry</span>
+      <!-- signature: ledger of derivation -->
+      <div class="hero-vis">
+        <div class="ledger reveal" id="hero-ledger">
+          <svg class="seal" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="51" cy="53" r="44" fill="oklch(0.30 0.11 27 / 0.32)"/>
+            <circle cx="50" cy="50" r="44" fill="var(--stamp)"/>
+            <circle cx="50" cy="50" r="43.3" fill="none" stroke="var(--stamp-deep)" stroke-width="1.4"/>
+            <circle cx="50" cy="50" r="37.5" fill="none" stroke="oklch(0.99 0.02 72 / 0.5)" stroke-width="1"/>
+            <path id="sealTop" d="M23,50 A27,27 0 0 1 77,50" fill="none"/>
+            <text class="seal-t" font-size="8" letter-spacing="1.3"><textPath href="#sealTop" startOffset="50%" text-anchor="middle">REBUILDABLE</textPath></text>
+            <path id="sealBot" d="M25,52 A25,25 0 0 0 75,52" fill="none"/>
+            <text class="seal-t" font-size="7" letter-spacing="1.1"><textPath href="#sealBot" startOffset="50%" text-anchor="middle">GROUND TRUTH</textPath></text>
+            <circle cx="22" cy="54" r="1.4" fill="oklch(0.99 0.02 72 / 0.7)"/>
+            <circle cx="78" cy="54" r="1.4" fill="oklch(0.99 0.02 72 / 0.7)"/>
+            <path d="M39 49.5 l7.5 8 15.5-17" fill="none" stroke="oklch(0.99 0.02 72)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="ledger-top">
+            <span class="ledger-title"><b>derivation ledger</b> · from <span class="md">vault.md</span></span>
+          </div>
+          <div class="ledger-body">
+            <div class="lrow">
+              <div class="lrow-l">
+                <span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div><div class="lrow-name">FTS5 index</div><div class="lrow-kind">full-text search</div></div>
+              </div>
+              <div class="lrow-r"><span class="sha">sha256 a91f…</span><br><span class="tag">rebuildable</span></div>
+            </div>
+            <div class="lrow">
+              <div class="lrow-l">
+                <span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div><div class="lrow-name">dense embeddings</div><div class="lrow-kind">local · opt-in</div></div>
+              </div>
+              <div class="lrow-r"><span class="sha">sha256 7c20…</span><br><span class="tag">never authoritative</span></div>
+            </div>
+            <div class="lrow">
+              <div class="lrow-l">
+                <span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div><div class="lrow-name">knowledge graph</div><div class="lrow-kind">temporal claims</div></div>
+              </div>
+              <div class="lrow-r"><span class="sha">sha256 3df8…</span><br><span class="tag">rebuildable</span></div>
+            </div>
+            <div class="lrow">
+              <div class="lrow-l">
+                <span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div><div class="lrow-name">Σ summaries</div><div class="lrow-kind">zero-LLM</div></div>
+              </div>
+              <div class="lrow-r"><span class="sha">sha256 e5b1…</span><br><span class="tag">rebuildable</span></div>
+            </div>
+          </div>
+          <div class="ledger-foot">
+            <span class="note"><b>mneme rebuild --all</b> · regenerated from source</span>
+            <span class="note">Stop hook p95 <b>2 ms</b></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     INVARIANTS
-     ============================================================ -->
+<!-- ===================== MNEMOSYNE (origin of the name) ===================== -->
+<section class="myth" aria-label="The name mneme and the Muse of memory">
+  <div class="meander" aria-hidden="true"></div>
+  <div class="myth-frame">
+    <div class="myth-stage">
+      <div class="myth-zoom">
+      <img class="myth-banner" src="assets/mneme-banner.jpg" loading="lazy"
+        alt="mneme, named for Mnemosyne, the Greek goddess of memory and mother of the nine Muses, holding an armillary sphere among the constellations">
+      <!-- the painted river itself flows: displace the image's own water pixels, masked to the river, frozen elsewhere -->
+      <svg class="myth-river" viewBox="0 0 1500 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <defs>
+          <filter id="riverFeather"><feGaussianBlur stdDeviation="13"/></filter>
+          <mask id="riverMask" maskUnits="userSpaceOnUse" x="678" y="430" width="286" height="186">
+            <rect x="678" y="430" width="286" height="186" fill="#000"/>
+            <path d="M912 458 C 906 478, 894 490, 870 506 C 852 518, 842 530, 828 540 C 806 552, 790 566, 774 578 C 762 586, 754 590, 746 596" stroke="#fff" stroke-width="60" stroke-linecap="round" fill="none" filter="url(#riverFeather)"/>
+          </mask>
+          <filter id="riverFlow" x="678" y="438" width="286" height="180" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.009 0.013" numOctaves="2" seed="7" result="n">
+              <animate attributeName="baseFrequency" dur="9s" values="0.009 0.013;0.0102 0.015;0.0085 0.012;0.009 0.013" repeatCount="indefinite"/>
+            </feTurbulence>
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="5.5" xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+        </defs>
+        <image href="assets/mneme-banner.jpg" x="0" y="0" width="1500" height="600" preserveAspectRatio="xMidYMid meet" filter="url(#riverFlow)" mask="url(#riverMask)"/>
+      </svg>
+      <!-- the statue and the armillary sphere are static (original); only the river flows -->
+      <svg class="myth-fx" viewBox="0 0 1500 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <defs>
+          <filter id="fxSoft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.3"/></filter>
+          <radialGradient id="fxGlint"><stop offset="0%" stop-color="#fff3d4"/><stop offset="55%" stop-color="#ffcf6e" stop-opacity=".5"/><stop offset="100%" stop-color="#ffcf6e" stop-opacity="0"/></radialGradient>
+          <radialGradient id="fxCore"><stop offset="0%" stop-color="#fff6df"/><stop offset="60%" stop-color="#ffce6a" stop-opacity=".5"/><stop offset="100%" stop-color="#ffce6a" stop-opacity="0"/></radialGradient>
+          <linearGradient id="fxRiver" x1="0.62" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#bfe3ff" stop-opacity="0"/><stop offset="0.34" stop-color="#daf1ff" stop-opacity=".85"/><stop offset="0.64" stop-color="#cbe8ff" stop-opacity=".78"/><stop offset="1" stop-color="#ffe6ad" stop-opacity="0"/></linearGradient>
+          <linearGradient id="fxShine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff7e0" stop-opacity="0"/><stop offset="0.5" stop-color="#fff7e0" stop-opacity=".55"/><stop offset="1" stop-color="#fff7e0" stop-opacity="0"/></linearGradient>
+          <clipPath id="fxWord"><rect x="44" y="150" width="690" height="212" rx="10"/></clipPath>
+        </defs>
+        <!-- river is handled by the .myth-river displacement layer (image's own water pixels warp) -->
+        <!-- starfield: each star twinkles, whole sky drifts slowly -->
+        <g class="fx-sky">
+        <circle class="fx-star" cx="260" cy="90" r="1.9" style="--d:3.6s;--t:-0.4s"/>
+        <circle class="fx-star" cx="370" cy="60" r="1.6" style="--d:4.4s;--t:-2.1s"/>
+        <circle class="fx-star" cx="470" cy="95" r="1.8" style="--d:5.2s;--t:-1.3s"/>
+        <circle class="fx-star" cx="560" cy="72" r="1.6" style="--d:4s;--t:-3.4s"/>
+        <circle class="fx-star" cx="650" cy="112" r="1.6" style="--d:4.8s;--t:-0.9s"/>
+        <circle class="fx-star" cx="180" cy="140" r="1.6" style="--d:3.9s;--t:-2.7s"/>
+        <circle class="fx-star" cx="300" cy="108" r="1.5" style="--d:5.6s;--t:-1.8s"/>
+        <circle class="fx-star" cx="710" cy="100" r="1.7" style="--d:3.6s;--t:-4.1s"/>
+        <circle class="fx-star" cx="800" cy="68" r="1.6" style="--d:4.4s;--t:-0.6s"/>
+        <circle class="fx-star" cx="1000" cy="75" r="1.9" style="--d:5.2s;--t:-0.4s"/>
+        <circle class="fx-star" cx="1090" cy="52" r="1.6" style="--d:4s;--t:-2.1s"/>
+        <circle class="fx-star" cx="1185" cy="95" r="2" style="--d:4.8s;--t:-1.3s"/>
+        <circle class="fx-star" cx="1285" cy="84" r="1.7" style="--d:3.9s;--t:-3.4s"/>
+        <circle class="fx-star" cx="1345" cy="180" r="1.6" style="--d:5.6s;--t:-0.9s"/>
+        <circle class="fx-star" cx="1150" cy="145" r="1.7" style="--d:3.6s;--t:-2.7s"/>
+        <circle class="fx-star" cx="905" cy="95" r="1.5" style="--d:4.4s;--t:-1.8s"/>
+        <circle class="fx-star" cx="1240" cy="205" r="1.6" style="--d:5.2s;--t:-4.1s"/>
+        </g>
+        <!-- gold gleam sweeping across the wordmark -->
+        <g clip-path="url(#fxWord)"><g class="fx-shine"><rect x="-80" y="120" width="150" height="300" fill="url(#fxShine)" transform="skewX(-16)"/></g></g>
+        <!-- the rings rotate via the .myth-orrery layer below; the painted ball glows on its own -->
+        <!-- dust motes rising near the river and base -->
+        <circle class="fx-mote" cx="720" cy="520" r="2.1" style="--md:10s;--mt:-1s"/>
+        <circle class="fx-mote" cx="815" cy="545" r="1.7" style="--md:13s;--mt:-5s"/>
+        <circle class="fx-mote" cx="905" cy="515" r="2" style="--md:11.5s;--mt:-3s"/>
+        <circle class="fx-mote" cx="965" cy="540" r="1.6" style="--md:12.5s;--mt:-7s"/>
+        <circle class="fx-mote" cx="690" cy="498" r="1.5" style="--md:9.5s;--mt:-4s"/>
+        <circle class="fx-mote" cx="860" cy="500" r="1.8" style="--md:14s;--mt:-2s"/>
+      </svg>
+      </div>
+    </div>
+  </div>
+  <div class="myth-cap wrap">
+    <p><b>mneme</b> takes its name from <b>Mnemosyne</b>, the Greek personification of memory and mother of the nine Muses. Memory is the ground truth from which everything else is recalled.</p>
+  </div>
+  <div class="meander flip" aria-hidden="true"></div>
+</section>
+
+<!-- ===================== INVARIANTS ===================== -->
 <section id="invariants">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Core Invariants</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ core invariants</span><span class="led-rule"></span></div>
     <h2>Three things that never change</h2>
-    <p class="section-sub">These guarantees hold regardless of configuration. A user config can never override a built-in invariant.</p>
-
-    <div class="invariants-grid stagger">
-
-      <div class="inv-card">
-        <div class="inv-icon" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" role="img" aria-label="Markdown document icon">
-            <rect x="3" y="2" width="14" height="16" rx="2.5" stroke="#2dd4bf" stroke-width="1.5"/>
-            <path d="M6.5 7.5h7M6.5 10.5h5M6.5 13.5h6" stroke="#2dd4bf" stroke-width="1.3" stroke-linecap="round"/>
-          </svg>
+    <p class="lead">These guarantees hold regardless of configuration. A user config can never override a built-in invariant.</p>
+    <div class="tenets reveal">
+      <div class="tenet">
+        <div class="tenet-num">I</div>
+        <div class="tenet-main">
+          <h3>Markdown is the source of truth</h3>
+          <p>Your .md files live in your vault. Every derived store — full-text index, embeddings, knowledge graph, summaries — is computed from them and fully rebuildable from scratch. Nothing derived is ever authoritative.</p>
         </div>
-        <h3>Markdown is the source of truth</h3>
-        <p>Your <code style="font-family:var(--mono);font-size:0.82em;color:var(--accent)">.md</code> files live in your vault. Every derived store — full-text index, embeddings, knowledge graph, summaries — is computed from them and fully rebuildable from scratch. Nothing derived is ever authoritative.</p>
-        <span class="inv-stat">vault-native · rebuildable</span>
+        <div class="tenet-tag">vault-native · rebuildable</div>
       </div>
-
-      <div class="inv-card">
-        <div class="inv-icon" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" role="img" aria-label="Lightning bolt performance icon">
-            <path d="M11 2L4 11h7l-2 7 9-9h-7l2-7z" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+      <div class="tenet">
+        <div class="tenet-num">II</div>
+        <div class="tenet-main">
+          <h3>No LLM on the Stop or critical path</h3>
+          <p>Capture is fully deterministic. The Stop hook never calls a model or makes a network request. Work is captured synchronously and heavy processing happens in the background — off the hot path entirely.</p>
         </div>
-        <h3>No LLM on the Stop or critical path</h3>
-        <p>Capture is fully deterministic. The Stop hook never calls a model or makes a network request. Work is captured synchronously and heavy processing happens in the background — off the hot path entirely.</p>
-        <span class="inv-stat">p95 2 ms locked · seed-42</span>
+        <div class="tenet-tag">p95 2 ms locked · seed-42</div>
       </div>
-
-      <div class="inv-card">
-        <div class="inv-icon" aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" role="img" aria-label="Shield redaction icon">
-            <path d="M10 2L4 5v5c0 3.9 2.5 7.5 6 8.8C13.5 17.5 16 13.9 16 10V5l-6-3z" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M7.5 10l2 2 3.5-3" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+      <div class="tenet">
+        <div class="tenet-num">III</div>
+        <div class="tenet-main">
+          <h3>Redaction before every derived store</h3>
+          <p>Configured redaction patterns run before anything is written to any index, embedding store, or knowledge graph. A user-level config can never weaken a built-in privacy mode — the gate is enforced at the system layer.</p>
         </div>
-        <h3>Redaction before every derived store</h3>
-        <p>Configured redaction patterns run before anything is written to any index, embedding store, or knowledge graph. A user-level config can never weaken a built-in privacy mode — the gate is enforced at the system layer.</p>
-        <span class="inv-stat">privacy-first · config-safe</span>
+        <div class="tenet-tag">privacy-first · config-safe</div>
       </div>
-
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     HOW IT WORKS
-     Variant C: tricolor zone labeling (SOURCE / HOOK / DERIVED)
-     ============================================================ -->
-<section id="how-it-works">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Architecture</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+<!-- ===================== HOW IT WORKS ===================== -->
+<section id="how">
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ architecture</span><span class="led-rule"></span></div>
     <h2>How it works</h2>
-    <p class="section-sub">A deterministic pipeline from your vault to queryable, rebuildable derived stores. No model on the write path.</p>
-
-    <div class="arch-wrap reveal">
-      <div class="arch-svg-container">
-        <!-- Variant C: tricolor zone architecture (SOURCE / HOOK / DERIVED) overlaid on A's animated SVG -->
-        <svg viewBox="0 0 860 340" width="100%" role="img" aria-label="Architecture diagram showing three zones: SOURCE (Markdown vault), HOOK (deterministic Stop hook with redaction gate), and DERIVED (rebuildable stores: FTS5, Dense, Knowledge Graph, Summaries)">
-          <defs>
-            <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0 0 L6 3 L0 6" fill="none" stroke="#2dd4bf" stroke-width="1.2"/>
-            </marker>
-            <marker id="arr-dim" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0 0 L6 3 L0 6" fill="none" stroke="rgba(45,212,191,0.35)" stroke-width="1.2"/>
-            </marker>
-            <filter id="glow">
-              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-              <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
-
-          <!-- Variant C: Zone background rects with tinted backgrounds and zone labels -->
-          <!-- SOURCE zone -->
-          <rect x="10" y="80" width="178" height="160" rx="10" fill="rgba(45,212,191,0.04)" stroke="rgba(45,212,191,0.15)" stroke-width="1" stroke-dasharray="4,3"/>
-          <text x="99" y="68" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" font-weight="700" letter-spacing="0.12em" fill="rgba(45,212,191,0.55)" text-transform="uppercase">SOURCE</text>
-
-          <!-- HOOK zone -->
-          <rect x="200" y="80" width="358" height="160" rx="10" fill="rgba(129,140,248,0.04)" stroke="rgba(129,140,248,0.15)" stroke-width="1" stroke-dasharray="4,3"/>
-          <text x="379" y="68" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" font-weight="700" letter-spacing="0.12em" fill="rgba(129,140,248,0.55)">HOOK</text>
-
-          <!-- DERIVED zone -->
-          <rect x="570" y="36" width="278" height="248" rx="12" fill="rgba(52,211,153,0.04)" stroke="rgba(45,212,191,0.2)" stroke-width="1.5" stroke-dasharray="5,3"/>
-          <text x="709" y="26" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" font-weight="700" letter-spacing="0.12em" fill="rgba(52,211,153,0.55)">DERIVED</text>
-
-          <!-- === SOURCE: Vault === -->
-          <rect x="20" y="100" width="140" height="120" rx="10" fill="#0f1923" stroke="rgba(45,212,191,0.3)" stroke-width="1.5"/>
-          <text x="90" y="136" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#e2e8f0">Markdown Vault</text>
-          <!-- file icons -->
-          <rect x="44" y="148" width="28" height="34" rx="3" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <path d="M66 148 L72 154 L66 154" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <text x="58" y="165" text-anchor="middle" font-family="monospace" font-size="7" fill="rgba(45,212,191,0.6)">.md</text>
-          <rect x="78" y="148" width="28" height="34" rx="3" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <path d="M100 148 L106 154 L100 154" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <text x="92" y="165" text-anchor="middle" font-family="monospace" font-size="7" fill="rgba(45,212,191,0.6)">.md</text>
-          <rect x="112" y="148" width="28" height="34" rx="3" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <path d="M134 148 L140 154 L134 154" fill="none" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          <text x="126" y="165" text-anchor="middle" font-family="monospace" font-size="7" fill="rgba(45,212,191,0.6)">.md</text>
-          <!-- source of truth label -->
-          <rect x="28" y="195" width="124" height="16" rx="4" fill="rgba(45,212,191,0.08)" stroke="rgba(45,212,191,0.2)" stroke-width="1"/>
-          <text x="90" y="206" text-anchor="middle" font-family="Inter,sans-serif" font-size="8.5" font-weight="600" fill="#2dd4bf">source of truth</text>
-
-          <!-- Arrow: vault → stop hook -->
-          <path d="M160 160 L218 160" stroke="#2dd4bf" stroke-width="1.5" fill="none" marker-end="url(#arr)" stroke-dasharray="5,3">
-            <animate attributeName="stroke-dashoffset" values="0;-16" dur="1.5s" repeatCount="indefinite"/>
-          </path>
-
-          <!-- === STOP HOOK === -->
-          <rect x="218" y="108" width="140" height="104" rx="10" fill="#0f1923" stroke="#2dd4bf" stroke-width="1.5" filter="url(#glow)"/>
-          <text x="288" y="138" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#e2e8f0">Stop Hook</text>
-          <rect x="230" y="148" width="116" height="14" rx="4" fill="rgba(45,212,191,0.06)" stroke="none"/>
-          <text x="288" y="158.5" text-anchor="middle" font-family="monospace" font-size="8" fill="rgba(45,212,191,0.85)">deterministic · no LLM</text>
-          <rect x="230" y="165" width="116" height="14" rx="4" fill="rgba(45,212,191,0.06)" stroke="none"/>
-          <text x="288" y="175.5" text-anchor="middle" font-family="monospace" font-size="8" fill="rgba(45,212,191,0.85)">no network · p95 2 ms</text>
-          <text x="288" y="200" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.7)">sync capture → bg processing</text>
-
-          <!-- Arrow: stop hook → redaction gate -->
-          <path d="M358 160 L414 160" stroke="#2dd4bf" stroke-width="1.5" fill="none" marker-end="url(#arr)" stroke-dasharray="5,3">
-            <animate attributeName="stroke-dashoffset" values="0;-16" dur="1.5s" repeatCount="indefinite"/>
-          </path>
-
-          <!-- === REDACTION GATE === -->
-          <rect x="414" y="120" width="124" height="80" rx="10" fill="#0b1a12" stroke="#2dd4bf" stroke-width="1.5"/>
-          <text x="476" y="150" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#e2e8f0">Redaction</text>
-          <text x="476" y="165" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#e2e8f0">Gate</text>
-          <text x="476" y="185" text-anchor="middle" font-family="monospace" font-size="7.5" fill="rgba(45,212,191,0.7)">before every store</text>
-          <!-- Variant C: zone label on gate -->
-          <rect x="424" y="105" width="104" height="12" rx="4" fill="rgba(45,212,191,0.08)"/>
-          <text x="476" y="114.5" text-anchor="middle" font-family="monospace" font-size="7" font-weight="600" fill="rgba(45,212,191,0.7)" letter-spacing="0.08em">PRIVACY GATE</text>
-
-          <!-- Arrow: redaction → derived -->
-          <path d="M538 160 L578 160" stroke="rgba(45,212,191,0.5)" stroke-width="1.5" fill="none" marker-end="url(#arr-dim)" stroke-dasharray="5,3">
-            <animate attributeName="stroke-dashoffset" values="0;-16" dur="1.5s" repeatCount="indefinite"/>
-          </path>
-
-          <!-- === DERIVED STORES === -->
-          <text x="709" y="68" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(45,212,191,0.5)">rebuildable · never authoritative</text>
-
-          <!-- FTS5 -->
-          <rect x="584" y="88" width="100" height="50" rx="7" fill="#0f1923" stroke="rgba(45,212,191,0.25)" stroke-width="1"/>
-          <text x="634" y="110" text-anchor="middle" font-family="monospace" font-size="10" font-weight="600" fill="#2dd4bf">FTS5</text>
-          <text x="634" y="126" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.6)">full-text search</text>
-
-          <!-- Dense -->
-          <rect x="698" y="88" width="100" height="50" rx="7" fill="#0f1923" stroke="rgba(45,212,191,0.25)" stroke-width="1"/>
-          <text x="748" y="110" text-anchor="middle" font-family="monospace" font-size="10" font-weight="600" fill="#2dd4bf">Dense</text>
-          <text x="748" y="126" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.6)">embeddings</text>
-
-          <!-- Knowledge Graph -->
-          <rect x="584" y="154" width="100" height="50" rx="7" fill="#0f1923" stroke="rgba(45,212,191,0.25)" stroke-width="1"/>
-          <text x="634" y="176" text-anchor="middle" font-family="monospace" font-size="10" font-weight="600" fill="#2dd4bf">KG</text>
-          <text x="634" y="192" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.6)">knowledge graph</text>
-
-          <!-- Summaries -->
-          <rect x="698" y="154" width="100" height="50" rx="7" fill="#0f1923" stroke="rgba(45,212,191,0.25)" stroke-width="1"/>
-          <text x="748" y="176" text-anchor="middle" font-family="monospace" font-size="10" font-weight="600" fill="#2dd4bf">Σ</text>
-          <text x="748" y="192" text-anchor="middle" font-family="Inter,sans-serif" font-size="8" fill="rgba(148,163,184,0.6)">summaries</text>
-
-          <!-- rebuild label -->
-          <text x="709" y="224" text-anchor="middle" font-family="monospace" font-size="7.5" fill="rgba(45,212,191,0.4)">mneme rebuild --all</text>
-
-          <!-- Fan-out arrows from redaction gate to each store -->
-          <path d="M576 148 Q582 113 582 113" stroke="rgba(45,212,191,0.3)" stroke-width="1" fill="none" marker-end="url(#arr-dim)"/>
-          <path d="M576 152 L582 152 Q582 179 582 179" stroke="rgba(45,212,191,0.3)" stroke-width="1" fill="none" marker-end="url(#arr-dim)"/>
-          <path d="M576 160 Q692 113 696 113" stroke="rgba(45,212,191,0.25)" stroke-width="1" fill="none" marker-end="url(#arr-dim)"/>
-          <path d="M576 166 Q692 179 696 179" stroke="rgba(45,212,191,0.25)" stroke-width="1" fill="none" marker-end="url(#arr-dim)"/>
-
-        </svg>
+    <p class="lead">A deterministic pipeline from your vault to queryable, rebuildable derived stores. No model on the write path.</p>
+    <div class="pipe reveal">
+      <div class="pzone">
+        <div class="pzone-tab">SOURCE</div>
+        <div class="pzone-body">
+          <div class="pzone-h">Markdown Vault</div>
+          <div class="md-stack"><span>.md</span><span>.md</span><span>.md</span></div>
+          <div class="pzone-meta">source of truth</div>
+        </div>
+      </div>
+      <div class="parr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+      <div class="pzone">
+        <div class="pzone-tab">HOOK</div>
+        <div class="pzone-body">
+          <div class="pzone-h">Stop Hook</div>
+          <div class="pzone-meta"><span class="ok">deterministic</span> · no LLM<br>no network · p95 2 ms<br>sync capture → bg processing</div>
+        </div>
+      </div>
+      <div class="parr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+      <div class="pzone gate">
+        <div class="pzone-tab">GATE</div>
+        <div class="pzone-body">
+          <div class="pzone-h">Redaction</div>
+          <div class="pzone-meta">privacy gate<br>before every store</div>
+          <div class="md-stack md-stack--push"><span class="md-stack--accent">DERIVED ↓</span></div>
+        </div>
       </div>
     </div>
+    <div class="pipe pipe--single">
+      <div class="pzone">
+        <div class="pzone-tab">DERIVED · rebuildable · never authoritative</div>
+        <div class="pzone-body">
+          <div class="derived-list">
+            <div class="d"><b>FTS5</b> full-text search</div>
+            <div class="d"><b>Dense</b> embeddings</div>
+            <div class="d"><b>KG</b> knowledge graph</div>
+            <div class="d"><b>Σ</b> summaries</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="pipe-foot"><span class="mono mono--stamp">$</span> <span class="mono">mneme rebuild --all</span> · every derived store regenerates from the vault</div>
   </div>
 </section>
 
-<!-- ============================================================
-     INSTALL
-     ============================================================ -->
+<!-- ===================== INSTALL ===================== -->
 <section id="install">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Installation</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ installation</span><span class="led-rule"></span></div>
     <h2>Get started in three commands</h2>
-    <p class="section-sub">Install whichever components fit your setup — the Claude Code plugin, the core engine, or the standalone MCP server for any MCP client.</p>
-
-    <div class="install-grid stagger">
-
-      <!-- Claude Code Plugin -->
-      <div class="install-card">
-        <div class="install-card-header">
-          <!-- Variant C: color-coded badge for Claude Code (teal) -->
-          <span class="ic-badge ic-badge-cc">Claude Code</span>
-          <h3>Plugin</h3>
+    <p class="lead">Install whichever components fit your setup — the Claude Code plugin, the core engine, or the standalone MCP server for any MCP client.</p>
+    <div class="inst-grid">
+      <div class="inst reveal">
+        <div class="inst-tag"><span class="inst-eyebrow">CLAUDE CODE</span><h3>Plugin</h3></div>
+        <div class="inst-cmd">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="cmd-plugin">pipx install mneme-cc-plugin &amp;&amp; mneme install</code>
+          <button class="copy" data-copy="cmd-plugin" aria-label="Copy command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span class="copy-label">Copy</span>
+          </button>
         </div>
-        <div class="code-block-v2">
-          <div class="cb-toolbar">
-            <button class="copy-btn-v2" onclick="copyCode('code-plugin', this)" aria-label="Copy Claude Code plugin install command" aria-live="polite">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-              <span class="copy-label">Copy</span>
-            </button>
-          </div>
-          <div class="cb-code"><pre id="code-plugin">pipx install mneme-cc-plugin &amp;&amp; mneme install</pre></div>
-        </div>
-        <div class="install-note">
-          Installs the plugin and wires the Stop hook into your local Claude Code instance.
-        </div>
+        <p>Installs the plugin and wires the Stop hook into your local Claude Code instance.</p>
       </div>
-
-      <!-- Core Engine -->
-      <div class="install-card">
-        <div class="install-card-header">
-          <!-- Variant C: amber badge for Python -->
-          <span class="ic-badge ic-badge-py">Python</span>
-          <h3>Core Engine</h3>
+      <div class="inst reveal">
+        <div class="inst-tag"><span class="inst-eyebrow">PYTHON</span><h3>Core Engine</h3></div>
+        <div class="inst-cmd">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="cmd-core">pip install mneme-core</code>
+          <button class="copy" data-copy="cmd-core" aria-label="Copy command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span class="copy-label">Copy</span>
+          </button>
         </div>
-        <div class="code-block-v2">
-          <div class="cb-toolbar">
-            <button class="copy-btn-v2" onclick="copyCode('code-core', this)" aria-label="Copy core engine install command" aria-live="polite">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-              <span class="copy-label">Copy</span>
-            </button>
-          </div>
-          <div class="cb-code"><pre id="code-core">pip install mneme-core</pre></div>
-        </div>
-        <div class="install-note">
-          Standalone engine: vault indexing, FTS5, dense retrieval (opt-in), redaction, and the benchmark harness.
-          Available on <a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI</a>.
-        </div>
+        <p>Standalone engine: vault indexing, FTS5, dense retrieval (opt-in), redaction, and the benchmark harness.</p>
+        <div class="src">Available on PyPI.</div>
       </div>
-
-      <!-- MCP Server -->
-      <div class="install-card">
-        <div class="install-card-header">
-          <!-- Variant C: coral badge for npm -->
-          <span class="ic-badge ic-badge-npm">npm</span>
-          <h3>MCP Server</h3>
+      <div class="inst reveal">
+        <div class="inst-tag"><span class="inst-eyebrow">NPM</span><h3>MCP Server</h3></div>
+        <div class="inst-cmd">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code id="cmd-mcp">npm install -g mneme-mcp-server</code>
+          <button class="copy" data-copy="cmd-mcp" aria-label="Copy command">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span class="copy-label">Copy</span>
+          </button>
         </div>
-        <div class="code-block-v2">
-          <div class="cb-toolbar">
-            <button class="copy-btn-v2" onclick="copyCode('code-mcp', this)" aria-label="Copy MCP server install command" aria-live="polite">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V2zm2-1a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V2a1 1 0 00-1-1H6z"/><path d="M2 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1v-1H9v1H2V6h1V5H2z"/></svg>
-              <span class="copy-label">Copy</span>
-            </button>
-          </div>
-          <div class="cb-code"><pre id="code-mcp">npm install -g mneme-mcp-server</pre></div>
-        </div>
-        <div class="install-note">
-          Provides the <code style="font-family:var(--mono);font-size:0.85em;color:var(--accent)">mneme-mcp</code> command. Use with any MCP-compatible client.
-          On <a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm</a>.
-        </div>
+        <p>Provides the mneme-mcp command. Use with any MCP-compatible client.</p>
+        <div class="src">On npm.</div>
       </div>
-
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     BENCHMARKS
-     Variant B: bench-panel wrapper + shared header + cell separators
-     Variant C: latency callout large number
-     ============================================================ -->
+<!-- ===================== BENCHMARKS ===================== -->
 <section id="benchmarks">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Performance</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ performance</span><span class="led-rule"></span></div>
     <h2>Benchmarks</h2>
-    <p class="section-sub">Reproducible regression anchors measured on a seeded synthetic corpus. Not real-world generalizability claims.</p>
-
-    <!-- Variant B: unified bench-panel dashboard frame -->
+    <p class="lead">Reproducible regression anchors measured on a seeded synthetic corpus. Not real-world generalizability claims.</p>
     <div class="bench-panel reveal">
-
-      <!-- Shared panel header row -->
-      <div class="bench-panel-header">
-        <span class="bench-panel-title">Benchmark results — seed 42 synthetic corpus</span>
-        <span class="bench-run-badge">make bench-all</span>
+      <div class="bench-top">
+        <span class="t"><b>Benchmark results</b> — seed 42 synthetic corpus</span>
+        <span class="t mono">make bench-all</span>
       </div>
-
-      <!-- Caveat inside the panel -->
-      <div class="bench-caveat">
-        <strong>Reproducible regression anchors</strong> on a seeded synthetic corpus (seed 42). Not real-world or superiority measurements.
-        Reproduce locally with <code style="font-family:inherit">make bench-all</code>.
-      </div>
-
-      <!-- Variant B: bench-grid with border-based cell separators -->
       <div class="bench-grid">
-
-        <!-- Radial gauge: nDCG@5 = 0.893 -->
-        <div class="bench-gauge-card">
-          <svg class="gauge-svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="nDCG at 5 score gauge showing 0.893 out of 1.0">
-            <!-- Track: 220-degree sweep, r=50, circumference ≈ 314, 220/360 × 314 ≈ 192... using stroke-dasharray="275 45" for the visual sweep -->
-            <circle class="gauge-track" cx="60" cy="60" r="50" stroke-dasharray="275 45" transform="rotate(-220 60 60)"/>
-            <!-- Fix 3: gauge-fill animates to 245 (= 0.893 × 275) not 285 -->
-            <circle class="gauge-fill" cx="60" cy="60" r="50"/>
-            <text class="gauge-value" x="60" y="56" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="700" fill="#2dd4bf">0.893</text>
-            <text class="gauge-label-svg" x="60" y="74" text-anchor="middle" font-size="9" fill="rgba(148,163,184,0.7)">out of 1.0</text>
-          </svg>
-          <div class="bench-label">Retrieval nDCG@5</div>
-          <div class="bench-raw">score = 0.893 · seed-42 corpus</div>
+        <div class="bcell">
+          <div class="bfig tnum">0.893<span class="unit">/ 1.0</span></div>
+          <div class="blabel">Retrieval nDCG@5</div>
+          <div class="bmeta">score = 0.893 · seed-42 corpus</div>
         </div>
-
-        <!-- Radial gauge: Recall@10 = 1.000 -->
-        <div class="bench-gauge-card" style="border-right:none">
-          <svg class="gauge-svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Recall at 10 gauge showing perfect score 1.000">
-            <circle class="gauge-track" cx="60" cy="60" r="50" stroke-dasharray="275 45" transform="rotate(-220 60 60)"/>
-            <!-- Fix 3: gauge-fill-full animates to 275 (full track segment) not 320 -->
-            <circle class="gauge-fill gauge-fill-full" cx="60" cy="60" r="50" transform="rotate(-220 60 60)"/>
-            <text class="gauge-value" x="60" y="50" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="700" fill="#2dd4bf">1.000</text>
-            <text class="gauge-label-svg" x="60" y="67" text-anchor="middle" font-size="9" fill="rgba(148,163,184,0.7)">perfect</text>
-            <text class="gauge-label-svg" x="60" y="78" text-anchor="middle" font-size="8" fill="rgba(45,212,191,0.5)">★ ★ ★ ★ ★</text>
-          </svg>
-          <div class="bench-label">Recall@10</div>
-          <div class="bench-raw">score = 1.000 · all relevant docs found</div>
+        <div class="bcell">
+          <div class="bfig tnum">1.000<span class="unit">/ 1.0</span></div>
+          <div class="blabel">Recall@10</div>
+          <div class="bmeta">all relevant docs found · seed-42 corpus</div>
         </div>
-
-        <!-- Latency headroom track — full width -->
-        <!-- Variant C: side-by-side latency callout + rail -->
-        <div class="bench-latency-card">
-          <div class="latency-main">
-            <div class="latency-header">
-              <span class="latency-title">Stop Hook Latency — p95 headroom vs CI budget</span>
-              <span class="latency-stat">2 ms actual · 1000 ms CI budget</span>
-            </div>
-
-            <div class="latency-rail" role="progressbar" aria-valuenow="3" aria-valuemin="0" aria-valuemax="1000" aria-label="Stop hook latency: 3ms out of 1000ms budget">
-              <div class="latency-budget"></div>
-              <div class="latency-fill"></div>
-              <div class="latency-marker"></div>
-            </div>
-
-            <div class="latency-labels">
-              <span>0 ms</span>
-              <span>250 ms</span>
-              <span>500 ms</span>
-              <span>750 ms</span>
-              <span>1000 ms</span>
-            </div>
-
-            <div class="latency-actual-label">
-              2 ms — 99.8% of the CI budget left unused
-            </div>
-          </div>
-
-          <!-- Variant C: large monospace number callout -->
-          <div class="latency-callout">
-            <span class="latency-callout-num">2</span>
-            <span class="latency-callout-unit">MILLISECONDS</span>
-            <span class="latency-callout-sub">p95</span>
-          </div>
+      </div>
+      <div class="bench-lat">
+        <div class="lat-h">
+          <span class="l">Stop Hook latency — p95 headroom vs CI budget</span>
+          <span class="r">2 ms actual · 1000 ms CI budget</span>
         </div>
-
-        <!-- Horizontal bars: compression + dedup -->
-        <div class="bench-bars-card">
-          <div class="bar-metric">
-            <div class="bar-metric-name">Shell-output compression</div>
-            <div class="bar-track" role="progressbar" aria-valuenow="88" aria-valuemin="0" aria-valuemax="100" aria-label="88% shell output compression">
-              <div class="bar-fill bar-fill-88"></div>
-            </div>
-            <span class="bar-val">88%<span class="bar-val-label"> reduction in stored bytes</span></span>
-          </div>
-
-          <div class="bar-metric">
-            <div class="bar-metric-name">Injection deduplication</div>
-            <div class="bar-track" role="progressbar" aria-valuenow="95" aria-valuemin="0" aria-valuemax="100" aria-label="95% injection deduplication">
-              <div class="bar-fill bar-fill-95"></div>
-            </div>
-            <span class="bar-val">95%<span class="bar-val-label"> duplicate context blocks removed</span></span>
-          </div>
+        <div class="barwrap">
+          <div class="bar lat" role="img" aria-label="p95 2 milliseconds out of a 1000 millisecond CI budget"><i></i></div>
+          <div class="barscale"><span>0 ms</span><span>250 ms</span><span>500 ms</span><span>750 ms</span><span>1000 ms</span></div>
         </div>
-
-        <!-- claude-mem migration checks -->
-        <div class="bench-checks-card">
-          <div class="checks-title">claude-mem migration — assertion coverage</div>
-          <div class="checks-row" role="list" aria-label="Migration assertion results">
-            <div class="check-item" role="listitem">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Passed" role="img">
-                <circle cx="8" cy="8" r="7" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1.2"/>
-                <path d="M5 8l2.5 2.5L11 5.5" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="check-label">Vault structure preserved</span>
-            </div>
-            <div class="check-item" role="listitem">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Passed" role="img">
-                <circle cx="8" cy="8" r="7" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1.2"/>
-                <path d="M5 8l2.5 2.5L11 5.5" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="check-label">Index rebuilt correctly</span>
-            </div>
-            <div class="check-item" role="listitem">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Passed" role="img">
-                <circle cx="8" cy="8" r="7" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1.2"/>
-                <path d="M5 8l2.5 2.5L11 5.5" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="check-label">Redaction rules migrated</span>
-            </div>
-            <div class="check-item" role="listitem">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Passed" role="img">
-                <circle cx="8" cy="8" r="7" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1.2"/>
-                <path d="M5 8l2.5 2.5L11 5.5" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="check-label">Query results consistent</span>
-            </div>
-          </div>
-          <div class="checks-summary">
-            <strong>4 / 4</strong> assertions passed on seeded migration fixture. Reproduce with <code style="font-family:var(--mono);font-size:0.85em">make bench-migration</code>.
-          </div>
+        <div class="bmeta bmeta--gap">2 ms — 99.8% of the CI budget left unused</div>
+      </div>
+      <div class="bench-extra">
+        <div class="bex"><div class="n tnum">88%</div><div class="d">Shell-output compression — reduction in stored bytes</div></div>
+        <div class="bex"><div class="n tnum">95%</div><div class="d">Injection deduplication — duplicate context blocks removed</div></div>
+      </div>
+      <div class="bench-mig">
+        <div class="mh">claude-mem migration — assertion coverage</div>
+        <div class="mig-list">
+          <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Vault structure preserved</div>
+          <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Index rebuilt correctly</div>
+          <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Redaction rules migrated</div>
+          <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Query results consistent</div>
         </div>
-
-      </div><!-- /.bench-grid -->
-    </div><!-- /.bench-panel -->
-
+        <div class="pass"><b>4 / 4 assertions passed</b> on seeded migration fixture. Reproduce with <span class="mono">make bench-migration</span>.</div>
+      </div>
+    </div>
   </div>
 </section>
 
-<!-- ============================================================
-     HOW IT COMPARES — capability matrix
-     ============================================================ -->
+<!-- ===================== COMPARE ===================== -->
 <section id="compare">
-  <div class="container compare-section">
-    <div class="section-eyebrow">
-      <span class="section-label">How it compares</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ how it compares</span><span class="led-rule"></span></div>
     <h2>How it compares</h2>
-
-    <p class="compare-caveat">
-      This compares architectural capabilities across the dimensions mneme commits to. The cells describe design properties that are publicly verifiable from each tool documentation. They are not a benchmarked ranking, and the table deliberately includes rows where another tool leads.
-    </p>
-
-    <div class="compare-scroll-wrap" role="region" aria-label="Capability matrix" tabindex="0">
-      <table class="compare-table">
+    <p class="cmp-intro">This compares architectural capabilities across the dimensions mneme commits to. The cells describe design properties that are publicly verifiable from each tool's documentation. They are not a benchmarked ranking, and the table deliberately includes rows where another tool leads.</p>
+    <div class="cmp-scroll reveal">
+      <table class="cmp">
         <thead>
           <tr>
             <th scope="col">Dimension</th>
-            <th scope="col" class="col-mneme">mneme</th>
+            <th scope="col" class="mn">mneme</th>
             <th scope="col">claude-mem</th>
             <th scope="col">mem0</th>
             <th scope="col">Letta</th>
@@ -2074,669 +1067,226 @@ footer {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Plain-markdown store you can git diff and grep</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#10003;</td>
-          </tr>
-          <tr>
-            <td>Built-in private-tag redaction with SHA256 audit</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Deterministic Stop capture, no LLM call</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-na">n/a</td>
-            <td class="col-na">n/a</td>
-            <td class="col-na">n/a</td>
-            <td class="col-na">n/a</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Hybrid retrieval, FTS5 plus local dense, RRF-fused</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">~</td>
-          </tr>
-          <tr>
-            <td>Temporal claim lifecycle (valid-from/to, supersedes)</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-          </tr>
-          <tr>
-            <td>Project and code graph (tree-sitter, PR-impact)</td>
-            <td class="col-mneme">gated</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Adaptive token and context budget</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-          </tr>
-          <tr>
-            <td>Agent security: capability firewall, taint, approval gate</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>One-command lossless migration from claude-mem</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-na">n/a</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Local-first, no cloud account required</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#10003;</td>
-          </tr>
-          <tr>
-            <td>Runs in Claude Code, Codex, Antigravity, any MCP client</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-          </tr>
-          <tr>
-            <td>License</td>
-            <td class="col-mneme">Apache-2.0</td>
-            <td class="col-other">Apache-2.0</td>
-            <td class="col-other">Apache-2.0</td>
-            <td class="col-other">Apache-2.0</td>
-            <td class="col-other">cloud</td>
-            <td class="col-other">open source</td>
-            <td class="col-other">MIT</td>
-          </tr>
-          <tr>
-            <td>Team memory with a web graph UI (mneme: self-hosted git sync + local console)</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Agent autonomously rewrites its own memory (mneme: policy-graduated, rollback, audit chain)</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#10003;</td>
-          </tr>
-          <tr>
-            <td>Auto-summarization at session end, on by default (mneme: deterministic zero-LLM)</td>
-            <td class="col-mneme">&#10003;</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">~</td>
-            <td class="col-other">~</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
-          <tr>
-            <td>Localized observation-prompt presets (mneme: en + tr)</td>
-            <td class="col-mneme">~</td>
-            <td class="col-other">&#10003;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-            <td class="col-other">&#8212;</td>
-          </tr>
+          <tr><td>Plain-markdown store you can git diff and grep</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-y">✓</span></td></tr>
+          <tr><td>Built-in private-tag redaction with SHA256 audit</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Deterministic Stop capture, no LLM call</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-na">n/a</span></td><td><span class="cell-na">n/a</span></td><td><span class="cell-na">n/a</span></td><td><span class="cell-na">n/a</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Hybrid retrieval, FTS5 plus local dense, RRF-fused</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-p">~</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-p">~</span></td></tr>
+          <tr><td>Temporal claim lifecycle (valid-from/to, supersedes)</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td></tr>
+          <tr><td>Project and code graph (tree-sitter, PR-impact)</td><td class="mn"><span class="cell-g">gated</span></td><td><span class="cell-p">~</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Adaptive token and context budget</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td></tr>
+          <tr><td>Agent security: capability firewall, taint, approval gate</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>One-command lossless migration from claude-mem</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-na">n/a</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Local-first, no cloud account required</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-p">~</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-y">✓</span></td></tr>
+          <tr><td>Runs in Claude Code, Codex, Antigravity, any MCP client</td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td></tr>
+          <tr><td>License</td><td class="mn"><span class="cell-lic">Apache-2.0</span></td><td><span class="cell-lic">Apache-2.0</span></td><td><span class="cell-lic">Apache-2.0</span></td><td><span class="cell-lic">Apache-2.0</span></td><td><span class="cell-lic">cloud</span></td><td><span class="cell-lic">open source</span></td><td><span class="cell-lic">MIT</span></td></tr>
+          <tr><td>Team memory with a web graph UI <span class="mono" style="color:var(--ink-3);font-size:0.72rem">(mneme: self-hosted git sync + local console)</span></td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-n">—</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Agent autonomously rewrites its own memory <span class="mono" style="color:var(--ink-3);font-size:0.72rem">(mneme: policy-graduated, rollback, audit chain)</span></td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-y">✓</span></td></tr>
+          <tr><td>Auto-summarization at session end, on by default <span class="mono" style="color:var(--ink-3);font-size:0.72rem">(mneme: deterministic zero-LLM)</span></td><td class="mn"><span class="cell-y">✓</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-p">~</span></td><td><span class="cell-p">~</span></td><td><span class="cell-n">—</span></td></tr>
+          <tr><td>Localized observation-prompt presets <span class="mono" style="color:var(--ink-3);font-size:0.72rem">(mneme: en + tr)</span></td><td class="mn"><span class="cell-p">~</span></td><td><span class="cell-y">✓</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td><td><span class="cell-n">—</span></td></tr>
         </tbody>
       </table>
     </div>
-
-    <div class="compare-legend" aria-label="Table legend">
-      <div class="compare-legend-item">
-        <span class="compare-legend-glyph">&#10003;</span>
-        <span>Built in (shipped, no flag needed)</span>
-      </div>
-      <div class="compare-legend-item">
-        <span class="compare-legend-glyph">gated</span>
-        <span>Shipped, needs opt-in dependency or flag</span>
-      </div>
-      <div class="compare-legend-item">
-        <span class="compare-legend-glyph">~</span>
-        <span>Partial</span>
-      </div>
-      <div class="compare-legend-item">
-        <span class="compare-legend-glyph dim">&#8212;</span>
-        <span>Not available</span>
-      </div>
-      <div class="compare-legend-item">
-        <span class="compare-legend-glyph dim">n/a</span>
-        <span>Not applicable</span>
-      </div>
+    <div class="cmp-legend">
+      <span><span class="cell-y">✓</span> Built in (shipped, no flag)</span>
+      <span><span class="cell-g">gated</span> Needs opt-in dependency or flag</span>
+      <span><span class="cell-p">~</span> Partial</span>
+      <span><span class="cell-n">—</span> Not available</span>
+      <span><span class="cell-na">n/a</span> Not applicable</span>
     </div>
-
-    <p class="compare-detail-link">
-      For per-tool detail and an honest account of where mneme is not the right fit, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">capability matrix</a>.
-    </p>
-
+    <p class="cmp-note">For per-tool detail and an honest account of where mneme is <em>not</em> the right fit, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">full capability matrix</a>.</p>
   </div>
 </section>
 
-
-<!-- ============================================================
-     ADVANCED MODULES
-     Variant C: technology-specific tags
-     ============================================================ -->
+<!-- ===================== MODULES ===================== -->
 <section id="modules">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Advanced Modules</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ advanced modules</span><span class="led-rule"></span></div>
     <h2>Opt-in, local-first extensions</h2>
-    <p class="section-sub">All modules are off by default. Nothing phones home. Enable only what you need.</p>
-
-    <div class="modules-grid stagger">
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Graph icon">
-            <circle cx="3.5" cy="9" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <circle cx="14.5" cy="4.5" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <circle cx="14.5" cy="13.5" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M5.4 8.2 L12.6 5.3M5.4 9.8 L12.6 12.7" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          </svg>
-        </div>
-        <h3>Project &amp; Code Graph</h3>
-        <p>tree-sitter parsing for Python, JavaScript, and TypeScript. Extracts symbols, call graphs, and module boundaries from your codebase into the knowledge graph.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">tree-sitter</span>
-          <span class="module-tag-tech">Python/JS/TS</span>
-          <span class="module-tag">opt-in</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Code memory icon">
-            <rect x="2" y="4" width="14" height="10" rx="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M5 8l2 2-2 2M9 12h4" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3>Code Memory</h3>
-        <p>Parses AGENTS.md conventions and captures failure-and-fix pairs across sessions. Surfaces relevant prior solutions when patterns recur.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">AGENTS.md</span>
-          <span class="module-tag">opt-in</span>
-          <span class="module-tag">local</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Domain mode icon">
-            <path d="M9 2L3 5.5v4c0 3.5 2.5 6.7 6 7.7 3.5-1 6-4.2 6-7.7v-4L9 2z" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3>Domain Privacy Modes</h3>
-        <p>Clinical and security-review modes that enforce stricter redaction policies and block external extraction at the config layer — not overrideable by user config.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">clinical</span>
-          <span class="module-tag-tech">sec-review</span>
-          <span class="module-tag">opt-in</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Security firewall icon">
-            <rect x="2" y="5" width="14" height="9" rx="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M6 5V4a3 3 0 016 0v1" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round"/>
-            <circle cx="9" cy="10" r="1.5" fill="#2dd4bf" opacity="0.7"/>
-          </svg>
-        </div>
-        <h3>Agent-Security Layer</h3>
-        <p>Capability firewall, taint tracking, and human-approval gate. Ships with a poisoned-vault benchmark for regression testing security controls.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">taint tracking</span>
-          <span class="module-tag">built-in</span>
-          <span class="module-tag">local</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="HTML audit console icon">
-            <rect x="2" y="3" width="14" height="12" rx="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M5 8l2 2-2 2M9 12h4" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round"/>
-            <circle cx="5" cy="6" r="0.8" fill="#2dd4bf"/>
-            <circle cx="7.5" cy="6" r="0.8" fill="rgba(45,212,191,0.5)"/>
-          </svg>
-        </div>
-        <h3>Audit Console &amp; Web Explorer</h3>
-        <p>Read-only audit surface in two forms: a static offline HTML report, and a loopback-only web explorer (<code>mneme-console --serve</code>) with graph, claims, changes, and audit-chain views. GET-only, refuses non-loopback binds.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">HTML</span>
-          <span class="module-tag">opt-in</span>
-          <span class="module-tag">offline</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Hybrid retrieval icon">
-            <path d="M3 9h4l2-4 2 8 2-4h2" stroke="#2dd4bf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3>Hybrid Retrieval (RRF)</h3>
-        <p>Local dense retrieval fused with FTS5 via Reciprocal Rank Fusion. Combines semantic similarity and keyword precision in a single ranked result set.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">RRF</span>
-          <span class="module-tag">opt-in</span>
-          <span class="module-tag">local</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Context continuity icon">
-            <path d="M3 6h12M3 9h12M3 12h7" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round"/>
-            <circle cx="13.5" cy="12.5" r="2.2" stroke="#2dd4bf" stroke-width="1.2"/>
-          </svg>
-        </div>
-        <h3>Context Continuity Engine</h3>
-        <p>Proactive working-set checkpoints at configurable context-fill thresholds make compaction loss recoverable. After a compaction the engine detects what the host summary dropped and re-injects only those items, salience-ranked, within a token budget. Checkpoints are plain markdown in the vault. Zero-LLM, default off.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">checkpoints</span>
-          <span class="module-tag">opt-in</span>
-          <span class="module-tag">zero-LLM</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Temporal extraction icon">
-            <circle cx="9" cy="9" r="6.5" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M9 5.5V9l2.5 2" stroke="#2dd4bf" stroke-width="1.3" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <h3>Temporal Extraction</h3>
-        <p>The deterministic claim lifecycle — valid-from/to, supersedes, as-of queries, and <code>memory blame</code> provenance — is built in on every profile. This module adds optional LLM claim extraction and Graphiti export for knowledge-graph timelines.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">Graphiti</span>
-          <span class="module-tag">opt-in</span>
-          <span class="module-tag">local</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Connectors icon">
-            <circle cx="4" cy="9" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <circle cx="14" cy="4" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <circle cx="14" cy="14" r="2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M6 9 L12 4.8M6 9 L12 13.2" stroke="rgba(45,212,191,0.5)" stroke-width="1"/>
-          </svg>
-        </div>
-        <h3>Obsidian &amp; GitHub Connectors</h3>
-        <p>Sync vault structure from Obsidian and ingest GitHub issue and PR context. Both connectors are opt-in and off by default — no data leaves your machine unless you enable them.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">Obsidian</span>
-          <span class="module-tag-tech">GitHub</span>
-          <span class="module-tag">opt-in</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Team sync icon">
-            <circle cx="5" cy="5" r="2.2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <circle cx="13" cy="5" r="2.2" stroke="#2dd4bf" stroke-width="1.2"/>
-            <path d="M2.5 14.5c0-2 1.2-3.5 2.5-3.5s2.5 1.5 2.5 3.5M10.5 14.5c0-2 1.2-3.5 2.5-3.5s2.5 1.5 2.5 3.5" stroke="rgba(45,212,191,0.6)" stroke-width="1.1" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <h3>Team Vault Sync</h3>
-        <p>Share memory over any plain git remote — no vendor cloud. Every file is redacted before it leaves the machine and a post-copy leak rescan aborts the push fail-closed. Optional age end-to-end encryption. Pulls never overwrite local notes.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">git remote</span>
-          <span class="module-tag-tech">age E2E</span>
-          <span class="module-tag">opt-in</span>
-        </div>
-      </div>
-
-      <div class="module-card">
-        <div class="module-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" role="img" aria-label="Policy autonomy icon">
-            <path d="M9 2L3.5 4.5v4c0 3.2 2.3 6 5.5 7 3.2-1 5.5-3.8 5.5-7v-4L9 2z" stroke="#2dd4bf" stroke-width="1.2" stroke-linejoin="round"/>
-            <path d="M6.5 9l1.8 1.8L11.8 7" stroke="#2dd4bf" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3>Policy-Graduated Autonomy</h3>
-        <p>A declarative policy file allows low-risk edit classes (dedup, typo, tags) to apply autonomously. Every change is journalled for one-command rollback and chained into a tamper-evident HMAC audit log. Durable categories always keep a human in the loop.</p>
-        <div class="module-tags">
-          <span class="module-tag-tech">policy.json</span>
-          <span class="module-tag-tech">rollback</span>
-          <span class="module-tag">opt-in</span>
-        </div>
-      </div>
-
+    <p class="lead">All modules are off by default. Nothing phones home. Enable only what you need.</p>
+    <div class="mod-list reveal">
+      <div class="mod"><div class="mod-h"><h3>Project &amp; Code Graph</h3></div><p>tree-sitter parsing for Python, JavaScript, and TypeScript. Extracts symbols, call graphs, and module boundaries from your codebase into the knowledge graph.</p><div class="mod-tags"><span class="mtag">tree-sitter</span><span class="mtag">Python/JS/TS</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Code Memory</h3></div><p>Parses AGENTS.md conventions and captures failure-and-fix pairs across sessions. Surfaces relevant prior solutions when patterns recur.</p><div class="mod-tags"><span class="mtag">AGENTS.md</span><span class="mtag">local</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Domain Privacy Modes</h3></div><p>Clinical and security-review modes that enforce stricter redaction policies and block external extraction at the config layer — not overrideable by user config.</p><div class="mod-tags"><span class="mtag">clinical</span><span class="mtag">sec-review</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Agent-Security Layer</h3></div><p>Capability firewall, taint tracking, and human-approval gate. Ships with a poisoned-vault benchmark for regression testing security controls.</p><div class="mod-tags"><span class="mtag">taint tracking</span><span class="mtag">built-in</span><span class="mtag">local</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Audit Console &amp; Web Explorer</h3></div><p>Read-only audit surface in two forms: a static offline HTML report, and a loopback-only web explorer (mneme-console --serve) with graph, claims, changes, and audit-chain views. GET-only, refuses non-loopback binds.</p><div class="mod-tags"><span class="mtag">HTML</span><span class="mtag">offline</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Hybrid Retrieval (RRF)</h3></div><p>Local dense retrieval fused with FTS5 via Reciprocal Rank Fusion. Combines semantic similarity and keyword precision in a single ranked result set.</p><div class="mod-tags"><span class="mtag">RRF</span><span class="mtag">local</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Context Continuity Engine</h3></div><p>Proactive working-set checkpoints at configurable context-fill thresholds make compaction loss recoverable. After a compaction the engine detects what the host summary dropped and re-injects only those items, salience-ranked, within a token budget. Checkpoints are plain markdown in the vault. Zero-LLM, default off.</p><div class="mod-tags"><span class="mtag">checkpoints</span><span class="mtag">zero-LLM</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Temporal Extraction</h3></div><p>The deterministic claim lifecycle — valid-from/to, supersedes, as-of queries, and memory blame provenance — is built in on every profile. This module adds optional LLM claim extraction and Graphiti export for knowledge-graph timelines.</p><div class="mod-tags"><span class="mtag">Graphiti</span><span class="mtag">local</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Obsidian &amp; GitHub Connectors</h3></div><p>Sync vault structure from Obsidian and ingest GitHub issue and PR context. Both connectors are opt-in and off by default — no data leaves your machine unless you enable them.</p><div class="mod-tags"><span class="mtag">Obsidian</span><span class="mtag">GitHub</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Team Vault Sync</h3></div><p>Share memory over any plain git remote — no vendor cloud. Every file is redacted before it leaves the machine and a post-copy leak rescan aborts the push fail-closed. Optional age end-to-end encryption. Pulls never overwrite local notes.</p><div class="mod-tags"><span class="mtag">git remote</span><span class="mtag">age E2E</span><span class="mtag off">opt-in</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Policy-Graduated Autonomy</h3></div><p>A declarative policy file allows low-risk edit classes (dedup, typo, tags) to apply autonomously. Every change is journalled for one-command rollback and chained into a tamper-evident HMAC audit log. Durable categories always keep a human in the loop.</p><div class="mod-tags"><span class="mtag">policy.json</span><span class="mtag">rollback</span><span class="mtag off">opt-in</span></div></div>
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     MCP REGISTRY
-     ============================================================ -->
+<!-- ===================== REGISTRY ===================== -->
 <section id="registry">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">Official Registry</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
-    <h2>On the MCP Registry</h2>
-    <p class="section-sub">Discovery from a single, ownership-verified source — not a random GitHub link.</p>
-
-    <div class="registry-card reveal">
+  <div class="wrap">
+    <div class="led-head"><span class="led-mark">§ official registry</span><span class="led-rule"></span></div>
+    <div class="reg">
       <div>
-        <p style="color:var(--text-muted);font-size:0.9rem;line-height:1.75;margin-bottom:16px">
-          mneme is listed on the official MCP Registry — the canonical, project-maintained directory of Model Context Protocol servers. Any MCP client can discover and install mneme from a single verified source.
-        </p>
-        <div class="registry-id">io.github.TheGoatPsy/mneme</div>
-        <p style="font-size:0.84rem;color:var(--text-muted);line-height:1.75;margin-top:16px">
-          The <code style="font-family:var(--mono);font-size:0.9em;color:var(--accent)">io.github.TheGoatPsy</code> namespace is bound to the GitHub account that owns the project — so the entry is ownership-verified, not self-asserted.
-        </p>
-        <a href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener" class="btn-secondary" style="display:inline-flex;margin-top:20px;font-size:0.84rem">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2H3a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V8M10 2h4v4M14 2L8 8"/></svg>
-          Visit MCP Registry
-        </a>
+        <h2>On the MCP Registry</h2>
+        <p class="lead lead--spaced">Discovery from a single, ownership-verified source — not a random GitHub link.</p>
+        <p>mneme is listed on the official MCP Registry — the canonical, project-maintained directory of Model Context Protocol servers. Any MCP client can discover and install mneme from a single verified source. The <span class="mono" style="font-size:0.86rem">io.github.TheGoatPsy</span> namespace is bound to the GitHub account that owns the project, so the entry is ownership-verified, not self-asserted.</p>
+        <a class="btn btn-ghost reg-btn" href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener">Visit MCP Registry →</a>
       </div>
-
-      <div class="registry-visual">
-        <svg viewBox="0 0 240 200" width="220" role="img" aria-label="MCP Registry verification diagram showing mneme listed under ownership-verified namespace">
-          <!-- Registry box -->
-          <rect x="30" y="20" width="180" height="160" rx="12" fill="#0f1923" stroke="rgba(45,212,191,0.25)" stroke-width="1.5"/>
-          <text x="120" y="44" text-anchor="middle" font-family="monospace" font-size="9" font-weight="700" fill="#2dd4bf">MCP Registry</text>
-          <text x="120" y="57" text-anchor="middle" font-family="Inter,sans-serif" font-size="7.5" fill="rgba(148,163,184,0.5)">registry.modelcontextprotocol.io</text>
-          <!-- Entry -->
-          <rect x="48" y="66" width="144" height="42" rx="7" fill="rgba(45,212,191,0.06)" stroke="rgba(45,212,191,0.2)" stroke-width="1"/>
-          <text x="68" y="82" font-family="monospace" font-size="8.5" font-weight="700" fill="#2dd4bf">io.github.TheGoatPsy</text>
-          <text x="68" y="96" font-family="monospace" font-size="9.5" font-weight="700" fill="#e2e8f0">/mneme</text>
-          <!-- verified badge -->
-          <circle cx="182" cy="82" r="8" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
-          <path d="M178 82 L181 85 L186 79" stroke="#2dd4bf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-          <!-- GitHub ownership arrow -->
-          <path d="M120 112 L120 128" stroke="rgba(45,212,191,0.3)" stroke-width="1" marker-end="url(#arr-dim)"/>
-          <rect x="60" y="130" width="120" height="34" rx="6" fill="rgba(15,25,35,0.8)" stroke="rgba(45,212,191,0.15)" stroke-width="1"/>
-          <text x="120" y="145" text-anchor="middle" font-family="Inter,sans-serif" font-size="7.5" fill="rgba(148,163,184,0.7)">GitHub account</text>
-          <text x="120" y="158" text-anchor="middle" font-family="monospace" font-size="8" font-weight="600" fill="rgba(45,212,191,0.7)">TheGoatPsy</text>
-          <text x="120" y="174" text-anchor="middle" font-family="Inter,sans-serif" font-size="7" fill="rgba(148,163,184,0.4)">namespace ownership verified</text>
-        </svg>
+      <div class="reg-card reveal">
+        <div class="rc-top"><span class="dot" aria-hidden="true"></span> registry.modelcontextprotocol.io</div>
+        <div class="rc-body">
+          <div class="reg-ns"><span class="own">io.github.TheGoatPsy</span><span class="nm">/mneme</span></div>
+          <div class="reg-verified">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+            namespace ownership verified
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     HONEST FIT
-     ============================================================ -->
+<!-- ===================== HONEST FIT ===================== -->
 <section id="fit">
-  <div class="container">
-    <div class="honest-block reveal">
-      <div class="hb-icon" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" role="img" aria-label="Balance scale icon">
-          <path d="M11 3v16M5 19h12" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M11 6L4 10l7 4M11 6l7 4-7 4" stroke="#2dd4bf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <div class="wrap">
+    <div class="honest reveal">
+      <h2>Honest about where mneme fits</h2>
+      <p>mneme publishes a straightforward account of where it is — and is not — the right tool for a given use case. No marketing hedging, no cherry-picked scenarios.</p>
+      <div class="seal-line">
+        <svg class="seal-sm" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="var(--stamp)" stroke-width="2.4"/>
+          <circle cx="50" cy="50" r="46" fill="none" stroke="var(--stamp)" stroke-width="1.2" opacity="0.5"/>
+          <path d="M40 50l7 7 14-15" fill="none" stroke="var(--stamp)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-      </div>
-      <div>
-        <h2 style="font-size:1.15rem;margin-bottom:8px">Honest about where mneme fits</h2>
-        <p>
-          mneme publishes a straightforward account of where it is — and is not — the right tool for a given use case.
-          No marketing hedging, no cherry-picked scenarios.
-          Read the full capability matrix:
-          <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">
-            github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md →
-          </a>
-        </p>
+        <span class="doc-link">Read the full capability matrix → <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">docs/COMPETITIVE.md</a></span>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     FAQ
-     Variant B: accordion with aria-expanded + hidden attribute
-     ============================================================ -->
+<!-- ===================== FAQ ===================== -->
 <section id="faq">
-  <div class="container">
-    <div class="section-eyebrow">
-      <span class="section-label">FAQ</span>
-      <span class="section-eyebrow-line" aria-hidden="true"></span>
-    </div>
+  <div class="wrap">
     <h2>Frequently asked questions</h2>
-    <p class="section-sub">Honest answers. No aspirational claims.</p>
-
-    <div class="faq-list stagger">
-
+    <p class="lead">Honest answers. No aspirational claims.</p>
+    <div class="faq-list">
       <div class="faq-item">
-        <button class="faq-trigger" aria-expanded="false" aria-controls="faq-body-1" onclick="toggleFaq(this)">
-          <h3>How is this different from other memory tools?</h3>
-          <svg class="faq-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="faq-body" id="faq-body-1" hidden>
-          <p>Your Markdown files stay the source of truth and every derived store is fully rebuildable from scratch. Capture is deterministic — no LLM is on the critical path and no model call is needed to write a memory. Redaction runs before anything is stored in any index or embedding. The system is designed to be auditable and to give you full control over what is kept and what is not.</p>
-        </div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq1">How is this different from other memory tools?<span class="ic" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq1" hidden>Your Markdown files stay the source of truth and every derived store is fully rebuildable from scratch. Capture is deterministic — no LLM is on the critical path and no model call is needed to write a memory. Redaction runs before anything is stored in any index or embedding. The system is designed to be auditable and to give you full control over what is kept and what is not.</div>
       </div>
-
       <div class="faq-item">
-        <button class="faq-trigger" aria-expanded="false" aria-controls="faq-body-2" onclick="toggleFaq(this)">
-          <h3>Does it send my data anywhere?</h3>
-          <svg class="faq-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="faq-body" id="faq-body-2" hidden>
-          <p>No. mneme is local-first. External extraction and remote connectors are opt-in and off by default. A built-in privacy mode cannot be weakened by user-level configuration — the enforcement is at the system layer, not just a preference you can toggle away.</p>
-        </div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq2">Does it send my data anywhere?<span class="ic" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq2" hidden>No. mneme is local-first. External extraction and remote connectors are opt-in and off by default. A built-in privacy mode cannot be weakened by user-level configuration — the enforcement is at the system layer, not just a preference you can toggle away.</div>
       </div>
-
       <div class="faq-item">
-        <button class="faq-trigger" aria-expanded="false" aria-controls="faq-body-3" onclick="toggleFaq(this)">
-          <h3>What is the performance overhead?</h3>
-          <svg class="faq-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="faq-body" id="faq-body-3" hidden>
-          <p>The Stop hook p95 is 2 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. That leaves 99.8% of the budget unused. Heavy processing — indexing, embedding, graph updates — runs in the background and is never on the synchronous critical path of your Claude Code session.</p>
-        </div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq3">What is the performance overhead?<span class="ic" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq3" hidden>The Stop hook p95 is 2 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. That leaves 99.8% of the budget unused. Heavy processing — indexing, embedding, graph updates — runs in the background and is never on the synchronous critical path of your Claude Code session.</div>
       </div>
-
       <div class="faq-item">
-        <button class="faq-trigger" aria-expanded="false" aria-controls="faq-body-4" onclick="toggleFaq(this)">
-          <h3>Is it production-ready?</h3>
-          <svg class="faq-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="faq-body" id="faq-body-4" hidden>
-          <p>mneme is Apache-2.0-licensed and published on <a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI</a> and <a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm</a> with a reproducible benchmark harness you can run locally. For an honest account of maturity, fit, and known limitations, see the <a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">capability matrix</a>.</p>
-        </div>
+        <button class="faq-q" aria-expanded="false" aria-controls="faq4">Is it production-ready?<span class="ic" aria-hidden="true"></span></button>
+        <div class="faq-a" id="faq4" hidden>mneme is Apache-2.0-licensed and published on PyPI and npm with a reproducible benchmark harness you can run locally. For an honest account of maturity, fit, and known limitations, see the capability matrix.</div>
       </div>
-
     </div>
   </div>
 </section>
 
-<!-- ============================================================
-     FOOTER
-     ============================================================ -->
+</main>
+
+<!-- ===================== FOOTER ===================== -->
 <footer>
-  <div class="container">
-    <div class="footer-inner">
-      <div class="footer-brand">
-        <div class="fb-name">mneme</div>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top">
+          <img class="brand-mark" src="assets/mneme-mark.jpg" width="28" height="28" alt="mneme emblem" decoding="async">
+          <span class="brand-name">mneme</span>
+        </a>
         <p>Accountable, vault-native memory for Claude Code and any MCP client. Open source, Apache-2.0 licensed.</p>
       </div>
-
-      <div class="footer-links">
-        <div class="footer-col">
-          <h4>Source</h4>
-          <ul>
-            <li><a href="https://github.com/TheGoatPsy/mneme" target="_blank" rel="noopener">GitHub</a></li>
-            <li><a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI — core</a></li>
-            <li><a href="https://pypi.org/project/mneme-cc-plugin/" target="_blank" rel="noopener">PyPI — plugin</a></li>
-            <li><a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm — mcp-server</a></li>
-          </ul>
-        </div>
-
-        <div class="footer-col">
-          <h4>Registry &amp; Docs</h4>
-          <ul>
-            <li><a href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener">MCP Registry</a></li>
-            <li><a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">Capability matrix</a></li>
-            <li><a href="#benchmarks">Benchmarks</a></li>
-            <li><a href="#faq">FAQ</a></li>
-          </ul>
-        </div>
+      <div class="foot-col">
+        <h4>Source</h4>
+        <ul>
+          <li><a href="https://github.com/TheGoatPsy/mneme" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://pypi.org/project/mneme-core/" target="_blank" rel="noopener">PyPI — core</a></li>
+          <li><a href="https://pypi.org/project/mneme-cc-plugin/" target="_blank" rel="noopener">PyPI — plugin</a></li>
+          <li><a href="https://www.npmjs.com/package/mneme-mcp-server" target="_blank" rel="noopener">npm — mcp-server</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Registry &amp; Docs</h4>
+        <ul>
+          <li><a href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener">MCP Registry</a></li>
+          <li><a href="https://github.com/TheGoatPsy/mneme/blob/main/docs/COMPETITIVE.md" target="_blank" rel="noopener">Capability matrix</a></li>
+          <li><a href="#benchmarks">Benchmarks</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
       </div>
     </div>
-
-    <div class="footer-bottom">
-      <p>Built by Onour Impram. Apache-2.0 License.</p>
-      <span class="license">Apache-2.0</span>
-    </div>
+  </div>
+  <div class="foot-bottom">
+    <span>Built by Onour Impram.</span>
+    <span class="lic">Apache-2.0 License</span>
   </div>
 </footer>
 
-<!-- ============================================================
-     INLINE JS
-     ============================================================ -->
+<!-- ===================== JS ===================== -->
 <script>
-// Fix 6: copy button uses a separate <span> for the label text so only textContent needs updating
-function copyCode(id, btn) {
-  var el = document.getElementById(id);
-  var text = el ? el.textContent : '';
-  var labelSpan = btn.querySelector('.copy-label') || btn.querySelector('span');
-  if (!navigator.clipboard) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch(e) {}
-    document.body.removeChild(ta);
-  } else {
-    navigator.clipboard.writeText(text).catch(function(){});
-  }
-  if (labelSpan) labelSpan.textContent = 'Copied!';
-  btn.classList.add('copied');
-  setTimeout(function(){
-    if (labelSpan) labelSpan.textContent = 'Copy';
-    btn.classList.remove('copied');
-  }, 2000);
-}
-
-// Variant B: FAQ accordion using hidden attribute + aria-expanded
-function toggleFaq(btn) {
-  var bodyId = btn.getAttribute('aria-controls');
-  var body = document.getElementById(bodyId);
-  if (!body) return;
-  var isOpen = btn.getAttribute('aria-expanded') === 'true';
-  if (isOpen) {
-    btn.setAttribute('aria-expanded', 'false');
-    body.setAttribute('hidden', '');
-  } else {
-    btn.setAttribute('aria-expanded', 'true');
-    body.removeAttribute('hidden');
-  }
-}
-
-// Variant C: animated hamburger toggle (adds .is-open for CSS morph)
-var ham = document.getElementById('navHam');
-var mob = document.getElementById('navMobile');
-if (ham && mob) {
-  ham.addEventListener('click', function(){
-    var open = mob.classList.toggle('open');
-    ham.classList.toggle('is-open', open);
-    ham.setAttribute('aria-expanded', open ? 'true' : 'false');
-    ham.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+// copy buttons — copy the FULL command text
+document.querySelectorAll('.copy').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var el = document.getElementById(btn.getAttribute('data-copy'));
+    var text = el ? el.textContent : '';
+    var label = btn.querySelector('.copy-label');
+    var done = function(){
+      if(label) label.textContent = 'Copied';
+      btn.classList.add('copied');
+      setTimeout(function(){ if(label) label.textContent = 'Copy'; btn.classList.remove('copied'); }, 1900);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(done);
+    } else {
+      var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); done();
+    }
   });
-}
-function closeMobileNav() {
-  if (mob) mob.classList.remove('open');
-  if (ham) {
-    ham.classList.remove('is-open');
-    ham.setAttribute('aria-expanded', 'false');
-    ham.setAttribute('aria-label', 'Open navigation menu');
-  }
-}
+});
 
-// Scroll reveal with IntersectionObserver
+// FAQ accordion
+document.querySelectorAll('.faq-q').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var body = document.getElementById(btn.getAttribute('aria-controls'));
+    var open = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    if(body){ if(open) body.setAttribute('hidden',''); else body.removeAttribute('hidden'); }
+  });
+});
+
+// mobile menu
 (function(){
-  if (!window.IntersectionObserver) return;
-  var obs = new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      if (e.isIntersecting) {
-        e.target.classList.add('visible');
-        obs.unobserve(e.target);
-      }
-    });
-  }, { threshold: 0.08 });
-  document.querySelectorAll('.reveal, .stagger').forEach(function(el){
-    obs.observe(el);
+  var burger = document.getElementById('burger'), menu = document.getElementById('mobile');
+  if(!burger || !menu) return;
+  function close(){ menu.classList.remove('open'); burger.classList.remove('open');
+    burger.setAttribute('aria-expanded','false'); burger.setAttribute('aria-label','Open navigation menu'); }
+  burger.addEventListener('click', function(){
+    var open = menu.classList.toggle('open'); burger.classList.toggle('open', open);
+    burger.setAttribute('aria-expanded', open?'true':'false');
+    burger.setAttribute('aria-label', open?'Close navigation menu':'Open navigation menu');
   });
+  menu.querySelectorAll('a').forEach(function(a){ a.addEventListener('click', close); });
 })();
-</script>
 
+// scroll reveal
+(function(){
+  var els = document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){ els.forEach(function(el){ el.classList.add('visible'); }); return; }
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('visible'); obs.unobserve(e.target); } });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+  els.forEach(function(el){ obs.observe(el); });
+})();
+
+// Mnemosyne banner cinemagraph — CSS motion is autonomous. Only JS: honor reduced-motion for the SMIL river.
+if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  var _rv = document.querySelector('.myth-river'); if(_rv && _rv.pauseAnimations) _rv.pauseAnimations();
+}
+</script>
 </body>
 </html>
