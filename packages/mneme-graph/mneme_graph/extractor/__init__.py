@@ -1,13 +1,16 @@
 """Extractor sub-package for mneme-graph.
 
-Each module in this package handles one language. The public contract for
+Each module in this package handles one file type. The public contract for
 every extractor module is:
 
     extract_file(path: Path, vault_root: Path) -> tuple[list[GraphNode], list[GraphEdge]]
 
 Currently shipped:
-    mneme_graph.extractor.python_extractor     — tree-sitter Python extractor
+    mneme_graph.extractor.python_extractor     — tree-sitter Python extractor (.py)
     mneme_graph.extractor.javascript_extractor — tree-sitter JS/TS extractor
+                                                 (.js/.jsx/.mjs/.cjs/.ts/.tsx)
+    mneme_graph.extractor.markdown_extractor   — deterministic Markdown extractor
+                                                 (.md/.markdown)
 
 Registry
 --------
@@ -43,6 +46,12 @@ def _js_extract(path: Path, vault_root: Path) -> tuple[list[GraphNode], list[Gra
     return extract_file(path, vault_root)
 
 
+def _md_extract(path: Path, vault_root: Path) -> tuple[list[GraphNode], list[GraphEdge]]:
+    from .markdown_extractor import extract_file
+
+    return extract_file(path, vault_root)
+
+
 # Map of lowercase suffix → extractor callable.
 # JS and TS both route through javascript_extractor which picks the right grammar
 # based on the file suffix at call time.
@@ -54,6 +63,8 @@ EXTRACTORS: dict[str, ExtractFn] = {
     ".cjs": _js_extract,
     ".ts": _js_extract,
     ".tsx": _js_extract,
+    ".md": _md_extract,
+    ".markdown": _md_extract,
 }
 
 # Ordered tuple of all supported suffixes (stable, for rglob patterns in cli.py).

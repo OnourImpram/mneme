@@ -34,10 +34,13 @@ from typing import Literal
 ConfidenceLabel = Literal["EXTRACTED", "INFERRED", "AMBIGUOUS"]
 
 # Node kind values.
-NodeKind = Literal["module", "class", "function", "variable"]
+NodeKind = Literal["module", "class", "function", "variable", "note", "tag", "heading"]
 
 # Edge kind values.
-EdgeKind = Literal["calls", "imports", "defines", "inherits"]
+EdgeKind = Literal[
+    "calls", "imports", "defines", "inherits",
+    "links_to", "tagged", "has_heading", "embeds",
+]
 
 
 def _sha256_id(*parts: str) -> str:
