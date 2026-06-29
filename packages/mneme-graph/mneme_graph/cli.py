@@ -3,7 +3,8 @@
 Subcommands
 -----------
 build [--vault VAULT_ROOT]
-    Walk all .py files under the vault root (respecting the extractor's
+    Walk all supported source files (.py, .js, .jsx, .mjs, .cjs, .ts, .tsx,
+    .md, .markdown) under the vault root (respecting the extractor's
     symlink-escape containment), extract nodes+edges, and save graph.json
     under <vault>/.mneme/graph.json.  Prints a one-line summary on stdout.
     Idempotent: running twice on unchanged source produces identical output.
@@ -20,8 +21,9 @@ No new dependencies: argparse only (stdlib).
 
 Security: symlink-escape containment is enforced by the extractor itself.
 
-Redaction: graph.json nodes contain only code identifiers (symbol names) and
-vault-relative paths; no file content or string-literal values are stored.
+Redaction: graph.json nodes contain only code identifiers, symbol names,
+heading text, tag names, and vault-relative paths; no file content or
+string-literal prose is stored.
 """
 
 from __future__ import annotations
@@ -286,7 +288,7 @@ def main() -> None:
     # build subcommand
     subparsers.add_parser(
         "build",
-        help="Extract nodes+edges from all .py files and write graph.json.",
+        help="Extract nodes+edges from all supported files and write graph.json.",
     )
 
     # report subcommand

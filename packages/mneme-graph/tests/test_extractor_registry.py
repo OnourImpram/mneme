@@ -179,14 +179,14 @@ class TestUnknownSuffix:
         assert nodes == []
         assert edges == []
 
-    def test_md_returns_empty(self, tmp_path: Path) -> None:
+    def test_md_dispatched_to_markdown_extractor(self, tmp_path: Path) -> None:
         from mneme_graph.extractor import extract_any
 
         md_file = tmp_path / "README.md"
         md_file.write_text("# Title\n", encoding="utf-8")
         nodes, edges = extract_any(md_file, tmp_path)
-        assert nodes == []
-        assert edges == []
+        # .md is now handled by markdown_extractor; must return at least a note node
+        assert any(n.kind == "note" for n in nodes)
 
     def test_json_returns_empty(self, tmp_path: Path) -> None:
         from mneme_graph.extractor import extract_any
