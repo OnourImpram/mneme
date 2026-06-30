@@ -65,6 +65,8 @@ jobs:
         run: mypy --strict packages/mneme-code/mneme_code
       - name: Run mneme-code pytest with coverage
         run: pytest packages/mneme-code/tests -v
+      - name: Run cross-package parity tests
+        run: pytest tests/parity -q
 
   node-test:
     name: Node ${{ matrix.node-version }} on ${{ matrix.os }}

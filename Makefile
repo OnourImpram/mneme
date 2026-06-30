@@ -14,28 +14,30 @@ help:
 	@echo "  make install-dev          install editable Python + pnpm workspace"
 	@echo "  make test                 run pytest + vitest across all packages"
 	@echo "  make lint                 ruff + mypy + biome"
-	@echo "  make bench-all            run all five benchmarks (A through E)"
+	@echo "  make bench-all            run all seven benchmarks (A through G)"
 	@echo "  make bench-retrieval      benchmark A: synthetic retrieval quality"
 	@echo "  make bench-latency        benchmark B: Stop hook and retrieval p95"
 	@echo "  make bench-cost           benchmark C: Adaptive Context Layer token savings"
 	@echo "  make bench-migration      benchmark D: claude-mem migration validation"
 	@echo "  make bench-head-to-head   benchmark E: head-to-head adapter comparison"
-	@echo "  make bench-longmemeval    LongMemEval: FTS5 recall on synthetic fixture"
-	@echo "  make bench-compaction-recall  benchmark F: CCE compaction-recall self-heal"
+	@echo "  make bench-longmemeval    benchmark F: LongMemEval FTS5 recall on synthetic fixture"
+	@echo "  make bench-compaction-recall  benchmark G: CCE compaction-recall self-heal"
 	@echo "  make clean                remove caches and build artifacts"
 
 install-dev:
 	cd packages/mneme-core && $(PY) -m pip install -e ".[dev]"
 	$(PY) -m pip install -e "packages/mneme-cc-plugin[dev]"
 	$(PY) -m pip install -e "packages/mneme-graph[dev]"
+	$(PY) -m pip install -e "packages/mneme-code[dev]"
 	$(PNPM) install --frozen-lockfile
 
 test:
 	$(PYTEST) packages/mneme-core/tests -q
 	$(PYTEST) packages/mneme-cc-plugin/tests -q
 	$(PYTEST) packages/mneme-graph/tests -q
+	$(PYTEST) packages/mneme-code/tests -q
 	$(PYTEST) tests/parity -q
-	$(PNPM) --filter mneme-mcp test
+	$(PNPM) --filter mneme-mcp-server test
 
 test-parity:
 	$(PYTEST) tests/parity -q
@@ -43,7 +45,9 @@ test-parity:
 lint:
 	cd packages/mneme-core && ruff check . && mypy --strict src/
 	cd packages/mneme-cc-plugin && ruff check . && mypy --strict src/
-	$(PNPM) --filter mneme-mcp lint
+	cd packages/mneme-graph && ruff check . && mypy --strict mneme_graph/
+	cd packages/mneme-code && ruff check . && mypy --strict mneme_code/
+	$(PNPM) --filter mneme-mcp-server lint
 
 $(BENCH_OUT):
 	@mkdir -p $(BENCH_OUT)

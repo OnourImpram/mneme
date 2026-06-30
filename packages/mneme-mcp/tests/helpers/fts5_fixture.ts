@@ -29,8 +29,9 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      tags TEXT,
      frontmatter_type TEXT,
      session_id TEXT,
+     scope TEXT NOT NULL DEFAULT 'default',
      linked_notes TEXT,
-     schema_version TEXT DEFAULT '2',
+     schema_version TEXT DEFAULT '3',
      language TEXT DEFAULT 'en',
      indexed_at TEXT,
      content_hash TEXT,
@@ -39,6 +40,7 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_documents_mtime ON documents(mtime)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_frontmatter_type ON documents(frontmatter_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_documents_scope ON documents(scope)`,
   `CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
      title,
      content,
@@ -61,6 +63,8 @@ export interface TestDoc {
   tagsNormalized?: string;
   frontmatterType?: string;
   sessionId?: string;
+  /** Scope dimension (frontmatter scope: → project: → 'default'). */
+  scope?: string;
   linkedNotes?: string;
   linkedNotesNormalized?: string;
   /** SHA-256 hex digest of raw file bytes (64-char hex). Empty string for legacy fixture rows. */
@@ -80,8 +84,8 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
       `INSERT INTO documents
        (title, title_normalized, path, content_raw, body_text, content_size, mtime,
         tags, frontmatter_type, session_id, linked_notes, indexed_at,
-        content_hash, trust)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        content_hash, trust, scope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = db.prepare(
       `INSERT INTO documents_fts (rowid, title, content, tags, linked_notes)
@@ -105,6 +109,7 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
           new Date().toISOString(),
           d.contentHash ?? "",
           d.trust ?? "user",
+          d.scope ?? "default",
         );
         insertFts.run(
           info.lastInsertRowid,

@@ -31,6 +31,8 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { wrapUntrusted } from "../injection.js";
+import { redact } from "../privacy.js";
 import type { VaultConfig } from "../vault/config.js";
 
 export interface Neo4jCredentials {
@@ -176,25 +178,39 @@ export async function createDriverFromVault(
 export async function expandTopicNeighborhood(
 	driver: Neo4jDriverLike,
 	topic: string,
+	scope?: string,
 ): Promise<GraphHit[]> {
 	if (topic.trim().length === 0) return [];
 	const session = driver.session();
 	try {
+		// KG write-side scope stamping is deferred to the Python engine.
+		// OR-NULL keeps legacy un-scoped Entity nodes visible when a scope
+		// is requested; only entities stamped with a different scope are excluded.
+		const scopeClause =
+			scope !== undefined && scope !== "*"
+				? "AND (e.scope = $scope OR e.scope IS NULL)"
+				: "";
+		const params: Record<string, unknown> = { topic, limit: MAX_GRAPH_HITS };
+		if (scope !== undefined && scope !== "*") params.scope = scope;
 		const result = await session.run(
 			`
       MATCH (e:Entity)
       WHERE toLower(e.name) CONTAINS toLower($topic)
+      ${scopeClause}
       OPTIONAL MATCH (e)-[:MENTIONED_IN]->(ep:Episode)
       RETURN e.name AS entity,
              coalesce(e.summary, '') AS summary,
              ep.source_description AS source_doc
       LIMIT $limit
       `,
-			{ topic, limit: MAX_GRAPH_HITS },
+			params,
 		);
 		return result.records.map((r) => ({
-			entity: String(r.get("entity")),
-			summary: String(r.get("summary") ?? ""),
+			entity: wrapUntrusted(redact(String(r.get("entity"))).text, "kg-entity"),
+			summary: wrapUntrusted(
+				redact(String(r.get("summary") ?? "")).text,
+				"kg-entity",
+			),
 			source_doc: (r.get("source_doc") as string | null) ?? undefined,
 		}));
 	} catch {
@@ -215,7 +231,13 @@ export async function expandTopicNeighborhood(
 export async function timelineForSubject(
 	driver: Neo4jDriverLike,
 	subject: string,
-	opts: { validFrom?: string; validTo?: string; asOf?: string } = {},
+	opts: {
+		validFrom?: string;
+		validTo?: string;
+		asOf?: string;
+		/** KG scope filter. OR-NULL keeps legacy un-scoped nodes visible. */
+		scope?: string;
+	} = {},
 ): Promise<TimelineFact[]> {
 	if (subject.trim().length === 0) return [];
 	const session = driver.session();
@@ -241,6 +263,12 @@ export async function timelineForSubject(
 				"(r.invalid_at IS NULL OR r.invalid_at > datetime($asOf))",
 			);
 		}
+		if (opts.scope !== undefined && opts.scope !== "*") {
+			// KG write-side scope stamping is deferred to the Python engine.
+			// OR-NULL keeps legacy un-scoped KG nodes visible when a scope is
+			// requested; only nodes stamped with a different scope are excluded.
+			whereClauses.push("(s.scope = $scope OR s.scope IS NULL)");
+		}
 		const cypher = `
       MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity)
       WHERE ${whereClauses.join(" AND ")}
@@ -258,6 +286,7 @@ export async function timelineForSubject(
 			validFrom: opts.validFrom,
 			validTo: opts.validTo,
 			asOf: opts.asOf,
+			scope: opts.scope,
 			limit: MAX_TIMELINE_FACTS,
 		});
 		return result.records.map((r) => {
@@ -265,9 +294,18 @@ export async function timelineForSubject(
 			const invalidAt = r.get("invalid_at");
 			const refTime = r.get("reference_time");
 			return {
-				subject: String(r.get("subject")),
-				fact: String(r.get("fact") ?? ""),
-				object: (r.get("object") as string | null) ?? undefined,
+				subject: wrapUntrusted(
+					redact(String(r.get("subject"))).text,
+					"kg-fact",
+				),
+				fact: wrapUntrusted(
+					redact(String(r.get("fact") ?? "")).text,
+					"kg-fact",
+				),
+				object:
+					r.get("object") != null
+						? wrapUntrusted(redact(String(r.get("object"))).text, "kg-fact")
+						: undefined,
 				valid_at: validAt ? String(validAt) : undefined,
 				invalid_at: invalidAt ? String(invalidAt) : null,
 				reference_time: refTime ? String(refTime) : undefined,

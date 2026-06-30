@@ -50,6 +50,11 @@ export const TimelineInputSchema = z.object({
 		.regex(/^\d{4}-\d{2}-\d{2}$/)
 		.optional(),
 	top_k: z.number().int().positive().max(100).default(25),
+	/**
+	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
+	 * cross-scope. Skipped when the index lacks the scope column.
+	 */
+	scope: z.string().max(256).optional(),
 });
 
 export type TimelineInput = z.infer<typeof TimelineInputSchema>;
@@ -88,6 +93,8 @@ export async function timelineTool(
 		};
 	}
 
+	const scope = args.scope ?? vault.defaultScope();
+
 	const ftsQuery = buildFts5Query(args.subject, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
@@ -105,6 +112,7 @@ export async function timelineTool(
 				mtimeTo: args.valid_to
 					? isoDateToUnixEndOfDay(args.valid_to)
 					: undefined,
+				scope,
 			});
 		} catch (err) {
 			return {
@@ -138,6 +146,7 @@ export async function timelineTool(
 					validFrom: isoToEpoch(args.valid_from),
 					validTo: isoToEpoch(args.valid_to),
 					asOf: isoToEpoch(args.as_of),
+					scope,
 				});
 				asOfApplied = args.as_of !== undefined;
 			} finally {

@@ -92,6 +92,26 @@ export class VaultConfig {
 		return join(this.stateDir, "cost-ledger.jsonl");
 	}
 
+	/**
+	 * Default scope applied to read tools when no explicit scope arg is supplied.
+	 *
+	 * Resolution order:
+	 *   1. MNEME_SCOPE environment variable
+	 *   2. `default_scope = "..."` key in ~/.mneme/config.toml
+	 *   3. The literal 'default'
+	 *
+	 * Pass a custom `env` in tests to control the env without mutating
+	 * process.env.
+	 */
+	defaultScope(env?: NodeJS.ProcessEnv): string {
+		const e = env ?? process.env;
+		const envScope = e.MNEME_SCOPE;
+		if (envScope && envScope.length > 0) return envScope;
+		const tomlScope = readDefaultScopeFromTomlConfig();
+		if (tomlScope !== null) return tomlScope;
+		return "default";
+	}
+
 	static fromPath(path: string): VaultConfig {
 		return new VaultConfig(resolvePath(expandHome(path)));
 	}
@@ -156,6 +176,28 @@ function readVaultFromTomlConfig(): string | null {
 		const raw = readFileSync(configPath, "utf8");
 		for (const line of raw.split(/\r?\n/)) {
 			const m = line.match(/^\s*vault\s*=\s*["']([^"']+)["']\s*$/);
+			if (m) return m[1] ?? null;
+		}
+	} catch {
+		return null;
+	}
+	return null;
+}
+
+/**
+ * Read the `default_scope` key from `~/.mneme/config.toml` when present.
+ * Returns null when the file is absent, the key is missing, or any I/O
+ * error occurs.
+ */
+function readDefaultScopeFromTomlConfig(): string | null {
+	const configPath = join(homedir(), MARKER_DIR, CONFIG_FILENAME);
+	if (!existsSync(configPath)) return null;
+	try {
+		const raw = readFileSync(configPath, "utf8");
+		for (const line of raw.split(/\r?\n/)) {
+			const m = line.match(
+				/^\s*default_scope\s*=\s*["']([^"']+)["']\s*(#[^\r\n]*)?\s*$/,
+			);
 			if (m) return m[1] ?? null;
 		}
 	} catch {

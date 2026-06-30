@@ -42,6 +42,11 @@ export const SummarizeInputSchema = z.object({
 		.optional(),
 	/** Maximum number of FTS5 docs to walk. KG hits are reported separately. */
 	top_k: z.number().int().positive().max(50).default(20),
+	/**
+	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
+	 * cross-scope. Skipped when the index lacks the scope column.
+	 */
+	scope: z.string().max(256).optional(),
 });
 
 export type SummarizeInput = z.infer<typeof SummarizeInputSchema>;
@@ -68,6 +73,8 @@ export async function summarizeTool(
 		};
 	}
 
+	const scope = args.scope ?? vault.defaultScope();
+
 	const ftsQuery = buildFts5Query(args.topic, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
@@ -85,6 +92,7 @@ export async function summarizeTool(
 				limit: args.top_k,
 				mtimeFrom: from ? isoDateToUnix(from) : undefined,
 				mtimeTo: to ? isoDateToUnixEndOfDay(to) : undefined,
+				scope,
 			});
 		} catch (err) {
 			return {
@@ -112,7 +120,11 @@ export async function summarizeTool(
 		const driver = await createDriverFromVault(vault);
 		if (driver !== null) {
 			try {
-				relatedEntities = await expandTopicNeighborhood(driver, args.topic);
+				relatedEntities = await expandTopicNeighborhood(
+					driver,
+					args.topic,
+					scope,
+				);
 			} finally {
 				await closeDriver(driver);
 			}

@@ -52,9 +52,9 @@ function redactFrontmatter(fm: Record<string, string | number> | undefined): {
 }
 
 export const WriteInputSchema = z.object({
-	path: z.string().min(1),
-	section: z.string().min(1),
-	content: z.string(),
+	path: z.string().min(1).max(1024),
+	section: z.string().min(1).max(2048),
+	content: z.string().max(100000),
 	/** When true, replaces an existing section with the same heading. */
 	replace: z.boolean().default(false),
 	/** Optional YAML frontmatter applied to newly created files only. */
@@ -103,9 +103,16 @@ export function writeTool(
 		existing = readFileSync(targetAbs, "utf8");
 	} else {
 		createdNew = true;
-		if (fmRed.value) {
-			existing = serializeFrontmatter(fmRed.value);
+		// M3: always stamp scope into new-file frontmatter so the indexer can
+		// apply scope isolation on the next rebuild. Caller-supplied `scope`
+		// key in frontmatter wins; otherwise inject config.defaultScope.
+		const fmForNew: Record<string, string | number> = {
+			...(fmRed.value ?? {}),
+		};
+		if (!("scope" in fmForNew)) {
+			fmForNew.scope = vault.defaultScope();
 		}
+		existing = serializeFrontmatter(fmForNew);
 	}
 
 	// F2: reject content whose body contains a bare H2 heading, which would

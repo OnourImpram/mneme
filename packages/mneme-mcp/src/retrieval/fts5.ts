@@ -42,6 +42,14 @@ export interface Fts5SearchOptions {
 	mtimeFrom?: number;
 	/** Optional inclusive upper bound for `mtime` (unix seconds). */
 	mtimeTo?: number;
+	/**
+	 * Optional scope filter. Callers resolve this from args or
+	 * config.defaultScope() before passing it in. Pass `"*"` to disable
+	 * filtering (cross-scope). When the documents table lacks a scope
+	 * column (pre-M1 index), the predicate is silently skipped and a
+	 * one-time warning is emitted to stderr.
+	 */
+	scope?: string;
 }
 
 /**
@@ -91,6 +99,10 @@ export function buildFts5Query(
  * keeps prepared statements cached for the duration of the call.
  */
 export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
+	if (opts.scope === undefined)
+		throw new Error(
+			'fts5Search: scope must be resolved by the caller — pass vault.defaultScope() for the default, or "*" for cross-scope',
+		);
 	if (opts.ftsQuery.length === 0) return [];
 	const db = new Database(opts.dbPath, { readonly: true, fileMustExist: true });
 	try {
@@ -105,6 +117,16 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 		if (opts.mtimeTo !== undefined) {
 			filters.push("d.mtime <= ?");
 			bindings.push(opts.mtimeTo);
+		}
+		// Scope predicate — skipped when scope is "*" (cross-scope) or when
+		// the documents table pre-dates the M1 schema migration (no scope column).
+		if (
+			opts.scope !== undefined &&
+			opts.scope !== "*" &&
+			hasScopeColumn(db, opts.dbPath)
+		) {
+			filters.push("d.scope = ?");
+			bindings.push(opts.scope);
 		}
 
 		const sql = `
@@ -159,4 +181,45 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 const EMPTY_STOPWORDS: ReadonlySet<string> = new Set();
 function identity(s: string): string {
 	return s;
+}
+
+/**
+ * Per-DB scope-column presence cache. Keyed by absolute db file path so
+ * different vault databases (including in-test temp files) never share state.
+ *
+ * Only positive results (column present) are cached. Absence is NOT cached so
+ * that an in-process reindex which ADDS the scope column is detected on the
+ * next call without a process restart.
+ */
+const scopeColumnPresence = new Map<string, boolean>();
+/** Tracks which db paths have already received the one-time absence warning. */
+const scopeColumnAbsentWarned = new Set<string>();
+
+/**
+ * Return true when the `documents` table has a `scope` column.
+ *
+ * Caches positive results per db path (column present: PRAGMA runs once per
+ * process lifetime). When the column is absent, the result is NOT cached so a
+ * later in-process reindex that adds the column is detected automatically on
+ * the next call. The one-time absence warning is suppressed after the first
+ * emission per path to avoid log spam.
+ *
+ * Requires an already-open, query_only connection so we reuse the
+ * caller's transaction without paying an extra open/close round-trip.
+ */
+export function hasScopeColumn(db: Database.Database, dbPath: string): boolean {
+	if (scopeColumnPresence.get(dbPath) === true) return true;
+	const rows = db.prepare("PRAGMA table_info(documents)").all() as Array<{
+		name: string;
+	}>;
+	const has = rows.some((r) => r.name === "scope");
+	if (has) {
+		scopeColumnPresence.set(dbPath, true);
+	} else if (!scopeColumnAbsentWarned.has(dbPath)) {
+		scopeColumnAbsentWarned.add(dbPath);
+		process.stderr.write(
+			"[mneme-mcp] documents.scope column absent — pre-M1 index detected; scope predicate skipped.\n",
+		);
+	}
+	return has;
 }

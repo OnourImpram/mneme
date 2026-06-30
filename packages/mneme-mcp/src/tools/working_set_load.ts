@@ -28,8 +28,11 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
+import { wrapUntrusted } from "../injection.js";
+import { redact } from "../privacy.js";
+import { assertWithinVault } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
@@ -89,8 +92,14 @@ function resolveCheckpointPath(
 						typeof obj.path === "string" &&
 						obj.anchor === anchor
 					) {
-						const abs = join(vault.root, obj.path as string);
-						if (existsSync(abs)) return abs;
+						const resolved = resolvePath(join(vault.root, obj.path as string));
+						try {
+							assertWithinVault(vault.root, resolved);
+						} catch {
+							// Path traversal or containment error: treat as not found.
+							continue;
+						}
+						if (existsSync(resolved)) return resolved;
 					}
 				} catch {
 					// Skip malformed lines.
@@ -231,6 +240,13 @@ export function workingSetLoadTool(
 		args.top_k !== undefined ? allItems.slice(0, args.top_k) : allItems;
 	const truncated = limited.length < totalItems;
 
+	// S3: sanitize each bullet — redact private blocks then fence the result
+	// so the caller cannot mistake checkpoint content for trusted context.
+	const sanitized = limited.map((item) => ({
+		...item,
+		text: wrapUntrusted(redact(item.text).text, "checkpoint-bullet"),
+	}));
+
 	// Express the path relative to the vault root for portability.
 	const relPath = absPath.startsWith(vault.root)
 		? absPath.slice(vault.root.length).replace(/^[\\/]/, "")
@@ -242,7 +258,7 @@ export function workingSetLoadTool(
 			anchor: args.anchor,
 			path: relPath,
 			frontmatter,
-			items: limited,
+			items: sanitized,
 			total_items: totalItems,
 			truncated,
 		},

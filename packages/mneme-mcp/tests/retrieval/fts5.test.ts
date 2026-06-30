@@ -103,6 +103,7 @@ describe("fts5Search", () => {
       dbPath,
       ftsQuery: '"rank" OR "fusion"',
       limit: 10,
+      scope: "*",
     });
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.some((h) => h.title.startsWith("Reciprocal"))).toBe(true);
@@ -112,7 +113,7 @@ describe("fts5Search", () => {
     const root = freshTmp("fts-empty-q");
     const dbPath = join(root, "fts.db");
     buildTestDb(dbPath, fixtureDocs());
-    expect(fts5Search({ dbPath, ftsQuery: "", limit: 10 })).toEqual([]);
+    expect(fts5Search({ dbPath, ftsQuery: "", limit: 10, scope: "*" })).toEqual([]);
   });
 
   it("respects limit", () => {
@@ -123,6 +124,7 @@ describe("fts5Search", () => {
       dbPath,
       ftsQuery: '"memory" OR "retrieval" OR "privacy"',
       limit: 1,
+      scope: "*",
     });
     expect(hits.length).toBeLessThanOrEqual(1);
   });
@@ -136,6 +138,7 @@ describe("fts5Search", () => {
       ftsQuery: '"retrieval" OR "rank" OR "privacy"',
       limit: 10,
       mtimeFrom: 1_716_400_000,
+      scope: "*",
     });
     for (const h of hits) {
       expect(h.mtime).toBeGreaterThanOrEqual(1_716_400_000);
@@ -151,6 +154,7 @@ describe("fts5Search", () => {
       ftsQuery: '"retrieval" OR "rank" OR "privacy"',
       limit: 10,
       mtimeTo: 1_716_400_000,
+      scope: "*",
     });
     for (const h of hits) {
       expect(h.mtime).toBeLessThanOrEqual(1_716_400_000);
@@ -162,7 +166,7 @@ describe("fts5Search", () => {
     const dbPath = join(root, "fts.db");
     buildTestDb(dbPath, fixtureDocs());
     // fts5Search opens readonly so the underlying file can't be mutated.
-    const hits = fts5Search({ dbPath, ftsQuery: '"rank"', limit: 1 });
+    const hits = fts5Search({ dbPath, ftsQuery: '"rank"', limit: 1, scope: "*" });
     expect(hits.length).toBeGreaterThanOrEqual(0);
   });
 });

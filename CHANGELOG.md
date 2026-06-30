@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.5.0] - 2026-06-29
+
+### Added
+
+- **Multi-scope memory isolation.** A `scope` dimension (e.g. user / project / session / case) now partitions memory so distinct contexts stay isolated. The `documents` table gains a `scope` column (DB schema version 2 → 3, populated on reindex from each note's frontmatter via the fallback chain `scope:` → `project:` → `'default'`). Every read tool (`recall`, `search`, `prime`, `summarize`, `timeline`) accepts an optional `scope` argument and applies a scope predicate; omitting it uses the configured default scope, and the literal `scope: "*"` opts into a cross-scope read. Reads remain backward-compatible against a pre-3.5 index (the predicate is skipped with a one-time warning until the next reindex). Writes (`write`, `propose`) stamp the active scope, and the Graphiti layer filters by scope on read. Configurable via the `MNEME_SCOPE` environment variable or a `default_scope` key in `~/.mneme/config.toml`. See `docs/PRIVACY.md`. **Scope isolation today applies to FTS5 (full-text) retrieval, the default path. Graphiti knowledge-graph results are not yet scope-isolated**: write-side scope stamping in the Python engine is deferred, so until it ships, KG entity and fact results remain visible across scopes regardless of the requested scope. The `scope`/`scope IS NULL` read filter is in place so isolation activates automatically once KG nodes carry a scope.
+- **Obsidian knowledge-graph extraction** (`mneme-graph`): deterministic, zero-API extraction of an Obsidian/markdown vault into a typed knowledge graph — wikilinks, tags, embeds, and headings as nodes and edges — with modularity clustering, a content-free query, and a rebuildable graph report.
+- **P2 forward-capability design docs** (`docs/design/P2-001…008`): documented seams for a heavier local dense-retrieval adapter (with a default-off stub), richer code-graph PR-impact reports, GitHub-connector hardening, console UX, locale expansion, migration diagnostics, a temporal-blame UI, and CCE compaction-recall diagnostics.
+
+### Security
+
+- **recall type scoping** (S1): `recall` now filters to `frontmatter_type = 'session'`, so it no longer returns arbitrary note types.
+- **checkpoint path-traversal guard** (S2): `working_set_load` validates a checkpoint's stored path with `assertWithinVault` (resolve-then-assert) before any filesystem access; out-of-vault paths resolve to not-found.
+- **untrusted-output fencing** (S3): checkpoint bullets and Graphiti entity/fact strings returned by `working_set_load`, `summarize`, and `timeline` are redacted and wrapped in the untrusted-memory fence.
+- **input size limits** (S4): `write`, `propose`, `search`, and `prime` enforce conservative `.max()` bounds, rejecting oversize input at parse.
+- **atomic-write integrity** (S5): a cleanup failure after a committed write is surfaced as an error instead of being silently swallowed, with a Windows EPERM/EBUSY retry/backoff.
+- **telemetry hashing** (S6): the telemetry `query_hash` is now a per-vault keyed HMAC-SHA256 rather than a plain (reversible) SHA256.
+
+### Changed
+
+- **Documentation truth-up**: README now reports 9 MCP tools (was 7), 7 benchmark suites (was 5), and the correct ADR count; stale per-package `0.2.0` version qualifiers removed. `docs/MCP.md` documents `mneme_checkpoint_list` and `mneme_working_set_load`.
+- **Build / CI**: the Makefile installs, tests, and lints `mneme-code` and lints `mneme-graph` (using the correct `mneme-mcp-server` pnpm filter); CI runs the parity suite; `spec_verify` covers `user_prompt_submit`; `repo_integrity` enforces the nine-tool count.
+
 ## [3.2.0] - 2026-06-14
 
 ### Added

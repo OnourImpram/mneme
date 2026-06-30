@@ -47,8 +47,8 @@ def main() -> int:
     for marker in ("v1.0.0-rc", "Hard launch target", "Phase K release"):
         if marker in readme:
             errors.append(f"README still contains stale release marker: {marker}")
-    if "7 MCP tools" not in readme:
-        errors.append("README must describe lite as seven MCP tools")
+    if "9 MCP tools" not in readme:
+        errors.append("README must describe lite as nine MCP tools")
     if "mneme upgrade --profile=standard" not in readme:
         errors.append("README must document the supported upgrade command")
 
@@ -58,8 +58,8 @@ def main() -> int:
             "mneme-mcp package.json must declare the MCP Registry mcpName "
             "(a tree snapshot once dropped it; npm metadata is immutable)"
         )
-    if "7 tools" not in mcp_pkg.get("description", ""):
-        errors.append("mneme-mcp package.json description must say 7 tools")
+    if "9 tools" not in mcp_pkg.get("description", ""):
+        errors.append("mneme-mcp package.json description must say 9 tools")
     server_manifest = json.loads(_read("server.json"))
     if server_manifest.get("name") != mcp_pkg.get("mcpName"):
         errors.append(

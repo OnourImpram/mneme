@@ -20,7 +20,7 @@
 
 FTS5 retrieval, RRF-fused hybrid core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
 
-**Status**: 3.2.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
+**Status**: 3.5.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Why mneme
 
@@ -86,8 +86,8 @@ An honest, at-a-glance map of what is shipped today versus what is gated behind 
 | Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
 | Local dense retrieval (hashing-embedding, RRF-fused) | Shipped (opt-in) | FTS5 remains the default; sentence-transformers is an opt-in seam, not a default dependency |
 | Temporal claim lifecycle + rule-based claim extraction + `temporal blame` | Shipped | Graphiti export gated; LLM extraction optional, never on the Stop/critical path |
-| Project + code graph (mneme-graph 0.2.0) | Shipped (separate package) | tree-sitter Python/JavaScript/TypeScript extraction, community detection, PR-impact, entity canonicalization |
-| Code memory (mneme-code 0.2.0) | Shipped (separate package) | AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory |
+| Project + code graph (mneme-graph) | Shipped (separate package) | tree-sitter Python/JavaScript/TypeScript extraction, community detection, PR-impact, entity canonicalization |
+| Code memory (mneme-code) | Shipped (separate package) | AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory |
 | Domain modes | Shipped | vault-config user modes + CLI; clinical and security-review modes block external extraction and artifact upload; user config can never weaken a built-in privacy mode or disable redaction |
 | Agent security | Shipped | capability firewall, data-flow taint tracking, human-approval gate for durable edits, poisoned-vault benchmark |
 | Read-only console | Shipped | self-contained, offline, injection-safe HTML audit report |
@@ -119,7 +119,7 @@ CI regression guards lock the path-scoped benchmark surface. Pull requests touch
 ## Three-Tier Install
 
 ```bash
-# Lite: FTS5 + Stop hook + privacy redaction + 7 MCP tools (Python + Node only)
+# Lite: FTS5 + Stop hook + privacy redaction + 9 MCP tools (Python + Node only)
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
@@ -156,7 +156,7 @@ codex plugin marketplace add TheGoatPsy/mneme
 mneme install --client=codex
 ```
 
-Codex gets the same seven MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+Codex gets the same nine MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
 
 ## Using mneme with Antigravity
 
@@ -166,11 +166,11 @@ Antigravity (Google's agentic IDE) uses the Gemini-CLI extension model, and mnem
 mneme install --client=antigravity
 ```
 
-This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same seven MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
+This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same nine MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
 
 ## Other MCP clients (open adapter)
 
-Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the seven MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
+Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the nine MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
 
 ```bash
 mneme install --client=mcp --config <path-to-your-clients-mcp-config.json>
@@ -180,11 +180,11 @@ mneme merges only its own server entry and leaves every other server in the conf
 
 ## What 2.0 Ships
 
-- 7 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`. Default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active.
+- 9 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`, `mneme_checkpoint_list`, `mneme_working_set_load`. Default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active. `mneme_checkpoint_list` and `mneme_working_set_load` support the Context Continuity Engine (CCE): list available working-set checkpoints and load a checkpoint's salience-ranked items for JIT context re-injection.
 - 5 Claude Code hooks: `PostToolUse`, `SessionStart`, `Stop`, `PreCompact`, `SessionEnd`.
 - 3 slash commands: `/mneme:prime`, `/mneme:recall`, `/mneme:migrate`.
 - 2 skills: `mneme-prime`, `mneme-search`.
-- 5-benchmark suite (`make bench-all`) including a head-to-head adapter for claude-mem v13.2.0.
+- 7-benchmark suite (`make bench-all`): retrieval quality (A), Stop/retrieve latency (B), adaptive-context cost (C), claude-mem migration (D), head-to-head adapter (E), LongMemEval (F), CCE compaction-recall (G).
 - One-command migration: `mneme-migrate migrate-from-claude-mem` with tri-state archive flag and idempotent re-run.
 - Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus `mneme audit` for token reports and `mneme audit-log` for redaction audit entries.
 - Pattern memory: `mneme patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
@@ -195,8 +195,8 @@ mneme merges only its own server entry and leaves every other server in the conf
 
 Eight modules extend mneme's core for specialized workloads. All are gated or shipped as separate packages. All ship with redaction-before-store, provenance on every record, and confidence labels on every extracted claim. None runs on the Stop or critical path.
 
-- **Project graph** (mneme-graph 0.2.0): tree-sitter extraction for Python, JavaScript, and TypeScript; community detection; PR-impact analysis; entity canonicalization.
-- **Code memory** (mneme-code 0.2.0): AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory capture.
+- **Project graph** (mneme-graph): tree-sitter extraction for Python, JavaScript, and TypeScript; community detection; PR-impact analysis; entity canonicalization.
+- **Code memory** (mneme-code): AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory capture.
 - **Domain modes**: clinical and security-review modes block external extraction and artifact upload at config layer. A user config can never weaken a built-in privacy mode or disable redaction.
 - **Agent security**: capability firewall, data-flow taint tracking, human-approval gate for durable edits, poisoned-vault benchmark.
 - **Read-only console**: self-contained, offline, injection-safe HTML audit report requiring no server.
@@ -218,7 +218,7 @@ See `docs/COMPETITIVE.md` for the full landscape and which tools may suit those 
 
 ## Documentation
 
-- `docs/ARCHITECTURE.md`: design philosophy and the 12 Architecture Decision Records.
+- `docs/ARCHITECTURE.md`: design philosophy and the 16 Architecture Decision Records (ADR-001 through ADR-016, with ADR-006 superseded by ADR-015).
 - `docs/CONSTRAINTS.md`: six sacred constraints and how to verify each.
 - `docs/VAULT.md`: vault contract, frontmatter specification, atomic write pattern.
 - `docs/HOOKS.md`: hook integration guide, timing budgets, fail-soft contract.
