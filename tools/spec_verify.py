@@ -48,6 +48,9 @@ CRITICAL_HOOKS: frozenset[str] = frozenset(
         # alongside the transitive runtime no-network test).
         "session_end",
         "post_tool_use",
+        # user_prompt_submit fires on every user prompt and is the CCE trigger
+        # hook. It runs on the live session path, so the C3 scan covers it too.
+        "user_prompt_submit",
     }
 )
 

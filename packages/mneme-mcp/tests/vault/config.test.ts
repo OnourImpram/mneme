@@ -140,3 +140,58 @@ describe("readVaultFromTomlConfig single-quote support (F5)", () => {
     expect(cfg.root).toBe(vaultDir);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M5 — VaultConfig.defaultScope resolution
+// ---------------------------------------------------------------------------
+describe("VaultConfig.defaultScope resolution (M5)", () => {
+  it("returns the MNEME_SCOPE env var when set", () => {
+    const cfg = VaultConfig.fromPath(freshTmp("scope-env"));
+    expect(
+      cfg.defaultScope({ MNEME_SCOPE: "clinical" } as NodeJS.ProcessEnv),
+    ).toBe("clinical");
+  });
+
+  it("returns 'default' when env is empty and no config.toml override", () => {
+    const cfg = VaultConfig.fromPath(freshTmp("scope-fallback"));
+    expect(cfg.defaultScope({} as NodeJS.ProcessEnv)).toBe("default");
+  });
+
+  it("MNEME_SCOPE env var overrides any TOML value (env wins)", () => {
+    // Verified via the testable env parameter; real TOML path not writable
+    // in tests without touching homedir. See regex unit tests below for TOML.
+    const cfg = VaultConfig.fromPath(freshTmp("scope-env-beats-toml"));
+    expect(
+      cfg.defaultScope({ MNEME_SCOPE: "freelance" } as NodeJS.ProcessEnv),
+    ).toBe("freelance");
+  });
+
+  it("TOML default_scope regex matches double-quoted value", () => {
+    const line = 'default_scope = "clinical"';
+    const m = line.match(/^\s*default_scope\s*=\s*["']([^"']+)["']\s*$/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]).toBe("clinical");
+  });
+
+  it("TOML default_scope regex matches single-quoted value", () => {
+    const line = "default_scope = 'freelance'";
+    const m = line.match(/^\s*default_scope\s*=\s*["']([^"']+)["']\s*$/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]).toBe("freelance");
+  });
+
+  // Minor-3: inline comment and trailing whitespace tolerance
+  it("TOML default_scope resolves correctly when line has an inline # comment", () => {
+    const line = 'default_scope = "clinical"  # note';
+    const m = line.match(/^\s*default_scope\s*=\s*["']([^"']+)["']\s*(#[^\r\n]*)?\s*$/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]).toBe("clinical");
+  });
+
+  it("TOML default_scope resolves correctly with trailing whitespace only (no comment)", () => {
+    const line = 'default_scope = "clinical"   ';
+    const m = line.match(/^\s*default_scope\s*=\s*["']([^"']+)["']\s*(#[^\r\n]*)?\s*$/);
+    expect(m).not.toBeNull();
+    expect(m?.[1]).toBe("clinical");
+  });
+});

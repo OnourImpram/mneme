@@ -32,17 +32,26 @@ import { ERROR_CODES } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { redact } from "../privacy.js";
-import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
+import {
+	buildFts5Query,
+	fts5Search,
+	hasScopeColumn,
+} from "../retrieval/fts5.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import { DEFAULT_STOPWORDS, type ToolResult } from "./common.js";
 
 export const PrimeInputSchema = z.object({
-	task_description: z.string().min(1),
+	task_description: z.string().min(1).max(2048),
 	budget_tokens: z.number().int().positive().max(20_000).default(4_000),
 	recent_session_count: z.number().int().nonnegative().max(20).default(3),
 	topic_doc_count: z.number().int().nonnegative().max(20).default(5),
-	session_id: z.string().optional(),
+	session_id: z.string().max(256).optional(),
+	/**
+	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
+	 * cross-scope. Skipped when the index lacks the scope column.
+	 */
+	scope: z.string().max(256).optional(),
 });
 
 export type PrimeInput = z.infer<typeof PrimeInputSchema>;
@@ -74,14 +83,19 @@ export function primeTool(
 		};
 	}
 
+	// Resolve scope once; both sub-calls share the same resolved value so
+	// recent sessions and topic matches stay consistent within one prime call.
+	const scope = args.scope ?? vault.defaultScope();
+
 	let recentDocs: SessionRow[];
 	let topicHits: TopicHit[];
 	try {
-		recentDocs = listRecentSessions(vault, args.recent_session_count);
+		recentDocs = listRecentSessions(vault, args.recent_session_count, scope);
 		topicHits = topicMatches(
 			vault,
 			args.task_description,
 			args.topic_doc_count,
+			scope,
 		);
 	} catch (err) {
 		// Match the structured error contract every other tool returns: a
@@ -224,7 +238,11 @@ interface SessionRow {
 	keyPoints: string;
 }
 
-function listRecentSessions(vault: VaultConfig, limit: number): SessionRow[] {
+function listRecentSessions(
+	vault: VaultConfig,
+	limit: number,
+	scope: string,
+): SessionRow[] {
 	if (limit <= 0) return [];
 	const db = new Database(vault.fts5Db, {
 		readonly: true,
@@ -232,6 +250,12 @@ function listRecentSessions(vault: VaultConfig, limit: number): SessionRow[] {
 	});
 	try {
 		db.pragma("query_only = ON");
+		// Defensive: scope column may be absent on pre-M1 indexes. Check once
+		// with the live connection so the result is cached for subsequent calls.
+		const scopeOk = hasScopeColumn(db, vault.fts5Db);
+		const scopePred = scopeOk && scope !== "*" ? "AND scope = ?" : "";
+		const scopeArgs: string[] = scopeOk && scope !== "*" ? [scope] : [];
+
 		// key_points is added by the indexer migration; older DBs may not have it.
 		// Try the full query first, fall back to a no-keypoints query if the column
 		// is absent so that tests and legacy indexes continue to work.
@@ -241,23 +265,23 @@ function listRecentSessions(vault: VaultConfig, limit: number): SessionRow[] {
 					`SELECT path, COALESCE(title, '') AS title, COALESCE(content_hash, '') AS contentHash,
                     COALESCE(key_points, '[]') AS keyPoints
              FROM documents
-             WHERE frontmatter_type = 'session'
+             WHERE frontmatter_type = 'session' ${scopePred}
              ORDER BY mtime DESC
              LIMIT ?`,
 				)
-				.all(limit) as SessionRow[];
+				.all(...scopeArgs, limit) as SessionRow[];
 			return rows;
 		} catch {
-			// Column absent — return rows with empty keyPoints.
+			// key_points column absent — return rows with empty keyPoints.
 			const rows = db
 				.prepare(
 					`SELECT path, COALESCE(title, '') AS title, COALESCE(content_hash, '') AS contentHash
              FROM documents
-             WHERE frontmatter_type = 'session'
+             WHERE frontmatter_type = 'session' ${scopePred}
              ORDER BY mtime DESC
              LIMIT ?`,
 				)
-				.all(limit) as Omit<SessionRow, "keyPoints">[];
+				.all(...scopeArgs, limit) as Omit<SessionRow, "keyPoints">[];
 			return rows.map((r) => ({ ...r, keyPoints: "[]" }));
 		}
 	} finally {
@@ -277,6 +301,7 @@ function topicMatches(
 	vault: VaultConfig,
 	description: string,
 	limit: number,
+	scope: string,
 ): TopicHit[] {
 	if (limit <= 0) return [];
 	const ftsQuery = buildFts5Query(description, {
@@ -289,6 +314,7 @@ function topicMatches(
 		dbPath: vault.fts5Db,
 		ftsQuery,
 		limit,
+		scope,
 	});
 	return hits.map((h) => ({
 		path: h.path,

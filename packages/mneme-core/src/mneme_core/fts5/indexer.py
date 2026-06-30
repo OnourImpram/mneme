@@ -47,7 +47,7 @@ DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "/.mneme/",
 )
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents(
@@ -62,8 +62,9 @@ CREATE TABLE IF NOT EXISTS documents(
     tags TEXT,
     frontmatter_type TEXT,
     session_id TEXT,
+    scope TEXT NOT NULL DEFAULT 'default',
     linked_notes TEXT,
-    schema_version TEXT DEFAULT '2',
+    schema_version TEXT DEFAULT '3',
     language TEXT DEFAULT 'en',
     indexed_at TEXT
 );
@@ -267,6 +268,7 @@ _MIGRATION_COLUMNS: dict[str, str] = {
     "content_hash": "TEXT",
     "trust": "TEXT",
     "key_points": "TEXT",
+    "scope": "TEXT NOT NULL DEFAULT 'default'",
 }
 
 
@@ -299,6 +301,11 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE documents ADD COLUMN {col_name} {col_type}"
             )
+    # idx_documents_scope is created here (not in SCHEMA) so that on old
+    # databases the ALTER TABLE ADD COLUMN scope always runs first.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_scope ON documents(scope)"
+    )
 
 
 def _should_index(
@@ -471,6 +478,7 @@ def index_vault(
         tags_normalized = config.normalize(tags)
         fm_type = str(fm.get("type") or "")
         fm_session_id = str(fm.get("session_id") or "")
+        fm_scope = str(fm.get("scope") or fm.get("project") or "") or "default"
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
         now_iso = datetime.now(UTC).isoformat()
@@ -480,8 +488,9 @@ def index_vault(
             """INSERT INTO documents
                (title, title_normalized, path, content_raw, body_text,
                 content_size, mtime, tags, frontmatter_type, session_id,
-                linked_notes, indexed_at, content_hash, trust, key_points)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                linked_notes, indexed_at, content_hash, trust, key_points,
+                scope)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(path) DO UPDATE SET
                  title=excluded.title,
                  title_normalized=excluded.title_normalized,
@@ -496,7 +505,8 @@ def index_vault(
                  indexed_at=excluded.indexed_at,
                  content_hash=excluded.content_hash,
                  trust=excluded.trust,
-                 key_points=excluded.key_points""",
+                 key_points=excluded.key_points,
+                 scope=excluded.scope""",
             (
                 title,
                 title_normalized,
@@ -513,6 +523,7 @@ def index_vault(
                 content_hash_val,
                 trust_val,
                 json.dumps(keypoints),
+                fm_scope,
             ),
         )
 

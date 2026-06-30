@@ -122,12 +122,40 @@ export function assertWithinVault(vaultRoot: string, targetPath: string): void {
  * Atomically write `content` to `targetPath` using a sibling temp file.
  * Creates parent directories as needed. Encoding is utf8.
  */
+/**
+ * Remove a file, retrying on transient Windows file-lock errors (EPERM/EBUSY).
+ * Throws after all attempts are exhausted, allowing callers to surface the
+ * failure rather than silently swallowing it.
+ */
+function rmSyncWithRetry(path: string, maxAttempts = 3, delayMs = 50): void {
+	for (let i = 0; i < maxAttempts; i++) {
+		try {
+			rmSync(path, { force: true });
+			return;
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if ((code === "EPERM" || code === "EBUSY") && i < maxAttempts - 1) {
+				// Brief spin-wait for Windows file-lock to release.
+				const end = Date.now() + delayMs;
+				while (Date.now() < end) {
+					/* spin */
+				}
+				continue;
+			}
+			throw err;
+		}
+	}
+}
+
 export function atomicWriteText(targetPath: string, content: string): void {
 	const target = resolvePath(targetPath);
 	mkdirSync(dirname(target), { recursive: true });
 
 	const tmpPath = `${target}.tmp-${process.pid}-${Date.now()}`;
 	let fd: number | null = null;
+	// Track whether the write was committed so cleanup failures on the
+	// success path are surfaced rather than silently swallowed (S5).
+	let writeOk = false;
 	try {
 		fd = openSync(tmpPath, "w");
 		writeSync(fd, content, 0, "utf8");
@@ -136,6 +164,7 @@ export function atomicWriteText(targetPath: string, content: string): void {
 		fd = null;
 		try {
 			renameSync(tmpPath, target);
+			writeOk = true; // POSIX atomic rename succeeded
 		} catch (err) {
 			// Phase J post-Codex-review fix: never delete the target as part of
 			// an atomic-write fallback. Pre-delete leaves a window where the
@@ -155,12 +184,7 @@ export function atomicWriteText(targetPath: string, content: string): void {
 				}
 				try {
 					renameSync(tmpPath, target);
-					// Success: drop the backup.
-					try {
-						rmSync(backupPath, { force: true });
-					} catch {
-						// best-effort cleanup
-					}
+					writeOk = true; // Windows fallback rename succeeded
 				} catch (err2) {
 					// Restore the backup so the caller's original file survives.
 					try {
@@ -171,6 +195,8 @@ export function atomicWriteText(targetPath: string, content: string): void {
 					}
 					throw err2;
 				}
+				// Write committed; cleanup backup and surface persistent failures.
+				rmSyncWithRetry(backupPath);
 			} else {
 				throw err;
 			}
@@ -183,10 +209,14 @@ export function atomicWriteText(targetPath: string, content: string): void {
 				// best-effort
 			}
 		}
+		// Remove the temp file (no-op when already renamed on success).
+		// Surface the cleanup error only when the write was committed — a
+		// cleanup failure after a successful write is a data-integrity concern.
 		try {
-			rmSync(tmpPath, { force: true });
-		} catch {
-			// best-effort
+			rmSyncWithRetry(tmpPath);
+		} catch (cleanupErr) {
+			// biome-ignore lint/correctness/noUnsafeFinally: throws only when writeOk is true (write committed, no prior exception propagating)
+			if (writeOk) throw cleanupErr;
 		}
 	}
 }

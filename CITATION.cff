@@ -14,8 +14,8 @@ authors:
 repository-code: "https://github.com/TheGoatPsy/mneme"
 url: "https://github.com/TheGoatPsy/mneme"
 license: Apache-2.0
-version: 3.2.0
-date-released: "2026-05-29"
+version: 3.5.0
+date-released: "2026-06-29"
 doi: "10.5281/zenodo.20674727"
 keywords:
   - claude-code

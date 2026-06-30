@@ -35,8 +35,8 @@ const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
 
 export const ProposeInputSchema = z.object({
 	action: z.enum(["create", "update", "delete"] as const),
-	path: z.string().min(1),
-	content: z.string().default(""),
+	path: z.string().min(1).max(1024),
+	content: z.string().max(100000).default(""),
 	category: z
 		.enum([
 			"ephemeral",
@@ -56,6 +56,11 @@ export const ProposeInputSchema = z.object({
 			"stale-archive",
 		] as const)
 		.optional(),
+	/**
+	 * Scope to stamp on the proposal record. Omit to use config.defaultScope().
+	 * Stored in the JSONL record for the Python drain to apply on write.
+	 */
+	scope: z.string().optional(),
 });
 
 export type ProposeInput = z.infer<typeof ProposeInputSchema>;
@@ -127,12 +132,17 @@ export function proposeTool(
 	const seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
 	const proposalId = uuid5(UUID5_NAMESPACE, seed);
 
+	// Resolve scope from caller arg or vault default. Not part of the uuid5
+	// seed so the proposal_id stays byte-compatible with the Python engine.
+	const scope = args.scope ?? vault.defaultScope();
+
 	const record = {
 		proposal_id: proposalId,
 		action: args.action,
 		target_path: args.path,
 		content: args.action === "delete" ? "" : redacted,
 		category,
+		scope,
 		status: "PENDING",
 		trust,
 		edit_class: args.edit_class ?? null,

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-cc-plugin"
-version = "3.2.0"
+version = "3.5.0"
 description = "Claude Code plugin for mneme: hooks, slash commands, skills, and the install CLI."
 readme = "README.md"
 license = { text = "Apache-2.0" }

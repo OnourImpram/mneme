@@ -14,8 +14,56 @@
  *   - No LLM/network I/O. No external dependencies beyond node builtins.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+
+const HMAC_KEY_FILE = "telemetry-hmac.key";
+const HMAC_KEY_BYTES = 32;
+
+function loadOrCreateHmacKey(stateDir: string): Buffer {
+	const keyPath = join(stateDir, HMAC_KEY_FILE);
+	try {
+		if (existsSync(keyPath)) {
+			const key = readFileSync(keyPath);
+			if (key.length === HMAC_KEY_BYTES) return key;
+		}
+	} catch {
+		// Fall through to generate a new key.
+	}
+	const key = randomBytes(HMAC_KEY_BYTES);
+	try {
+		mkdirSync(stateDir, { recursive: true });
+		writeFileSync(keyPath, key, { mode: 0o600 });
+	} catch {
+		// Best-effort persist; return ephemeral key on write failure.
+	}
+	return key;
+}
+
+/**
+ * Derive a privacy-preserving hash of a normalized query using a per-vault
+ * HMAC-SHA256 key. Different vaults produce different hashes for the same
+ * query, preventing cross-vault correlation while preserving within-vault
+ * deduplication. Falls back to plain SHA-256 if key I/O fails.
+ */
+export function computeQueryHash(
+	stateDir: string,
+	normalizedQuery: string,
+): string {
+	try {
+		const key = loadOrCreateHmacKey(stateDir);
+		return createHmac("sha256", key).update(normalizedQuery).digest("hex");
+	} catch {
+		return createHash("sha256").update(normalizedQuery).digest("hex");
+	}
+}
 
 export interface TelemetryRecord {
 	ts: string;

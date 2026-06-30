@@ -6,7 +6,6 @@
  * state is active.
  */
 
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { z } from "zod";
@@ -16,7 +15,10 @@ import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { redact } from "../privacy.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
-import { emitSearchTelemetry } from "../retrieval/telemetry.js";
+import {
+	computeQueryHash,
+	emitSearchTelemetry,
+} from "../retrieval/telemetry.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
 	DEFAULT_STOPWORDS,
@@ -56,7 +58,7 @@ export type CanonicalMemoryType = (typeof CANONICAL_MEMORY_TYPES)[number];
 const QUERY_SIDE_NORMALIZER_PROFILE = "tr-cldr";
 
 export const SearchInputSchema = z.object({
-	query: z.string().min(1),
+	query: z.string().min(1).max(2048),
 	top_k: z.number().int().positive().max(50).default(10),
 	filters: z
 		.object({
@@ -73,6 +75,11 @@ export const SearchInputSchema = z.object({
 		.optional(),
 	/** Hard floor below which the query is dropped to save context. */
 	min_query_length: z.number().int().nonnegative().default(0),
+	/**
+	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
+	 * cross-scope. Skipped when the index lacks the scope column.
+	 */
+	scope: z.string().max(256).optional(),
 });
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;
@@ -301,6 +308,8 @@ export function searchTool(
 		? isoDateToUnixEndOfDay(args.filters.date_to)
 		: undefined;
 
+	const scope = args.scope ?? vault.defaultScope();
+
 	let raw: Fts5Hit[];
 	const searchStart = Date.now();
 	try {
@@ -310,6 +319,7 @@ export function searchTool(
 			limit: args.top_k,
 			mtimeFrom,
 			mtimeTo,
+			scope,
 		});
 	} catch (err) {
 		return {
@@ -327,9 +337,7 @@ export function searchTool(
 		: raw;
 
 	// Emit retrieval telemetry (non-fatal — wrapped inside emitSearchTelemetry).
-	const queryHash = createHash("sha256")
-		.update(normalizeTr(args.query))
-		.digest("hex");
+	const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
 	emitSearchTelemetry(
 		vault.stateDir,
 		queryHash,

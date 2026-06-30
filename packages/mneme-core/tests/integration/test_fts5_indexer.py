@@ -475,8 +475,8 @@ class TestFrontmatterDequote:
 
 
 class TestConstants:
-    def test_schema_version_is_string_two(self) -> None:
-        assert SCHEMA_VERSION == "2"
+    def test_schema_version_is_string_three(self) -> None:
+        assert SCHEMA_VERSION == "3"
 
     def test_default_excludes_include_critical_dirs(self) -> None:
         assert "/.git/" in DEFAULT_EXCLUDE_PATTERNS
@@ -1002,3 +1002,126 @@ class TestVaultEscapeContainment:
             ("uniquesecrettoken",),
         ).fetchall()
         assert leak == []
+
+
+class TestScopeColumn:
+    """M1: scope dimension on the documents table."""
+
+    def test_scope_column_exists_after_schema(
+        self, in_memory_conn: sqlite3.Connection
+    ) -> None:
+        cols = {
+            row[1]
+            for row in in_memory_conn.execute("PRAGMA table_info(documents)")
+        }
+        assert "scope" in cols
+
+    def test_scope_populated_from_scope_field(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "clinical.md").write_text(
+            "---\nid: c1\ntype: session\nscope: clinical\n---\n# Clinical\nbody\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT scope FROM documents WHERE path='clinical.md'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "clinical"
+        conn.close()
+
+    def test_scope_falls_back_to_project_field(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "work.md").write_text(
+            "---\nid: w1\ntype: session\nproject: foo\n---\n# Work\nbody\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT scope FROM documents WHERE path='work.md'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "foo"
+        conn.close()
+
+    def test_scope_defaults_when_neither_field_present(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "plain.md").write_text(
+            "---\nid: p1\ntype: topic\n---\n# Plain\nbody\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"))
+        row = conn.execute(
+            "SELECT scope FROM documents WHERE path='plain.md'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "default"
+        conn.close()
+
+    def test_schema_version_bump_detected_on_old_db(self, tmp_path: Path) -> None:
+        """An old DB (schema_version='2' rows) signals a rebuild is needed.
+
+        ensure_schema adds the scope column via migrate_schema but does not
+        overwrite existing rows' schema_version values, so MAX(schema_version)
+        stays '2'.  Since SCHEMA_VERSION is now '3', the mismatch is the
+        condition the doctor command acts on to recommend a full reindex.
+        """
+        db_path = tmp_path / "old.sqlite"
+        # Build a v2-schema DB: all indexed columns present (so ensure_schema's
+        # CREATE INDEX statements succeed), schema_version DEFAULT '2', but
+        # missing the scope column (so migrate_schema adds it).
+        conn_old = sqlite3.connect(db_path)
+        conn_old.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS documents(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                title_normalized TEXT,
+                path TEXT UNIQUE NOT NULL,
+                content_raw TEXT,
+                body_text TEXT,
+                content_size INTEGER,
+                mtime REAL,
+                tags TEXT,
+                frontmatter_type TEXT,
+                session_id TEXT,
+                linked_notes TEXT,
+                schema_version TEXT DEFAULT '2',
+                language TEXT DEFAULT 'en',
+                indexed_at TEXT,
+                content_hash TEXT,
+                trust TEXT,
+                key_points TEXT
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                title, content, tags, linked_notes,
+                tokenize='unicode61 remove_diacritics 2'
+            );
+            """
+        )
+        conn_old.execute(
+            "INSERT INTO documents (path, title) VALUES ('old.md', 'Old')"
+        )
+        conn_old.commit()
+        conn_old.close()
+
+        conn = sqlite3.connect(db_path)
+        ensure_schema(conn)
+        stored_ver = conn.execute(
+            "SELECT MAX(schema_version) FROM documents"
+        ).fetchone()[0]
+        conn.close()
+
+        assert stored_ver == "2", "old rows must retain their schema_version value"
+        assert stored_ver != SCHEMA_VERSION, (
+            "mismatch between stored and expected version triggers the rebuild signal"
+        )

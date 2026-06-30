@@ -1,6 +1,6 @@
 # MCP Tool Reference
 
-mneme-mcp exposes seven tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
+mneme-mcp exposes nine tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
 
 ## Tools
 
@@ -121,6 +121,94 @@ Queue a memory-edit proposal (create, update, or delete) for the policy drain. T
 ```
 
 **Output**: `{ "proposal_id", "status": "queued", "auto_eligible", "redactions_applied", "note" }`. `auto_eligible` reports whether the current policy would apply the edit autonomously at the next drain. Rollback: `mneme-core memory rollback <change_id>`.
+
+### mneme_checkpoint_list
+
+List recent Context Continuity Engine (CCE) checkpoints from the append-only index at `<vault>/.mneme/checkpoints/index.jsonl`. Returns up to `limit` entries newest-first. Use this to discover available anchors before calling `mneme_working_set_load`. A missing index file returns an empty list rather than an error.
+
+**Input schema**:
+
+```json
+{
+  "limit": "integer (default 20, maximum 200)"
+}
+```
+
+**Output (found)**:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "entries": [
+      {
+        "anchor": "abc123",
+        "id": "cp-001",
+        "created": "2026-06-14T10:00:00Z",
+        "session_id": "s-2026-06-14",
+        "prev_anchor": null,
+        "path": "checkpoints/2026-06-14-abc123.md",
+        "item_count": 3,
+        "top_salience": 0.92
+      }
+    ],
+    "total_in_index": 1
+  }
+}
+```
+
+**Output (no index)**:
+
+```json
+{
+  "ok": true,
+  "data": { "entries": [], "total_in_index": 0 }
+}
+```
+
+**Resolution strategy**: reads `<vault>/.mneme/checkpoints/index.jsonl`, skips malformed lines, returns the last `limit` entries sorted newest-first by the line order in the append-only file.
+
+### mneme_working_set_load
+
+Load the working-set items from a CCE checkpoint for cross-agent handoff or JIT context re-injection after compaction. Resolves the anchor via the checkpoint index, reads the checkpoint markdown, parses salience bullets, and returns items sorted by descending salience. An unknown anchor returns a `found: false` result, not an error.
+
+**Input schema**:
+
+```json
+{
+  "anchor": "string (required) — checkpoint anchor, e.g. 'abc123'",
+  "top_k": "integer (optional, maximum 500) — return only the top_k items by salience"
+}
+```
+
+**Output (found)**:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "anchor": "abc123",
+    "items": [
+      { "salience": 0.92, "text": "Use FTS5 BM25 for retrieval baseline", "section": "Core Decisions" },
+      { "salience": 0.75, "text": "Turkish casefold normalization required", "section": "Core Decisions" }
+    ],
+    "total_items": 3,
+    "truncated": false,
+    "frontmatter": { "type": "checkpoint", "anchor": "abc123", "session_id": "s-2026-06-14" }
+  }
+}
+```
+
+**Output (not found)**:
+
+```json
+{
+  "ok": true,
+  "data": { "found": false, "reason": "anchor 'xyz' not found in index or checkpoint files" }
+}
+```
+
+**Resolution strategy**: first looks up the anchor in `<vault>/.mneme/checkpoints/index.jsonl`; if found, reads the `path` field directly; if not in the index, falls back to a glob over `<vault>/checkpoints/*-<anchor>.md`. A missing markdown file after a successful index lookup returns `found: false`.
 
 ## Configuration
 

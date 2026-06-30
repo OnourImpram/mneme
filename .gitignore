@@ -86,3 +86,10 @@ secrets/
 # Build artifacts
 *.tgz
 *.whl
+
+# Codex review-loop internal state (local only; do not ship to public remote)
+.codex-review-loop/
+
+# Private content — never commit (dual-remote leak guard)
+docs/_internal/
+.github/sanitization-patterns.txt

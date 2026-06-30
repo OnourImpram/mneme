@@ -13,6 +13,7 @@ import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
 import { redact } from "../privacy.js";
+import { hasScopeColumn } from "../retrieval/fts5.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
@@ -35,6 +36,12 @@ export const RecallInputSchema = z
 		top_n: z.number().int().positive().max(50).default(10),
 		/** When true, the response includes the full markdown body. */
 		include_body: z.boolean().default(true),
+		/**
+		 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
+		 * silently spans scopes). Pass "*" for cross-scope (no predicate).
+		 * Skipped transparently when the index pre-dates the M1 schema migration.
+		 */
+		scope: z.string().max(256).optional(),
 	})
 	.refine(
 		(v) =>
@@ -74,33 +81,9 @@ export function recallTool(
 		};
 	}
 
-	const conditions: string[] = [];
-	const bindings: (string | number)[] = [];
-	if (args.session_id) {
-		conditions.push("session_id = ?");
-		bindings.push(args.session_id);
-	}
-	if (args.date_from) {
-		conditions.push("mtime >= ?");
-		bindings.push(isoDateToUnix(args.date_from));
-	}
-	if (args.date_to) {
-		conditions.push("mtime <= ?");
-		bindings.push(isoDateToUnixEndOfDay(args.date_to));
-	}
-	const whereClause =
-		conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
-	const sql = `
-    SELECT path, COALESCE(title, '') AS title, mtime,
-           COALESCE(frontmatter_type, '') AS frontmatter_type,
-           COALESCE(session_id, '') AS session_id
-    FROM documents
-    ${whereClause}
-    ORDER BY mtime DESC
-    LIMIT ?
-  `;
-	bindings.push(args.top_n);
+	// Resolve scope: explicit arg wins; omitted falls to config default (never
+	// silently spans scopes — fail-safe per M2 policy).
+	const scope = args.scope ?? vault.defaultScope();
 
 	const db = new Database(vault.fts5Db, {
 		readonly: true,
@@ -115,6 +98,42 @@ export function recallTool(
 	}>;
 	try {
 		db.pragma("query_only = ON");
+
+		// Build conditions after opening the DB so we can check the scope
+		// column presence on the live connection (pre-M1 index compat guard).
+		// S1: always restrict to session-typed documents.
+		const conditions: string[] = ["frontmatter_type = ?"];
+		const bindings: (string | number)[] = ["session"];
+		if (args.session_id) {
+			conditions.push("session_id = ?");
+			bindings.push(args.session_id);
+		}
+		if (args.date_from) {
+			conditions.push("mtime >= ?");
+			bindings.push(isoDateToUnix(args.date_from));
+		}
+		if (args.date_to) {
+			conditions.push("mtime <= ?");
+			bindings.push(isoDateToUnixEndOfDay(args.date_to));
+		}
+		// Scope predicate — guarded against pre-M1 indexes that lack the column.
+		if (scope !== "*" && hasScopeColumn(db, vault.fts5Db)) {
+			conditions.push("scope = ?");
+			bindings.push(scope);
+		}
+
+		const whereClause =
+			conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+		const sql = `
+      SELECT path, COALESCE(title, '') AS title, mtime,
+             COALESCE(frontmatter_type, '') AS frontmatter_type,
+             COALESCE(session_id, '') AS session_id
+      FROM documents
+      ${whereClause}
+      ORDER BY mtime DESC
+      LIMIT ?
+    `;
+		bindings.push(args.top_n);
 		rows = db.prepare(sql).all(...bindings) as typeof rows;
 	} catch (err) {
 		return {
