@@ -1,6 +1,6 @@
 # mneme-core
 
-Python core for [mneme](https://github.com/TheGoatPsy/mneme): vault-native memory for Claude Code, also usable from Codex and any MCP client. mneme is Claude-Code-native by origin and client-neutral at the core.
+Python core for [mneme](https://github.com/OnourImpram/mneme): vault-native memory for Claude Code, also usable from Codex and any MCP client. mneme is Claude-Code-native by origin and client-neutral at the core.
 
 This package provides:
 

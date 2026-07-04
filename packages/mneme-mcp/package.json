@@ -31,17 +31,17 @@
     "fts5",
     "rrf"
   ],
-  "author": "Onour Impram (TheGoatPsy)",
+  "author": "Onour Impram",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TheGoatPsy/mneme.git",
+    "url": "git+https://github.com/OnourImpram/mneme.git",
     "directory": "packages/mneme-mcp"
   },
   "bugs": {
-    "url": "https://github.com/TheGoatPsy/mneme/issues"
+    "url": "https://github.com/OnourImpram/mneme/issues"
   },
-  "homepage": "https://github.com/TheGoatPsy/mneme#readme",
+  "homepage": "https://github.com/OnourImpram/mneme#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "better-sqlite3": "^12.11.1",

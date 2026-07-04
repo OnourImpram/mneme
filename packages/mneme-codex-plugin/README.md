@@ -37,7 +37,7 @@ monorepo before enabling the Codex plugin.
 ## Install
 
 ```bash
-codex plugin marketplace add TheGoatPsy/mneme
+codex plugin marketplace add OnourImpram/mneme
 # then enable the mneme plugin and trust its hooks when prompted
 ```
 

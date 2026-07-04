@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/TheGoatPsy/mneme/security/advisories/new
+    url: https://github.com/OnourImpram/mneme/security/advisories/new
     about: Report a security issue via private advisory. Do NOT open a public issue for security vulnerabilities.
   - name: Question or discussion
-    url: https://github.com/TheGoatPsy/mneme/discussions
+    url: https://github.com/OnourImpram/mneme/discussions
     about: Ask a question or share an idea in the discussions area.

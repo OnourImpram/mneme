@@ -14,7 +14,7 @@ and does not genericize it.
 Brings skills, the MCP server, and lifecycle hooks together.
 
 ```bash
-codex plugin marketplace add TheGoatPsy/mneme
+codex plugin marketplace add OnourImpram/mneme
 # then enable the mneme plugin and trust its hooks when prompted
 ```
 

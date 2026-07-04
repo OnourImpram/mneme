@@ -4,11 +4,11 @@
 # The default rule keeps every change under the BDFL's review until
 # co-maintainers are added per docs/GOVERNANCE.md.
 
-*                               @TheGoatPsy
+*                               @OnourImpram
 
 # Security-sensitive files require explicit review.
-SECURITY.md                     @TheGoatPsy
-.github/workflows/              @TheGoatPsy
+SECURITY.md                     @OnourImpram
+.github/workflows/              @OnourImpram
 
 # Release infrastructure must not change without owner sign-off.
-tools/version_bump.py           @TheGoatPsy
+tools/version_bump.py           @OnourImpram

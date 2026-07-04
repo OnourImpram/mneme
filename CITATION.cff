@@ -11,8 +11,8 @@ type: software
 authors:
   - family-names: Impram
     given-names: Onour
-repository-code: "https://github.com/TheGoatPsy/mneme"
-url: "https://github.com/TheGoatPsy/mneme"
+repository-code: "https://github.com/OnourImpram/mneme"
+url: "https://github.com/OnourImpram/mneme"
 license: Apache-2.0
 version: 3.5.0
 date-released: "2026-06-29"

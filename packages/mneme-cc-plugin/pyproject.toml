@@ -37,9 +37,9 @@ dev = [
 mneme = "mneme_cc_plugin.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/TheGoatPsy/mneme"
-Repository = "https://github.com/TheGoatPsy/mneme"
-Issues = "https://github.com/TheGoatPsy/mneme/issues"
+Homepage = "https://github.com/OnourImpram/mneme"
+Repository = "https://github.com/OnourImpram/mneme"
+Issues = "https://github.com/OnourImpram/mneme/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mneme_cc_plugin"]

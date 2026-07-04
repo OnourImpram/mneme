@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">mneme social preview</title>
+  <desc id="desc">Local-first AI memory you can inspect, diff, redact, and correct.</desc>
+  <rect width="1280" height="640" fill="#0d1117"/>
+  <rect x="72" y="72" width="1136" height="496" rx="28" fill="#111827" stroke="#2f3b52" stroke-width="2"/>
+  <path d="M136 168h1008M136 268h1008M136 368h1008M136 468h1008" stroke="#243047" stroke-width="1"/>
+  <circle cx="164" cy="116" r="10" fill="#39c5bb"/>
+  <circle cx="200" cy="116" r="10" fill="#f0b35a"/>
+  <circle cx="236" cy="116" r="10" fill="#d85f5f"/>
+  <text x="136" y="230" fill="#f4f1ea" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="700">mneme</text>
+  <text x="136" y="308" fill="#c8d1dc" font-family="Arial, Helvetica, sans-serif" font-size="34">Local-first AI memory you can inspect, diff, redact, and correct.</text>
+  <text x="136" y="420" fill="#39c5bb" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Markdown</text>
+  <text x="336" y="420" fill="#f0b35a" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Redaction</text>
+  <text x="548" y="420" fill="#9fb7ff" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Retrieval</text>
+  <text x="738" y="420" fill="#f4f1ea" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Audit</text>
+  <text x="136" y="510" fill="#7f8da3" font-family="Arial, Helvetica, sans-serif" font-size="24">OnourImpram</text>
+</svg>

@@ -2,10 +2,10 @@
   "name": "mneme",
   "version": "3.5.0",
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
-  "author": "Onour Impram (TheGoatPsy)",
+  "author": "Onour Impram (OnourImpram)",
   "license": "MIT",
-  "repository": "https://github.com/TheGoatPsy/mneme",
-  "documentation": "https://github.com/TheGoatPsy/mneme/blob/main/docs/HOOKS.md",
+  "repository": "https://github.com/OnourImpram/mneme",
+  "documentation": "https://github.com/OnourImpram/mneme/blob/main/docs/HOOKS.md",
   "hooks": {
     "PostToolUse": {
       "module": "mneme_cc_plugin.hooks.post_tool_use",

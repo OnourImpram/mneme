@@ -76,11 +76,11 @@ mneme-modes = "mneme_core.modes_cli:main"
 mneme-console = "mneme_core.console:main"
 
 [project.urls]
-Homepage = "https://github.com/TheGoatPsy/mneme"
-Documentation = "https://github.com/TheGoatPsy/mneme/tree/main/docs"
-Repository = "https://github.com/TheGoatPsy/mneme.git"
-Issues = "https://github.com/TheGoatPsy/mneme/issues"
-Changelog = "https://github.com/TheGoatPsy/mneme/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/OnourImpram/mneme"
+Documentation = "https://github.com/OnourImpram/mneme/tree/main/docs"
+Repository = "https://github.com/OnourImpram/mneme.git"
+Issues = "https://github.com/OnourImpram/mneme/issues"
+Changelog = "https://github.com/OnourImpram/mneme/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mneme_core"]

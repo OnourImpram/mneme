@@ -1,6 +1,6 @@
 # mneme-cc-plugin
 
-Claude Code plugin manifest for [mneme](https://github.com/TheGoatPsy/mneme).
+Claude Code plugin manifest for [mneme](https://github.com/OnourImpram/mneme).
 
 ## Hooks
 

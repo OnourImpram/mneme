@@ -4,7 +4,7 @@ Local code knowledge graph for mneme. Extracts GraphNode/GraphEdge from Python
 source files via tree-sitter. Derived and rebuildable — the ground truth is
 always the source files; `graph.json` is a derived artifact.
 
-Part of the [mneme](https://github.com/TheGoatPsy/mneme) memory engine.
+Part of the [mneme](https://github.com/OnourImpram/mneme) memory engine.
 
 ## Scope (v1)
 

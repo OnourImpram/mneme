@@ -4,7 +4,7 @@ How decisions get made and how the project survives the loss of any single maint
 
 ## Current Status
 
-- **Project lead**: Onour Impram ([TheGoatPsy](https://github.com/TheGoatPsy)).
+- **Project lead**: Onour Impram ([@OnourImpram](https://github.com/OnourImpram)).
 - **Year 1 model**: Benevolent Dictator. Sole maintainer, sole release authority. Decisions logged as ADR entries in `docs/ARCHITECTURE.md`.
 - **Co-maintainer recruitment**: still open as of the 3.x line. Until one lands, the interim release rule below applies.
 

@@ -5,7 +5,7 @@ Thank you for your interest in contributing.
 ## Quick Start
 
 ```bash
-git clone https://github.com/TheGoatPsy/mneme.git
+git clone https://github.com/OnourImpram/mneme.git
 cd mneme
 make install-dev
 make test

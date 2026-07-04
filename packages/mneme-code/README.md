@@ -4,7 +4,7 @@ Deterministic Python code-failure memory for mneme. Parses CPython tracebacks
 into structured failures, renders them as vault-ground-truth markdown memories,
 and resolves stack frames to [mneme-graph](../mneme-graph) function nodes.
 
-Part of the [mneme](https://github.com/TheGoatPsy/mneme) memory engine.
+Part of the [mneme](https://github.com/OnourImpram/mneme) memory engine.
 
 ## What it does (v1)
 

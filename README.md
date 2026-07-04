@@ -10,8 +10,8 @@
   <a href="https://pypi.org/project/mneme-core/"><img src="https://img.shields.io/pypi/v/mneme-core?label=mneme-core&color=3776ab&logo=pypi&logoColor=white" alt="mneme-core on PyPI"></a>
   <a href="https://pypi.org/project/mneme-cc-plugin/"><img src="https://img.shields.io/pypi/v/mneme-cc-plugin?label=mneme-cc-plugin&color=3776ab&logo=pypi&logoColor=white" alt="mneme-cc-plugin on PyPI"></a>
   <a href="https://www.npmjs.com/package/mneme-mcp-server"><img src="https://img.shields.io/npm/v/mneme-mcp-server?label=mneme-mcp-server&color=cb3837&logo=npm&logoColor=white" alt="mneme-mcp-server on npm"></a>
-  <a href="https://github.com/TheGoatPsy/mneme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/TheGoatPsy/mneme/ci.yml?branch=main&label=CI" alt="CI"></a>
-  <a href="https://github.com/TheGoatPsy/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
+  <a href="https://github.com/OnourImpram/mneme/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/OnourImpram/mneme/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/OnourImpram/mneme/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/pypi/pyversions/mneme-core" alt="Python versions">
   <a href="https://doi.org/10.5281/zenodo.20674727"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20674727.svg" alt="DOI"></a>
 </p>
@@ -150,7 +150,7 @@ mneme is Claude-Code-native by origin. Because its retrieval core (`mneme-core`)
 
 ```bash
 # Plugin: skills, MCP server, and lifecycle hooks together
-codex plugin marketplace add TheGoatPsy/mneme
+codex plugin marketplace add OnourImpram/mneme
 
 # Or wire just the MCP server into ~/.codex/config.toml
 mneme install --client=codex
@@ -237,4 +237,4 @@ Apache License 2.0. See `LICENSE` and `NOTICE`. Releases up to and including the
 
 ## Acknowledgments
 
-Maintained by Onour Impram ([TheGoatPsy](https://github.com/TheGoatPsy)). The Adaptive Context Layer and the pattern and trajectory primitives draw conceptually from token-compression and agent-DB patterns proven in production internal tooling. The architecture is mneme-native, the lineage is operator experience.
+Maintained by Onour Impram ([@OnourImpram](https://github.com/OnourImpram)). The Adaptive Context Layer and the pattern and trajectory primitives draw conceptually from token-compression and agent-DB patterns proven in production internal tooling. The architecture is mneme-native, the lineage is operator experience.

@@ -10,7 +10,7 @@
       "description": "Vault-native memory for Claude Code. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop, token-aware adaptive context.",
       "version": "3.5.0",
       "license": "MIT",
-      "homepage": "https://github.com/TheGoatPsy/mneme",
+      "homepage": "https://github.com/OnourImpram/mneme",
       "keywords": [
         "memory",
         "mcp",

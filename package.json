@@ -5,13 +5,13 @@
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TheGoatPsy/mneme.git"
+    "url": "git+https://github.com/OnourImpram/mneme.git"
   },
   "bugs": {
-    "url": "https://github.com/TheGoatPsy/mneme/issues"
+    "url": "https://github.com/OnourImpram/mneme/issues"
   },
-  "homepage": "https://github.com/TheGoatPsy/mneme#readme",
-  "author": "Onour Impram (TheGoatPsy)",
+  "homepage": "https://github.com/OnourImpram/mneme#readme",
+  "author": "Onour Impram",
   "license": "Apache-2.0",
   "scripts": {
     "build": "pnpm -r build",
