@@ -1,9 +1,9 @@
 name: Ten-loop source snapshot
 
 on:
-  push:
+  pull_request:
     branches:
-      - sol-ultra/mneme-ten-loop-upgrade
+      - main
     paths:
       - .github/workflows/ten-loop-source-snapshot.yml
   workflow_dispatch:
