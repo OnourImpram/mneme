@@ -1,0 +1,65 @@
+name: Ten-loop tree-sitter compatibility probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ten-loop-tree-sitter-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: ${{ matrix.os }} py${{ matrix.python }} tree-sitter-${{ matrix.tree_sitter }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.13'
+            tree_sitter: '0.25.2'
+          - os: ubuntu-latest
+            python: '3.13'
+            tree_sitter: '0.26.0'
+          - os: macos-latest
+            python: '3.13'
+            tree_sitter: '0.25.2'
+          - os: windows-latest
+            python: '3.13'
+            tree_sitter: '0.25.2'
+          - os: ubuntu-latest
+            python: '3.11'
+            tree_sitter: '0.25.2'
+          - os: ubuntu-latest
+            python: '3.14'
+            tree_sitter: '0.25.2'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install graph package and selected binding
+        shell: bash
+        run: |
+          python -m pip install -e 'packages/mneme-graph[dev]'
+          python -m pip install --force-reinstall 'tree-sitter==${{ matrix.tree_sitter }}'
+          python - <<'PY'
+          from importlib.metadata import version
+          for package in (
+              'tree-sitter',
+              'tree-sitter-python',
+              'tree-sitter-javascript',
+              'tree-sitter-typescript',
+          ):
+              print(f'{package}={version(package)}')
+          PY
+      - name: Reproduce self graph build
+        shell: bash
+        run: >-
+          python -X faulthandler -m pytest
+          packages/mneme-graph/tests/test_cli_impact.py::TestSelfVerification::test_graph_builds_over_own_source_and_impact_reaches_cli
+          -vv --no-cov
