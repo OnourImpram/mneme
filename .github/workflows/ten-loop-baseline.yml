@@ -1,0 +1,99 @@
+name: Ten-loop baseline
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ten-loop-baseline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Run authoritative baseline commands
+        shell: bash
+        run: |
+          set +e
+          mkdir -p ten-loop-baseline benchmarks/_runs
+          : > ten-loop-baseline/results.tsv
+          run_step() {
+            name="$1"
+            shift
+            slug="$(printf '%s' "$name" | tr ' /:' '---' | tr -cd 'A-Za-z0-9_.-')"
+            start="$(date +%s)"
+            printf '\n===== %s =====\n' "$name" | tee "ten-loop-baseline/${slug}.log"
+            "$@" 2>&1 | tee -a "ten-loop-baseline/${slug}.log"
+            code="${PIPESTATUS[0]}"
+            end="$(date +%s)"
+            printf '%s\t%s\t%s\n' "$name" "$code" "$((end-start))" | tee -a ten-loop-baseline/results.tsv
+            return 0
+          }
+
+          {
+            echo "utc=$(date -u +%FT%TZ)"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            uname -a
+            python --version
+            pip --version
+            node --version
+            pnpm --version
+            git status --short --branch
+          } | tee ten-loop-baseline/environment.txt
+
+          run_step make-install-dev make install-dev
+          run_step make-test make test
+          run_step make-lint make lint
+          run_step make-bench-all make bench-all
+          run_step version-check python tools/version_bump.py --check
+          run_step spec-verify python tools/spec_verify.py
+          run_step repo-integrity python tools/repo_integrity.py
+          run_step codex-validator python tools/validate_codex_plugin.py packages/mneme-codex-plugin
+          run_step antigravity-validator python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin
+          run_step pytest-core python -m pytest packages/mneme-core/tests
+          run_step pytest-cc-plugin python -m pytest packages/mneme-cc-plugin/tests
+          run_step pytest-graph python -m pytest packages/mneme-graph/tests
+          run_step pytest-code python -m pytest packages/mneme-code/tests
+          run_step pytest-parity python -m pytest tests/parity
+          run_step pnpm-frozen-install pnpm install --frozen-lockfile
+          run_step pnpm-recursive-build pnpm -r build
+          run_step pnpm-recursive-test pnpm -r test
+          run_step pnpm-recursive-lint pnpm -r lint
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = []
+          for line in Path('ten-loop-baseline/results.tsv').read_text(encoding='utf-8').splitlines():
+              name, code, seconds = line.split('\t')
+              rows.append({'command': name, 'exit_code': int(code), 'duration_seconds': int(seconds)})
+          Path('ten-loop-baseline/results.json').write_text(json.dumps(rows, indent=2) + '\n', encoding='utf-8')
+          if any(row['exit_code'] for row in rows):
+              print('One or more baseline commands failed. This is recorded evidence, not a hidden failure.')
+          PY
+      - name: Upload baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ten-loop-baseline-${{ github.sha }}
+          path: |
+            ten-loop-baseline/**
+            benchmarks/_runs/**
+          if-no-files-found: warn
+          retention-days: 7
