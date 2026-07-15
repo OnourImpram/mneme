@@ -1,0 +1,32 @@
+name: Ten-loop source snapshot
+
+on:
+  push:
+    branches:
+      - sol-ultra/mneme-ten-loop-upgrade
+    paths:
+      - .github/workflows/ten-loop-source-snapshot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Upload source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: mneme-source-${{ github.sha }}
+          path: |
+            .
+            !.git/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
