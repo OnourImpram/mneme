@@ -1,0 +1,110 @@
+name: Prepare Mneme 3.6.0
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mneme-prepare-3-6-0
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.head_ref == 'sol-ultra/mneme-ten-loop-upgrade-20260716'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Require release marker
+        id: marker
+        shell: bash
+        run: |
+          if [[ -f .github/release-3.6.0.ready ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v6
+        if: steps.marker.outputs.ready == 'true'
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v6
+        if: steps.marker.outputs.ready == 'true'
+      - uses: actions/setup-node@v6
+        if: steps.marker.outputs.ready == 'true'
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Prepare version and changelog
+        if: steps.marker.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/version_bump.py 3.6.0
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('CHANGELOG.md')
+          text = path.read_text(encoding='utf-8')
+          heading = '## 3.6.0 - 2026-07-16'
+          if heading not in text and '## [3.6.0]' not in text:
+              section = '''## 3.6.0 - 2026-07-16
+
+### Changed
+
+- Hardened MCP schema parity so client-visible JSON Schemas are generated from the runtime Zod contracts.
+- Made wildcard cross-scope retrieval an explicit caller opt-in and strengthened scope isolation contracts.
+- Corrected tree-sitter compatibility handling to fail safely instead of reaching incompatible native calls.
+- Added bounded state readers and public input limits to prevent unbounded memory and CPU consumption.
+- Activated Python and Node coverage gates, package artifact smoke tests, and executable security and release invariants in CI.
+- Reconciled retrieval, privacy, benchmark, architecture, and competitive claims with reachable end-to-end behavior.
+- Added machine-readable runtime capability reporting and the ten-loop engineering evidence set.
+
+### Compatibility
+
+- Vault Markdown and derived index formats are unchanged.
+- Cross-scope reads now require an explicit `scope: "*"` argument.
+- Inputs exceeding documented safety limits are rejected before processing.
+
+'''
+              first_section = text.find('\n## ')
+              if first_section == -1:
+                  text = text.rstrip() + '\n\n' + section
+              else:
+                  insert_at = first_section + 1
+                  text = text[:insert_at] + section + text[insert_at:]
+              path.write_text(text, encoding='utf-8')
+          PY
+          python tools/version_bump.py --check 3.6.0
+      - name: Verify release candidate
+        if: steps.marker.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/spec_verify.py
+          python tools/repo_integrity.py
+          python tools/validate_codex_plugin.py packages/mneme-codex-plugin
+          python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin
+          make install-dev
+          make test
+          make lint
+          pnpm -r build
+          make bench-all
+      - name: Commit prepared release
+        if: steps.marker.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/release-3.6.0.ready
+          rm .github/workflows/prepare-release-3.6.0.yml
+          git config user.name "mneme release automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "release: prepare Mneme 3.6.0"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
