@@ -1,0 +1,66 @@
+name: Apply ten-loop upgrade patch 3
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ten-loop-apply-upgrade-3.yml
+      - .github/ten-loop/upgrade-3/**
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: >-
+      github.repository_owner == 'OnourImpram' &&
+      github.actor == 'OnourImpram' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'sol-ultra/mneme-ten-loop-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted transport branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: transport
+          persist-credentials: false
+
+      - name: Check out isolated product branch
+        uses: actions/checkout@v7
+        with:
+          ref: sol-ultra/mneme-ten-loop-upgrade-20260716-r2
+          path: target
+          token: ${{ github.token }}
+
+      - name: Verify and apply reviewable commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_target='5d24f92b6c5bdcfaeb1fb054e5dae2456982c345'
+          actual_target="$(git -C target rev-parse HEAD)"
+          test "$actual_target" = "$expected_target"
+
+          base64 --decode transport/.github/ten-loop/upgrade-3/patch.mbox.gz.b64 > upgrade.mbox.gz
+          printf '%s  %s\n' \
+            'a237e4a606a55c7d3a4f79e2a7c6b86f12dedffde25b9ea0593ce4f8a41184d8' \
+            'upgrade.mbox.gz' | sha256sum --check -
+          gzip --decompress --stdout upgrade.mbox.gz > upgrade.mbox
+          printf '%s  %s\n' \
+            '129777cb00b09f40cdef3f510b7092291bc3d68f23eca90c19fadc625c306e65' \
+            'upgrade.mbox' | sha256sum --check -
+
+          git -C target config user.name 'github-actions[bot]'
+          git -C target config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C target am --keep-cr ../upgrade.mbox
+          git -C target diff --check HEAD~4..HEAD
+          test -z "$(git -C target status --short)"
+
+      - name: Push verified commits to product branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C target push origin HEAD:sol-ultra/mneme-ten-loop-upgrade-20260716-r2
