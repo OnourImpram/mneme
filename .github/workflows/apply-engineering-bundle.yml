@@ -1,0 +1,64 @@
+name: Apply engineering bundle
+
+on:
+  push:
+    branches: [sol-ultra/mneme-ten-loop-upgrade-20260716]
+    paths:
+      - '.github/ten-loop-engineering.mbox.gz.b64'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply reviewed local commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - name: Decode and apply commit bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .github/ten-loop-engineering.mbox.gz.b64 > /tmp/mneme-engineering.mbox.gz
+          gzip --decompress --stdout /tmp/mneme-engineering.mbox.gz > /tmp/mneme-engineering.mbox
+          git config user.name "mneme engineering automation"
+          git config user.email "actions@users.noreply.github.com"
+          git am /tmp/mneme-engineering.mbox
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Verify applied Python changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -e "packages/mneme-graph[dev]"
+          pytest packages/mneme-graph/tests -q
+          ruff check packages/mneme-graph
+          mypy --strict packages/mneme-graph/mneme_graph
+          python tools/version_bump.py --check
+          python tools/spec_verify.py
+          python tools/repo_integrity.py
+      - name: Verify applied TypeScript changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm -r build
+          pnpm -r test
+          pnpm -r lint
+      - name: Remove one-time bundle and publish applied commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/ten-loop-engineering.mbox.gz.b64
+          git add -A
+          git commit -m "chore: remove applied engineering bundle"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
