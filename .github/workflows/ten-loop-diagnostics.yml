@@ -14,7 +14,7 @@ permissions:
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,19 +31,29 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p ten-loop-diagnostics
+          mkdir -p ten-loop-diagnostics/packages ten-loop-diagnostics/coverage
           python -m pip install -e 'packages/mneme-core[dev]' > ten-loop-diagnostics/python-install.log 2>&1
           python_install=$?
-          cp "$(command -v ruff)" ten-loop-diagnostics/ruff-bin
-          ruff check packages/mneme-core --output-format=full > ten-loop-diagnostics/ruff.log 2>&1
+          ruff check packages/mneme-core packages/mneme-cc-plugin --output-format=full > ten-loop-diagnostics/ruff.log 2>&1
           ruff_exit=$?
-          ruff check packages/mneme-core --fix --diff > ten-loop-diagnostics/ruff-fix.diff 2>&1
-          ruff_fix_diff=$?
           pnpm install --frozen-lockfile > ten-loop-diagnostics/pnpm-install.log 2>&1
           pnpm_install=$?
+          pnpm --filter mneme-mcp-server build > ten-loop-diagnostics/node-build.log 2>&1
+          node_build=$?
           pnpm --filter mneme-mcp-server test -- --reporter=verbose > ten-loop-diagnostics/node-test.log 2>&1
           node_test=$?
-          printf 'python_install=%s\nruff=%s\nruff_fix_diff=%s\npnpm_install=%s\nnode_test=%s\n' "$python_install" "$ruff_exit" "$ruff_fix_diff" "$pnpm_install" "$node_test" | tee ten-loop-diagnostics/results.txt
+          pnpm --filter mneme-mcp-server exec vitest run --coverage --reporter=verbose > ten-loop-diagnostics/node-coverage.log 2>&1
+          node_coverage=$?
+          test -d packages/mneme-mcp/coverage && cp -R packages/mneme-mcp/coverage/. ten-loop-diagnostics/coverage/
+          python -m pip install build > ten-loop-diagnostics/build-tool-install.log 2>&1
+          build_tool=$?
+          for package in mneme-core mneme-cc-plugin mneme-graph mneme-code; do
+            python -m build --outdir "$(pwd)/ten-loop-diagnostics/packages" "packages/$package" > "ten-loop-diagnostics/build-$package.log" 2>&1
+            printf '%s=%s\n' "$package" "$?" >> ten-loop-diagnostics/python-build-results.txt
+          done
+          pnpm --filter mneme-mcp-server pack --pack-destination "$(pwd)/ten-loop-diagnostics/packages" > ten-loop-diagnostics/npm-pack.log 2>&1
+          npm_pack=$?
+          printf 'python_install=%s\nruff=%s\npnpm_install=%s\nnode_build=%s\nnode_test=%s\nnode_coverage=%s\nbuild_tool=%s\nnpm_pack=%s\n' "$python_install" "$ruff_exit" "$pnpm_install" "$node_build" "$node_test" "$node_coverage" "$build_tool" "$npm_pack" | tee ten-loop-diagnostics/results.txt
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
