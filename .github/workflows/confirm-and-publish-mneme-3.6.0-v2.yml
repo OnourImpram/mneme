@@ -1,0 +1,193 @@
+name: Confirm and publish Mneme 3.6.0 v2
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+concurrency:
+  group: mneme-confirm-and-publish-3-6-0
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Verify main, tag immutably, publish, and confirm
+    if: github.head_ref == 'release/mneme-3.6.0-publish-confirm-20260716'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Require v2 publication marker and switch to exact main
+        id: marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .github/publish-mneme-3.6.0-v2.ready ]]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          git fetch origin main --tags
+          git checkout --detach origin/main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+      - uses: actions/setup-python@v6
+        if: steps.marker.outputs.ready == 'true'
+        with:
+          python-version: '3.12'
+      - name: Verify current main is a coherent 3.6.0 release candidate
+        if: steps.marker.outputs.ready == 'true'
+        id: main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/version_bump.py --check 3.6.0
+          python tools/spec_verify.py
+          python tools/repo_integrity.py
+          python tools/validate_codex_plugin.py packages/mneme-codex-plugin
+          python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Resolve or create immutable v3.6.0 tag
+        if: steps.marker.outputs.ready == 'true'
+        id: tag
+        shell: bash
+        env:
+          MAIN_SHA: ${{ steps.main.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/v3.6.0 >/dev/null 2>&1; then
+            git fetch origin tag v3.6.0
+            tag_sha=$(git rev-list -n 1 v3.6.0)
+            git merge-base --is-ancestor "$tag_sha" "$MAIN_SHA"
+            git checkout --detach "$tag_sha"
+            python tools/version_bump.py --check 3.6.0
+          else
+            tag_sha="$MAIN_SHA"
+            git config user.name 'mneme release automation'
+            git config user.email 'actions@users.noreply.github.com'
+            git tag -a v3.6.0 -m 'Mneme 3.6.0' "$tag_sha"
+            git push origin refs/tags/v3.6.0
+          fi
+          echo "sha=$tag_sha" >> "$GITHUB_OUTPUT"
+      - name: Reuse a successful release run or dispatch trusted publishing
+        if: steps.marker.outputs.ready == 'true'
+        id: publishing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_SHA: ${{ steps.tag.outputs.sha }}
+        run: |
+          set -euo pipefail
+          success_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --limit 100 \
+            --json databaseId,headSha,conclusion,createdAt \
+            --jq "map(select(.headSha == \"$TAG_SHA\" and .conclusion == \"success\")) | sort_by(.createdAt) | reverse | .[0].databaseId // empty")
+          if [[ -n "$success_id" ]]; then
+            echo "run_id=$success_id" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          active_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --limit 100 \
+            --json databaseId,headSha,status,createdAt \
+            --jq "map(select(.headSha == \"$TAG_SHA\" and .status != \"completed\")) | sort_by(.createdAt) | reverse | .[0].databaseId // empty")
+          if [[ -z "$active_id" ]]; then
+            gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref v3.6.0 \
+              -f dry_run=false -f target_version=3.6.0
+            for attempt in $(seq 1 90); do
+              active_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --limit 100 \
+                --json databaseId,headSha,status,createdAt \
+                --jq "map(select(.headSha == \"$TAG_SHA\" and .status != \"completed\")) | sort_by(.createdAt) | reverse | .[0].databaseId // empty")
+              [[ -n "$active_id" ]] && break
+              sleep 2
+            done
+          fi
+          test -n "$active_id"
+          gh run watch "$active_id" --repo "$GITHUB_REPOSITORY" --exit-status
+          test "$(gh run view "$active_id" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = 'success'
+          echo "run_id=$active_id" >> "$GITHUB_OUTPUT"
+      - name: Verify GitHub Release and public package registries
+        if: steps.marker.outputs.ready == 'true'
+        id: public
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_url=''
+          for attempt in $(seq 1 80); do
+            release_url=$(gh release view v3.6.0 --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,url \
+              --jq 'select(.tagName == "v3.6.0" and .isDraft == false and .isPrerelease == false) | .url' 2>/dev/null || true)
+            [[ -n "$release_url" ]] && break
+            sleep 15
+          done
+          test -n "$release_url"
+          python - <<'PY'
+          import json
+          import time
+          import urllib.request
+
+          endpoints = {
+              'mneme-core': 'https://pypi.org/pypi/mneme-core/3.6.0/json',
+              'mneme-cc-plugin': 'https://pypi.org/pypi/mneme-cc-plugin/3.6.0/json',
+              'mneme-graph': 'https://pypi.org/pypi/mneme-graph/3.6.0/json',
+              'mneme-code': 'https://pypi.org/pypi/mneme-code/3.6.0/json',
+              'mneme-mcp-server': 'https://registry.npmjs.org/mneme-mcp-server/3.6.0',
+          }
+          pending = dict(endpoints)
+          for _ in range(80):
+              for name, url in list(pending.items()):
+                  try:
+                      request = urllib.request.Request(url, headers={'User-Agent': 'mneme-release-verifier/3.6.0'})
+                      with urllib.request.urlopen(request, timeout=20) as response:
+                          if json.load(response):
+                              del pending[name]
+                  except Exception:
+                      pass
+              if not pending:
+                  break
+              time.sleep(15)
+          if pending:
+              raise SystemExit('Registry versions not observable: ' + ', '.join(sorted(pending)))
+          PY
+          echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
+      - name: Record publication evidence and close temporary PR
+        if: steps.marker.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_SHA: ${{ steps.tag.outputs.sha }}
+          RUN_ID: ${{ steps.publishing.outputs.run_id }}
+          RELEASE_URL: ${{ steps.public.outputs.release_url }}
+        run: |
+          set -euo pipefail
+          marker='<!-- mneme-3.6.0-release-verification -->'
+          body=$(cat <<EOF
+          $marker
+          ## Mneme 3.6.0 publication verified
+
+          - Annotated tag: \`v3.6.0\`
+          - Tagged commit: \`$TAG_SHA\`
+          - GitHub Release: $RELEASE_URL
+          - Trusted publishing workflow: https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID
+          - PyPI: \`mneme-core==3.6.0\`, \`mneme-cc-plugin==3.6.0\`, \`mneme-graph==3.6.0\`, \`mneme-code==3.6.0\`
+          - npm: \`mneme-mcp-server@3.6.0\`
+
+          Verification used public GitHub, PyPI, and npm endpoints after trusted publishing completed successfully.
+          EOF
+          )
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/30/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n 1)
+          if [[ -n "$existing" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
+          else
+            gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "$body"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+          gh pr close "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --delete-branch
