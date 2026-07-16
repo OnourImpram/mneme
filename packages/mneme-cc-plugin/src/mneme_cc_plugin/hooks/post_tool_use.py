@@ -130,9 +130,14 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
         audit_dir=vault.audit_log_dir,
     )
     try:
-        capture_event(event, config)
+        tool_name = str(event.get("tool_name") or event.get("tool") or "")
+        if tool_name in config.capture_tools and not capture_event(event, config):
+            sys.stderr.write(
+                "[mneme:PostToolUse] capture failed before durable staging; "
+                "event content was not logged.\n"
+            )
     except Exception as exc:
-        sys.stderr.write(f"[mneme:PostToolUse] capture skipped: {exc}\n")
+        sys.stderr.write(f"[mneme:PostToolUse] capture failed: {exc}\n")
 
     # KG staging is gated by kg_active_flag inside stage_event itself.
     # Cheap no-op for lite/standard profiles where the flag is absent.

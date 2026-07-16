@@ -75,6 +75,22 @@ class TestPostToolUseHandle:
         # Glob is not in DEFAULT_CAPTURE_TOOLS, so nothing should be staged.
         assert list(vault.staging_dir.rglob("*.jsonl")) == []
 
+    def test_capture_failure_is_observable_without_exposing_event_content(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        vault: VaultConfig,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(post_tool_use, "capture_event", lambda *_args: False)
+        _capture(monkeypatch)
+        post_tool_use.handle(
+            {"tool_name": "Edit", "tool_input": {"new_string": "TOP-SECRET"}},
+            vault,
+        )
+        captured = capsys.readouterr()
+        assert "capture failed before durable staging" in captured.err
+        assert "TOP-SECRET" not in captured.err
+
 
 class TestSessionStartHandle:
     def test_no_vault_emits_blank_continue(
@@ -168,6 +184,20 @@ class TestStopHandle:
         assert state_path.exists()
         state = json.loads(state_path.read_text(encoding="utf-8"))
         assert "last_session_end_at" in state
+
+    def test_session_filename_uses_the_same_utc_clock_as_frontmatter(
+        self, monkeypatch: pytest.MonkeyPatch, vault: VaultConfig
+    ) -> None:
+        from datetime import UTC, datetime
+
+        fixed = datetime(2026, 1, 2, 0, 5, tzinfo=UTC)
+        monkeypatch.setattr(stop, "_now_utc", lambda: fixed)
+        _capture(monkeypatch)
+        stop.handle({"session_id": "s-utc"}, vault)
+        produced = list((vault.root / "sessions").glob("*.md"))
+        assert [path.name for path in produced] == ["2026-01-02.md"]
+        text = produced[0].read_text(encoding="utf-8")
+        assert "created: 2026-01-02T00:05:00+00:00" in text
 
     def _stage_summary_events(self, vault: VaultConfig, session_id: str) -> None:
         from datetime import UTC, datetime

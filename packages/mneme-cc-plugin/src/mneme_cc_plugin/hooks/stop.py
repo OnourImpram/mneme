@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +83,7 @@ def _append_session_section(
     session_id: str,
     transcript_path: str,
 ) -> None:
-    today_iso = date.today().isoformat()
+    today_iso = _now_utc().date().isoformat()
     target = vault.root / LOG_DIR_NAME / f"{today_iso}.md"
     # Deterministic extractive summary (zero-LLM, default ON). Computed
     # OUTSIDE the lock so summary aggregation never extends the critical
