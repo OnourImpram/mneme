@@ -1,0 +1,3 @@
+version=3.6.0
+action=verify-tag-publish-confirm
+publisher=v2
