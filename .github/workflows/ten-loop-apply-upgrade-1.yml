@@ -1,0 +1,74 @@
+name: Apply ten-loop upgrade patch 1
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ten-loop-apply-upgrade-1.yml
+      - .github/ten-loop/upgrade-1/**
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: >-
+      github.repository_owner == 'OnourImpram' &&
+      github.actor == 'OnourImpram' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'sol-ultra/mneme-ten-loop-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted transport branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: transport
+          persist-credentials: false
+
+      - name: Check out clean target branch
+        uses: actions/checkout@v7
+        with:
+          ref: sol-ultra/mneme-ten-loop-upgrade-20260716
+          path: target
+          token: ${{ github.token }}
+
+      - name: Verify and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_target='36a2da1dbb713da25852ee6cb77f2b5e0a5798a9'
+          actual_target="$(git -C target rev-parse HEAD)"
+          test "$actual_target" = "$expected_target"
+
+          cat transport/.github/ten-loop/upgrade-1/chunk-* > upgrade.patch.gz.b64
+          base64 --decode upgrade.patch.gz.b64 > upgrade.patch.gz
+          printf '%s  %s\n' \
+            '6f335c44d466835cf60d6f62a0ba88b15807d26dea23478bcd25750e90819c63' \
+            'upgrade.patch.gz' | sha256sum --check -
+          gzip --decompress --stdout upgrade.patch.gz > upgrade.patch
+          printf '%s  %s\n' \
+            '6d1032f1b31303877b2474b063455660978d4cc66223a63b7671a49dca0dad6d' \
+            'upgrade.patch' | sha256sum --check -
+
+          git -C target apply --check ../upgrade.patch
+          git -C target apply ../upgrade.patch
+          git -C target diff --check
+          git -C target status --short
+
+      - name: Commit product changes to isolated target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C target config user.name 'github-actions[bot]'
+          git -C target config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C target add --all
+          if git -C target diff --cached --quiet; then
+            echo 'Patch produced no changes' >&2
+            exit 1
+          fi
+          git -C target commit -m 'loops 1-5: harden schemas, scope, checkpoints, and graph'
+          git -C target push origin HEAD:sol-ultra/mneme-ten-loop-upgrade-20260716
