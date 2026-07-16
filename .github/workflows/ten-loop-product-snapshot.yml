@@ -1,0 +1,40 @@
+name: Ten-loop product source snapshot
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ten-loop-product-snapshot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Record source identity
+        shell: bash
+        run: |
+          printf 'event_head_sha=%s\n' '${{ github.event.pull_request.head.sha }}'
+          printf 'checkout_sha=%s\n' "$(git rev-parse HEAD)"
+          printf 'tree_sha=%s\n' "$(git rev-parse HEAD^{tree})"
+          printf 'tracked_files=%s\n' "$(git ls-files | wc -l | tr -d ' ')"
+          git status --short --branch
+      - name: Upload source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: mneme-product-source-${{ github.sha }}
+          path: |
+            .
+            !.git/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
