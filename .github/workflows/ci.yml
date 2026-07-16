@@ -151,3 +151,107 @@ jobs:
       - name: Run Neo4j integration test
         working-directory: packages/mneme-core
         run: pytest tests/integration/test_kg_neo4j_integration.py -v --no-cov
+
+  engineering-preflight:
+    name: Ten-loop engineering preflight
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'sol-ultra/mneme-ten-loop-upgrade')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Capture repository and environment baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p engineering-preflight/logs
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "ref=${GITHUB_REF}"
+            echo "head_ref=${GITHUB_HEAD_REF:-}"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "base_sha=${{ github.event.pull_request.base.sha }}"
+            echo "git=$(git --version)"
+            echo "python=$(python --version 2>&1)"
+            echo "pip=$(python -m pip --version)"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "pnpm=$(pnpm --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            uname -a
+          } > engineering-preflight/environment.txt
+          git status --porcelain=v1 --untracked-files=all > engineering-preflight/worktree-before.txt
+          git ls-files > engineering-preflight/tracked-files.txt
+          git submodule status > engineering-preflight/submodules.txt 2>&1 || true
+          sha256sum pnpm-lock.yaml > engineering-preflight/lockfile-sha256.txt 2>/dev/null || true
+          find . -name 'pyproject.toml' -o -name 'package.json' -o -name '*lock*' | sort > engineering-preflight/dependency-manifests.txt
+          git ls-files -z | tar --null --verbatim-files-from --files-from=- -czf engineering-preflight/mneme-source.tar.gz
+      - name: Run complete baseline command surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary=engineering-preflight/command-summary.tsv
+          printf 'command\tstatus\tduration_seconds\n' > "$summary"
+          run_check() {
+            local name="$1"
+            shift
+            local started ended status
+            started=$(date +%s)
+            set +e
+            bash -lc "$*" > "engineering-preflight/logs/${name}.log" 2>&1
+            status=$?
+            set -e
+            ended=$(date +%s)
+            printf '%s\t%s\t%s\n' "$name" "$status" "$((ended-started))" >> "$summary"
+          }
+          run_check make-install-dev 'make install-dev'
+          run_check make-test 'make test'
+          run_check make-lint 'make lint'
+          run_check version-check 'python tools/version_bump.py --check'
+          run_check spec-verify 'python tools/spec_verify.py'
+          run_check repo-integrity 'python tools/repo_integrity.py'
+          run_check validate-codex 'python tools/validate_codex_plugin.py packages/mneme-codex-plugin'
+          run_check validate-antigravity 'python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin'
+          run_check pytest-core 'pytest packages/mneme-core/tests -q'
+          run_check pytest-cc-plugin 'pytest packages/mneme-cc-plugin/tests -q'
+          run_check pytest-graph 'pytest packages/mneme-graph/tests -q'
+          run_check pytest-code 'pytest packages/mneme-code/tests -q'
+          run_check pytest-parity 'pytest tests/parity -q'
+          run_check pnpm-install 'pnpm install --frozen-lockfile'
+          run_check pnpm-build 'pnpm -r build'
+          run_check pnpm-test 'pnpm -r test'
+          run_check pnpm-lint 'pnpm -r lint'
+          run_check make-bench-all 'make bench-all'
+          git status --porcelain=v1 --untracked-files=all > engineering-preflight/worktree-after.txt
+          python -m pip freeze > engineering-preflight/pip-freeze.txt
+          pnpm list -r --depth -1 > engineering-preflight/pnpm-workspace.txt 2>&1 || true
+      - name: Upload engineering preflight artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mneme-ten-loop-preflight
+          path: engineering-preflight/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce baseline failures after artifact upload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rows = Path('engineering-preflight/command-summary.tsv').read_text(encoding='utf-8').splitlines()[1:]
+          failed = [row for row in rows if row.split('\t')[1] != '0']
+          if failed:
+              raise SystemExit('Baseline failures:\n' + '\n'.join(failed))
+          PY
