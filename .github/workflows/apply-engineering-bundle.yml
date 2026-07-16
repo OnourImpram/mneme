@@ -23,7 +23,7 @@ jobs:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
-      - name: Decode and validate commit bundle
+      - name: Recover and validate commit mailbox
         shell: bash
         run: |
           set -euo pipefail
@@ -35,146 +35,150 @@ jobs:
           import hashlib
           import json
           import re
+          import zlib
           from pathlib import Path
 
           root = Path('.github')
-          diagnostic_path = root / 'engineering-bundle-diagnostic.json'
-          manifest_path = root / 'ten-loop-engineering.ready'
           manifest = {}
-          for line in manifest_path.read_text(encoding='utf-8').splitlines():
+          for line in (root / 'ten-loop-engineering.ready').read_text(encoding='utf-8').splitlines():
               if '=' in line:
                   key, value = line.split('=', 1)
                   manifest[key.strip()] = value.strip()
 
-          expected = manifest.get('sha256_gzip')
-          expected_base64 = manifest.get('sha256_base64')
-          if not expected or not re.fullmatch(r'[0-9a-f]{64}', expected):
-              raise SystemExit('ready manifest is missing a valid sha256_gzip')
+          expected_gzip = manifest.get('sha256_gzip', '')
+          expected_mbox = manifest.get('sha256_mbox', '')
+          expected_commits = int(manifest.get('commits', '0'))
+          for label, value in (
+              ('sha256_gzip', expected_gzip),
+              ('sha256_mbox', expected_mbox),
+          ):
+              if not re.fullmatch(r'[0-9a-f]{64}', value):
+                  raise SystemExit(f'manifest is missing a valid {label}')
+          if expected_commits <= 0:
+              raise SystemExit('manifest commits must be positive')
 
           part_paths = sorted(root.glob('ten-loop-engineering.part-*'))
           if not part_paths:
               raise SystemExit('no engineering bundle parts found')
-
-          alphabet = re.compile(r'[^A-Za-z0-9+/=]')
-          texts = [path.read_text(encoding='ascii') for path in part_paths]
-
-          diagnostic: dict[str, object] = {
-              'expected_sha256_gzip': expected,
-              'expected_sha256_base64': expected_base64,
-              'manifest': manifest,
-              'parts': [
-                  {
-                      'path': str(path),
-                      'chars': len(text),
-                      'clean_chars': len(alphabet.sub('', text)),
-                      'sha256_text': hashlib.sha256(text.encode('ascii')).hexdigest(),
-                      'prefix': text[:12],
-                      'suffix': text[-12:],
-                  }
-                  for path, text in zip(part_paths, texts, strict=True)
-              ],
-              'candidates': [],
-              'errors': [],
-          }
-
-          def clean(value: str) -> str:
-              return alphabet.sub('', value)
-
-          candidates: list[tuple[str, bytes]] = []
-          clean_parts = [clean(text) for text in texts]
+          clean_parts = [
+              re.sub(r'[^A-Za-z0-9+/=]', '', path.read_text(encoding='ascii'))
+              for path in part_paths
+          ]
           joined = ''.join(clean_parts)
 
-          try:
-              candidates.append(('joined', base64.b64decode(joined, validate=True)))
-          except Exception as exc:
-              diagnostic['errors'].append({'candidate': 'joined', 'error': str(exc)})
+          diagnostic: dict[str, object] = {
+              'manifest': manifest,
+              'parts': [
+                  {'path': str(path), 'characters': len(text)}
+                  for path, text in zip(part_paths, clean_parts, strict=True)
+              ],
+              'attempts': [],
+          }
 
-          try:
-              chunks = [base64.b64decode(text, validate=True) for text in clean_parts]
-              candidates.append(('per-part', b''.join(chunks)))
-          except Exception as exc:
-              diagnostic['errors'].append({'candidate': 'per-part', 'error': str(exc)})
-
-          try:
-              depadded = ''.join(text.rstrip('=') for text in clean_parts)
-              depadded += '=' * (-len(depadded) % 4)
-              candidates.append(
-                  ('interior-padding-normalized', base64.b64decode(depadded, validate=True))
+          def validate_mbox(mbox: bytes) -> bool:
+              digest = hashlib.sha256(mbox).hexdigest()
+              subjects = mbox.count(b'\nSubject: [PATCH ')
+              separators = mbox.count(b'\nFrom ')
+              complete_tail = mbox.rstrip().endswith(b'2.47.3')
+              diagnostic['attempts'].append(
+                  {
+                      'kind': 'mailbox-validation',
+                      'bytes': len(mbox),
+                      'sha256': digest,
+                      'subjects': subjects,
+                      'message_separators': separators,
+                      'complete_tail': complete_tail,
+                  }
               )
-          except Exception as exc:
-              diagnostic['errors'].append(
-                  {'candidate': 'interior-padding-normalized', 'error': str(exc)}
+              return (
+                  digest == expected_mbox
+                  and subjects == expected_commits
+                  and separators == expected_commits - 1
+                  and complete_tail
+                  and mbox.startswith(b'From ')
               )
 
-          # The first part is one character longer than every intended 9000
-          # character transport chunk. Recover only a single-character deletion
-          # whose decoded bytes exactly match the pre-recorded gzip SHA256.
-          # This uses the payload digest as the authority and never applies a
-          # merely decodable or heuristic candidate.
-          if clean_parts and len(clean_parts[0]) == 9001 and len(joined) % 4 == 1:
-              prefix_length = 0
-              repaired: tuple[int, str, bytes] | None = None
-              for local_index in range(len(clean_parts[0])):
-                  global_index = prefix_length + local_index
-                  candidate_text = joined[:global_index] + joined[global_index + 1 :]
+          def raw_gzip_decompress(payload: bytes) -> bytes:
+              if len(payload) < 18 or payload[:3] != b'\x1f\x8b\x08':
+                  raise ValueError('not a gzip/deflate payload')
+              flags = payload[3]
+              position = 10
+              if flags & 0x04:
+                  extra_length = int.from_bytes(payload[position:position + 2], 'little')
+                  position += 2 + extra_length
+              if flags & 0x08:
+                  position = payload.index(b'\x00', position) + 1
+              if flags & 0x10:
+                  position = payload.index(b'\x00', position) + 1
+              if flags & 0x02:
+                  position += 2
+              if position >= len(payload) - 8:
+                  raise ValueError('invalid gzip framing')
+              return zlib.decompress(payload[position:-8], wbits=-zlib.MAX_WBITS)
+
+          selected_mbox: bytes | None = None
+          selected_kind: str | None = None
+
+          # Preferred path. Accept only the original compressed payload digest.
+          try:
+              payload = base64.b64decode(joined, validate=True)
+              diagnostic['attempts'].append(
+                  {
+                      'kind': 'original-compressed',
+                      'bytes': len(payload),
+                      'sha256': hashlib.sha256(payload).hexdigest(),
+                  }
+              )
+              if hashlib.sha256(payload).hexdigest() == expected_gzip:
+                  mbox = gzip.decompress(payload)
+                  if validate_mbox(mbox):
+                      selected_mbox = mbox
+                      selected_kind = 'original-compressed'
+          except Exception as exc:
+              diagnostic['attempts'].append(
+                  {'kind': 'original-compressed-error', 'error': str(exc)}
+              )
+
+          # The transfer diagnostic established one extra Base64 character in
+          # part 00 and a damaged gzip trailer. Search only single-character
+          # deletion candidates inside that anomalous part. Ignore the trailer
+          # by decoding the raw DEFLATE member, then require the independently
+          # recorded mailbox SHA256 and complete two-message format-patch shape.
+          if selected_mbox is None and clean_parts and len(clean_parts[0]) == 9001:
+              for index in range(len(clean_parts[0])):
+                  repaired_text = joined[:index] + joined[index + 1:]
                   try:
-                      payload = base64.b64decode(candidate_text, validate=True)
+                      payload = base64.b64decode(repaired_text, validate=True)
+                      mbox = raw_gzip_decompress(payload)
                   except Exception:
                       continue
-                  if hashlib.sha256(payload).hexdigest() == expected:
-                      repaired = (global_index, joined[global_index], payload)
-                      break
-              if repaired is not None:
-                  repaired_index, removed_character, repaired_payload = repaired
-                  diagnostic['repair'] = {
-                      'kind': 'single-character-removal',
-                      'index': repaired_index,
-                      'removed_character': removed_character,
-                      'authority': 'sha256_gzip',
-                  }
-                  candidates.append(
-                      (f'single-character-repair@{repaired_index}', repaired_payload)
-                  )
-              else:
-                  diagnostic['errors'].append(
-                      {
-                          'candidate': 'single-character-repair',
-                          'error': 'no one-character deletion matched sha256_gzip',
+                  if validate_mbox(mbox):
+                      selected_mbox = mbox
+                      selected_kind = f'recovered-single-character@{index}'
+                      diagnostic['repair'] = {
+                          'index': index,
+                          'removed_character': joined[index],
+                          'compressed_sha256': hashlib.sha256(payload).hexdigest(),
+                          'mailbox_sha256': hashlib.sha256(mbox).hexdigest(),
+                          'gzip_trailer_ignored': True,
                       }
-                  )
+                      break
 
-          selected: tuple[str, bytes] | None = None
-          for name, payload in candidates:
-              digest = hashlib.sha256(payload).hexdigest()
-              diagnostic['candidates'].append(
-                  {'name': name, 'bytes': len(payload), 'sha256': digest}
-              )
-              if digest == expected and selected is None:
-                  selected = (name, payload)
-
-          diagnostic_path.write_text(
+          (root / 'engineering-bundle-diagnostic.json').write_text(
               json.dumps(diagnostic, indent=2, sort_keys=True) + '\n', encoding='utf-8'
           )
 
-          if selected is None:
-              raise SystemExit(
-                  'no decoded candidate matched the manifest sha256_gzip, refusing to apply'
-              )
+          if selected_mbox is None or selected_kind is None:
+              raise SystemExit('no mailbox candidate satisfied the recorded integrity contract')
 
-          name, compressed = selected
-          mbox = gzip.decompress(compressed)
-          if b'From ' not in mbox[:256]:
-              raise SystemExit('decoded payload is not a git format-patch mailbox')
-
-          Path('/tmp/mneme-engineering.mbox.gz').write_bytes(compressed)
-          Path('/tmp/mneme-engineering.mbox').write_bytes(mbox)
+          Path('/tmp/mneme-engineering.mbox').write_bytes(selected_mbox)
           print(
-              f'selected={name} compressed_bytes={len(compressed)} '
-              f'mbox_bytes={len(mbox)} mbox_sha256={hashlib.sha256(mbox).hexdigest()}'
+              f'selected={selected_kind} bytes={len(selected_mbox)} '
+              f'sha256={hashlib.sha256(selected_mbox).hexdigest()}'
           )
           PY
 
-      - name: Persist diagnostic when decoding fails
+      - name: Persist diagnostic when recovery fails
         if: failure()
         shell: bash
         run: |
@@ -183,11 +187,11 @@ jobs:
             git config user.name "mneme engineering automation"
             git config user.email "actions@users.noreply.github.com"
             git add .github/engineering-bundle-diagnostic.json
-            git commit -m "chore: record engineering bundle decode diagnostic"
+            git commit -m "chore: record engineering bundle recovery diagnostic"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
-      - name: Apply commit bundle
+      - name: Apply commit mailbox
         shell: bash
         run: |
           set -euo pipefail
