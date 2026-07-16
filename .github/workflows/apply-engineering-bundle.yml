@@ -33,10 +33,12 @@ jobs:
           import base64
           import gzip
           import hashlib
+          import json
           import re
           from pathlib import Path
 
           root = Path('.github')
+          diagnostic_path = root / 'engineering-bundle-diagnostic.json'
           manifest_path = root / 'ten-loop-engineering.ready'
           manifest = {}
           for line in manifest_path.read_text(encoding='utf-8').splitlines():
@@ -55,6 +57,24 @@ jobs:
           alphabet = re.compile(r'[^A-Za-z0-9+/=]')
           texts = [path.read_text(encoding='ascii') for path in part_paths]
 
+          diagnostic: dict[str, object] = {
+              'expected_sha256_gzip': expected,
+              'manifest': manifest,
+              'parts': [
+                  {
+                      'path': str(path),
+                      'chars': len(text),
+                      'clean_chars': len(alphabet.sub('', text)),
+                      'sha256_text': hashlib.sha256(text.encode('ascii')).hexdigest(),
+                      'prefix': text[:12],
+                      'suffix': text[-12:],
+                  }
+                  for path, text in zip(part_paths, texts, strict=True)
+              ],
+              'candidates': [],
+              'errors': [],
+          }
+
           def clean(value: str) -> str:
               return alphabet.sub('', value)
 
@@ -64,16 +84,14 @@ jobs:
           try:
               candidates.append(('joined', base64.b64decode(joined, validate=True)))
           except Exception as exc:
-              print(f'joined decode rejected: {exc}')
+              diagnostic['errors'].append({'candidate': 'joined', 'error': str(exc)})
 
           try:
               chunks = [base64.b64decode(clean(text), validate=True) for text in texts]
               candidates.append(('per-part', b''.join(chunks)))
           except Exception as exc:
-              print(f'per-part decode rejected: {exc}')
+              diagnostic['errors'].append({'candidate': 'per-part', 'error': str(exc)})
 
-          # Some transfer clients insert padding at part boundaries. Remove only
-          # interior padding and restore final padding as a last-resort candidate.
           try:
               depadded = ''.join(clean(text).rstrip('=') for text in texts)
               depadded += '=' * (-len(depadded) % 4)
@@ -81,15 +99,22 @@ jobs:
                   ('interior-padding-normalized', base64.b64decode(depadded, validate=True))
               )
           except Exception as exc:
-              print(f'interior-padding-normalized decode rejected: {exc}')
+              diagnostic['errors'].append(
+                  {'candidate': 'interior-padding-normalized', 'error': str(exc)}
+              )
 
           selected: tuple[str, bytes] | None = None
           for name, payload in candidates:
               digest = hashlib.sha256(payload).hexdigest()
-              print(f'candidate={name} bytes={len(payload)} sha256={digest}')
-              if digest == expected:
+              diagnostic['candidates'].append(
+                  {'name': name, 'bytes': len(payload), 'sha256': digest}
+              )
+              if digest == expected and selected is None:
                   selected = (name, payload)
-                  break
+
+          diagnostic_path.write_text(
+              json.dumps(diagnostic, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
 
           if selected is None:
               raise SystemExit(
@@ -108,6 +133,19 @@ jobs:
               f'mbox_bytes={len(mbox)} mbox_sha256={hashlib.sha256(mbox).hexdigest()}'
           )
           PY
+
+      - name: Persist diagnostic when decoding fails
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f .github/engineering-bundle-diagnostic.json ]]; then
+            git config user.name "mneme engineering automation"
+            git config user.email "actions@users.noreply.github.com"
+            git add .github/engineering-bundle-diagnostic.json
+            git commit -m "chore: record engineering bundle decode diagnostic"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Apply commit bundle
         shell: bash
@@ -144,6 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           rm .github/ten-loop-engineering.part-* .github/ten-loop-engineering.ready
+          rm -f .github/engineering-bundle-diagnostic.json
           rm .github/workflows/apply-engineering-bundle.yml
           git add -A
           git commit -m "chore: remove one-time engineering transfer files"
