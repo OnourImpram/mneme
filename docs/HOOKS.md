@@ -1,6 +1,6 @@
 # Hook Integration Guide
 
-mneme registers five Claude Code hooks. Each has a strict latency budget and a documented purpose.
+mneme registers six Claude Code hook events. Five form the baseline lifecycle path. `UserPromptSubmit` is registered for the opt-in Context Continuity Engine and exits without work while CCE is disabled. Each event has a strict latency budget and a documented purpose.
 
 ## Registered Hooks
 
@@ -84,7 +84,7 @@ When `MNEME_DISABLED` is truthy, all mneme hooks exit immediately with code 0 (s
 
 ## Three-Layer Gate Pattern
 
-Optional integrations (knowledge graph, compression, dense embeddings) follow a uniform three-layer gate. In v1.0, dense retrieval remains a roadmap adapter. KG and compression gates are shipped.
+Optional integrations follow explicit gates. Knowledge-graph enrichment and background compression are shipped but opt in. A true semantic embedding backend remains roadmap. The feature-hashed lexical-vector Python implementation is experimental and is not wired into the MCP server or installer.
 
 1. **Config flag** (`compression_enabled`, `kg_enabled`, etc.) must be `true`.
 2. **Lazy import** of the heavy dependency only when the flag is on.
@@ -102,7 +102,7 @@ Removes hook entries from `settings.json` and preserves all non-mneme entries. T
 
 ## Context Continuity Engine (CCE) Hook Integration
 
-The CCE adds `UserPromptSubmit` as a sixth hook, registered only when `CceConfig.enabled` is `true` (default `false`). The remaining five hooks each gained a CCE integration path, also gated behind the same config flag.
+The manifest registers `UserPromptSubmit` as the sixth hook event. Its handler checks `CceConfig.enabled` and exits without CCE work when the feature is disabled, which is the default. The remaining five hooks also contain CCE integration points behind the same runtime gate.
 
 **UserPromptSubmit** (`hooks/user_prompt_submit.py`): fires on every user prompt. The hook estimates current context fill from the JSONL transcript and evaluates the trigger hierarchy in `triggers.should_checkpoint`: explicit keyword ("remember this" / "hatirla") > fill threshold (default 65%) > git commit detected in a recent Bash response > large tool response (>8 KB serialized). When a trigger fires and the debounce counter allows it, `build.build_checkpoint` extracts touched files, decisions, and TODOs from the staging records, and `build.write_checkpoint` persists the checkpoint as a plain markdown file in `vault/.mneme/checkpoints/` and appends a line to the JSONL index. If CCE is not enabled the hook exits 0 immediately with no work done.
 

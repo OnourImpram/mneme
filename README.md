@@ -18,7 +18,7 @@
 
 <p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>
 
-FTS5 retrieval, RRF-fused hybrid core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, domain privacy modes.
+FTS5 retrieval, an RRF-capable experimental retrieval core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, and domain privacy modes.
 
 **Status**: 3.5.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
@@ -28,7 +28,7 @@ Most Claude Code memory plugins store your conversation history in opaque SQLite
 
 - **Markdown is ground truth.** Your vault is a directory of plain `.md` files you can `git diff`, `grep`, edit, and back up.
 - **No LLM on the critical path.** The Stop hook appends deterministically. Compression happens in the background, opt-in, with a cost cap.
-- **Hybrid retrieval, shipped and opt-in.** The default MCP search path is FTS5 BM25. A local hashing-embedding dense backend is now a shipped opt-in feature, RRF-fused, activated with a flag. Full-profile knowledge graph enrichment (Graphiti + Neo4j) remains gated. The heavyweight packaged LEANN / sentence-transformers dense adapter is roadmap.
+- **Retrieval claims follow the reachable path.** The production `mneme_search` path is FTS5 BM25. The Python core contains an experimental feature-hashed lexical-vector backend and an RRF fusion protocol used by unit tests and synthetic benchmarks, but that backend is not wired into the MCP server or installer. Full-profile summarize and timeline can add gated local Graphiti and Neo4j fields. A true semantic embedding backend remains roadmap.
 - **Token-efficient by architecture.** Shell output compression, injection deduplication, adaptive top-k, and three injection format levels save 40 to 60 percent on session token consumption.
 - **Privacy by default.** Inline `<private>` tag redaction at staging write with SHA256 audit log. Zero outbound network calls except opted-in compression LLM and optional local Neo4j.
 - **Temporal reasoning.** The deterministic claim lifecycle (valid-from/to, supersedes, as-of queries, contradiction detection, `temporal blame` provenance time-travel) is built in on every profile — pure SQLite, no extra dependency. Graphiti export and LLM claim extraction remain optional and never run on the Stop or critical path.
@@ -53,7 +53,7 @@ Legend: **✓** built in · **gated** shipped, needs an opt-in dependency or fla
 | Plain-markdown store you can `git diff` and grep | **✓** | — | — | ~ | — | — |
 | Built-in `<private>` redaction with SHA256 audit | **✓** | — | — | — | — | — |
 | Deterministic Stop capture, no LLM call | **✓** | — | n/a | n/a | n/a | n/a |
-| Hybrid retrieval, FTS5 plus local dense, RRF-fused | **✓** | ~ | ~ | ~ | ✓ | ✓ |
+| Hybrid retrieval in the normal user path | ~ | ~ | ~ | ~ | ✓ | ✓ |
 | Temporal claim lifecycle (valid-from/to, supersedes, blame) | **✓** | — | ~ | ~ | ✓ | ~ |
 | Project and code graph (tree-sitter, PR-impact) | gated | ~ | — | — | — | — |
 | Adaptive token and context budget | **✓** | — | — | — | — | — |
@@ -76,15 +76,15 @@ An honest, at-a-glance map of what is shipped today versus what is gated behind 
 | Capability | Status | Detail |
 |---|---|---|
 | FTS5 BM25 retrieval (`mneme_search`) | Shipped | default MCP search path |
-| RRF fusion protocol | Shipped | `mneme-core/retrieval/rrf.py`; FTS5-fed by default |
+| RRF fusion protocol | Experimental | Python API plus synthetic benchmark harness; not wired into `mneme_search` |
 | `<private>` redaction + SHA256 audit | Shipped | Python + TypeScript mirror; staging write |
 | Zero-LLM deterministic Stop capture | Shipped | `Stop` hook appends a typed session doc |
 | Adaptive context layer (shell compress, injection dedup, adaptive top-k) | Shipped | `distill.*` subsystem |
 | Pattern + trajectory memory | Shipped | vault-markdown primitives |
-| Claude Code / Codex / Antigravity native plugins | Shipped (native) | 5 lifecycle hooks + 2 skills + MCP |
+| Claude Code / Codex / Antigravity native plugins | Shipped (native) | Claude Code registers 6 hook events; Codex and Antigravity map 4; 2 skills + MCP |
 | Open MCP adapter (Kimi, Qwen, any MCP client) | Shipped (non-native) | MCP tools only, no auto-capture |
 | Background AI compression | Shipped (opt-in, default off) | monthly cost-cap ledger |
-| Local dense retrieval (hashing-embedding, RRF-fused) | Shipped (opt-in) | FTS5 remains the default; sentence-transformers is an opt-in seam, not a default dependency |
+| Feature-hashed lexical-vector retrieval | Experimental, disconnected | Implemented in Python core and benchmarks; no documented installer or MCP user path |
 | Temporal claim lifecycle + rule-based claim extraction + `temporal blame` | Shipped | Graphiti export gated; LLM extraction optional, never on the Stop/critical path |
 | Project + code graph (mneme-graph) | Shipped (separate package) | tree-sitter Python/JavaScript/TypeScript extraction, community detection, PR-impact, entity canonicalization |
 | Code memory (mneme-code) | Shipped (separate package) | AGENTS.md procedural parsing, test-output to failure memory, fix-trajectory |
@@ -93,7 +93,7 @@ An honest, at-a-glance map of what is shipped today versus what is gated behind 
 | Read-only console | Shipped | self-contained, offline, injection-safe HTML audit report |
 | Connectors (Obsidian local + GitHub injected-transport) | Shipped (opt-in, default off) | redaction-before-ingest; revoke by disabling |
 | KG temporal enrichment via live Neo4j/Graphiti writes (summarize/timeline) | Gated | full profile: Docker + Neo4j |
-| Packaged LEANN / sentence-transformers dense adapter | Roadmap | local hashing-embedding dense backend ships; heavyweight adapter is roadmap |
+| Packaged semantic embedding adapter | Roadmap | adapter protocol exists; no packaged semantic model or production MCP wiring |
 | Web-based knowledge-graph visual explorer | Roadmap | planned |
 | Multi-user team features (merge-conflict resolution, per-user ACL, dashboards) | Roadmap (Team) | read-only shared vaults via git remote work today |
 
@@ -123,9 +123,8 @@ CI regression guards lock the path-scoped benchmark surface. Pull requests touch
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
-# Standard: lite + opt-in local dense retrieval backend (hashing-embedding, RRF-fused).
-# FTS5 remains the default MCP search path. Dense retrieval is a shipped opt-in feature,
-# not roadmap. Enable with --enable-dense after install.
+# Standard: lite plus the standard optional dependency profile.
+# The normal MCP search path remains FTS5. No --enable-dense installer flag ships.
 mneme install --profile=standard
 
 # Full: standard + gated Graphiti temporal knowledge graph enrichment (Docker + Neo4j)
@@ -156,7 +155,7 @@ codex plugin marketplace add OnourImpram/mneme
 mneme install --client=codex
 ```
 
-Codex gets the same nine MCP tools, the same two skills, and the same vault. Four of mneme's five Claude Code hooks map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+Codex gets the same nine MCP tools, the same two skills, and the same vault. Four of mneme's six registered Claude Code hook events map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. UserPromptSubmit has no Codex mapping. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
 
 ## Using mneme with Antigravity
 
@@ -200,7 +199,7 @@ Eight modules extend mneme's core for specialized workloads. All are gated or sh
 - **Domain modes**: clinical and security-review modes block external extraction and artifact upload at config layer. A user config can never weaken a built-in privacy mode or disable redaction.
 - **Agent security**: capability firewall, data-flow taint tracking, human-approval gate for durable edits, poisoned-vault benchmark.
 - **Read-only console**: self-contained, offline, injection-safe HTML audit report requiring no server.
-- **Local dense retrieval**: hashing-embedding backend, RRF-fused with FTS5, opt-in with a flag. FTS5 is and remains the default MCP search path.
+- **Experimental feature-hashed lexical-vector retrieval**: a Python-core backend and RRF seam used by tests and synthetic benchmarks. It is not connected to the installer or production MCP search path.
 - **Temporal extraction + Graphiti export**: rule-based claim extraction, valid-from/to lifecycle, supersedes links, and export to a local Graphiti instance. LLM extraction is optional and never on the critical path. Live Neo4j writes are gated on the full Docker + Neo4j profile.
 - **Connectors** (Obsidian local + GitHub injected-transport): opt-in, default off. Redaction runs before every ingest. Revoke by disabling in config.
 
@@ -208,8 +207,8 @@ Eight modules extend mneme's core for specialized workloads. All are gated or sh
 
 A credible "best in market" claim requires honest scope acknowledgment.
 
-- No packaged LEANN or sentence-transformers dense adapter. The local hashing-embedding dense backend does ship as an opt-in feature. The heavyweight pre-packaged adapter remains roadmap.
-- No dense or KG leg inside `mneme_search` by default. MCP search is FTS5 by default. Dense retrieval requires the opt-in flag. KG enrichment is gated for summarize and timeline.
+- No packaged semantic embedding backend, and no installed dense-retrieval user path. The feature-hashed lexical-vector implementation remains an experimental Python API.
+- No dense or KG leg inside `mneme_search`. MCP search is FTS5. KG enrichment is gated to summarize and timeline when local full-profile graph state is active.
 - No cloud SaaS option. mneme is local-first by architectural conviction.
 - No web-based knowledge graph visual explorer. Planned.
 - No multi-user team features with merge-conflict resolution, per-user ACL, or team dashboards. Read-only shared vaults via git remote work today. Full team support is roadmap.

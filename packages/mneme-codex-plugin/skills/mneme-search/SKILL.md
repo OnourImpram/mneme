@@ -1,6 +1,6 @@
 ---
 name: mneme-search
-description: Use when the user asks a factual question whose answer might live in the vault. Invokes mneme_search. v1.0 search is FTS5 BM25; dense retrieval is roadmap, and KG enrichment is gated to summarize or timeline when full-profile graph state is active.
+description: Use when the user asks a factual question whose answer might live in the vault. Invokes mneme_search. Production `mneme_search` is FTS5 BM25. The experimental feature-hashed lexical-vector backend is not wired into MCP. KG enrichment is gated to summarize or timeline when full-profile graph state is active.
 ---
 
 # mneme-search

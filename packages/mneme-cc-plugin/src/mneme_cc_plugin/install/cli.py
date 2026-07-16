@@ -399,8 +399,8 @@ _SKILL_PRIME_DESC = (
 )
 _SKILL_SEARCH_DESC = (
     "Use when the user asks a factual question whose answer might live in"
-    " the vault. Invokes mneme_search. v1.0 search is FTS5 BM25; dense"
-    " retrieval is roadmap, and KG enrichment is gated to summarize or"
+    " the vault. Invokes mneme_search. Production  gated for sum BM25; the"
+    " experimental feature-hashed lexical-vector backend is not wired into MCP, and KG enrichment is gated to summarize or"
     " timeline when full-profile graph state is active."
 )
 
@@ -490,7 +490,7 @@ _AG_SKILLS: dict[str, str] = {
 _AG_GEMINI_MD_CONTENT = (
     "# mneme for Antigravity\n"
     "\n"
-    "mneme adds vault-native memory to Antigravity via six MCP tools served\n"
+    "mneme adds vault-native memory to Antigravity via nine MCP tools served\n"
     "by `mneme-mcp`. Markdown files are the ground truth; the MCP server\n"
     "is a read/write interface over that vault.\n"
     "\n"

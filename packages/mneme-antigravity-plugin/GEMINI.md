@@ -1,6 +1,6 @@
 # mneme for Antigravity
 
-mneme adds vault-native memory to Antigravity via six MCP tools served
+mneme adds vault-native memory to Antigravity via nine MCP tools served
 by `mneme-mcp`. Markdown files are the ground truth; the MCP server
 is a read/write interface over that vault.
 

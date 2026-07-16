@@ -2,17 +2,19 @@
 
 TypeScript MCP server for [mneme](https://github.com/OnourImpram/mneme). The npm package is `mneme-mcp-server`; it installs the `mneme-mcp` command.
 
-Provides seven tools to any MCP-compatible client (Claude Code, Cursor, Cline, Continue, Goose):
+Provides nine tools to any MCP-compatible client (Claude Code, Cursor, Cline, Continue, Goose):
 
 | Tool | Purpose |
 |---|---|
-| `mneme_search` | Hybrid retrieval across vault with RRF fusion. |
+| `mneme_search` | FTS5 BM25 retrieval across the vault. |
 | `mneme_recall` | Recall a specific session by id or date. |
 | `mneme_write` | Append a structured section into the vault. |
 | `mneme_prime` | Inject preflight context at session start. |
 | `mneme_summarize` | Summarize a topic across multiple sessions. |
 | `mneme_timeline` | Temporal query against the knowledge graph. |
 | `mneme_propose` | Queue a redacted memory-edit proposal for policy-gated review. |
+| `mneme_checkpoint_list` | List Context Continuity Engine checkpoints. |
+| `mneme_working_set_load` | Load salience-ranked items from a checkpoint. |
 
 ## Installation
 
@@ -41,4 +43,4 @@ The server uses stdio transport and reads vault location from the standard mneme
 
 ## License
 
-MIT. See LICENSE in the repository root.
+Apache-2.0. See LICENSE and NOTICE in the repository root.

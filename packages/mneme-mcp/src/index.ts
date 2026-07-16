@@ -2,10 +2,10 @@
 /**
  * mneme-mcp — MCP server for vault-native memory in Claude Code.
  *
- * Seven tools over stdio transport, all prefixed `mneme_` to avoid
+ * Nine tools over stdio transport, all prefixed `mneme_` to avoid
  * namespace clash with other MCP servers running in the same client:
  *
- *   mneme_search     FTS5 retrieval today, dense search roadmap
+ *   mneme_search     FTS5 retrieval with scope and provenance
  *   mneme_recall     session by id or date range, with optional body
  *   mneme_write      atomic section append/replace with frontmatter
  *   mneme_summarize  topic grouped by directory, KG-enriched when active

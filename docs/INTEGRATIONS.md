@@ -8,9 +8,9 @@ easiest entry point for any MCP-capable client.
 
 ## Tier 1 — Claude Code (deepest native)
 
-**Five lifecycle hooks + skills + MCP server.**
+**Six registered hook events + skills + MCP server.**
 
-The Claude Code plugin (`mneme-cc-plugin`) registers five hooks in
+The Claude Code plugin (`mneme-cc-plugin`) registers six hook events in
 `~/.claude/settings.json`:
 
 | Hook | What it does |
@@ -20,6 +20,7 @@ The Claude Code plugin (`mneme-cc-plugin`) registers five hooks in
 | `Stop` | Deterministic append to the daily session log — no LLM call, near-zero latency. |
 | `PreCompact` | Saves working state before context compaction. |
 | `SessionEnd` | Flushes any remaining staged events. |
+| `UserPromptSubmit` | Runs the opt-in Context Continuity Engine trigger path; it is a no-op while CCE is disabled. |
 
 Install:
 
@@ -53,7 +54,7 @@ protocol but are not natively integrated with mneme: Kimi, Qwen, Cursor,
 Cline, Claude Desktop in manual-tool mode, and any other client that reads
 an `mcpServers` JSON object.
 
-The model calls mneme's six MCP tools when it chooses to. Nothing fires
+The model calls mneme's nine MCP tools when it chooses to. Nothing fires
 automatically.
 
 ### Option A — use the installer
@@ -101,16 +102,19 @@ Removes only the `mcpServers.mneme` entry; all other servers are preserved.
 
 ## MCP tools (all tiers)
 
-All seven tools are served by `mneme-mcp` regardless of which tier you use.
+All nine tools are served by `mneme-mcp` regardless of which tier you use.
 
 | Tool | Default behaviour | Gated behaviour |
 |---|---|---|
-| `mneme_search` | FTS5 BM25 search over the vault. | Dense retrieval (roadmap); KG enrichment when full-profile graph is active. |
+| `mneme_search` | FTS5 BM25 search over the vault. | No additional backend is wired into this tool. |
 | `mneme_recall` | Fetch full body of a note by path or session id. | — |
 | `mneme_write` | Append a structured section to the vault. | — |
 | `mneme_prime` | Build a token-budgeted session preamble from recent sessions and topic matches. | — |
 | `mneme_summarize` | Summarize a topic across sessions (FTS5 default). | KG-enriched entity grouping when full-profile graph is active. |
 | `mneme_timeline` | Temporally ordered events for a subject (FTS5 mtime sort). | Bi-temporal Graphiti facts when full-profile graph is active. |
+| `mneme_propose` | Queue a redacted policy-governed memory-edit proposal. | Policy can permit only declared low-risk edit classes. |
+| `mneme_checkpoint_list` | List CCE checkpoints. | Requires checkpoints to have been created by the opt-in CCE. |
+| `mneme_working_set_load` | Load salience-ranked items from one checkpoint. | Requires an existing checkpoint. |
 
 "Gated" features require `--profile full` and a running local Neo4j instance.
 The shipped default (`--profile lite`) uses FTS5 only.
