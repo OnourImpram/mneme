@@ -1,25 +1,46 @@
 /**
- * mneme_checkpoint_list — List recent Context Continuity Engine checkpoints.
+ * mneme_checkpoint_list, scoped discovery for Context Continuity Engine checkpoints.
  *
- * Reads the append-only index at <vault>/.mneme/checkpoints/index.jsonl
- * and returns the most recent `limit` entries in reverse-chronological
- * order (newest first). Missing index file → empty list, not an error.
- *
- * Each line in the index is a JSON object:
- *   { anchor, id, created, session_id, prev_anchor, path, item_count, top_salience }
+ * The append-only JSONL index is treated as untrusted derived state. Reads are
+ * bounded, malformed records are counted, and legacy records without a scope
+ * are visible only from the concrete `default` scope.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { ERROR_CODES } from "../errors.js";
+import { neutralize } from "../injection.js";
+import { redact } from "../privacy.js";
+import {
+	ConcreteScopeSchema,
+	effectiveScope,
+	legacyScopeMatches,
+	ScopeSchema,
+} from "../scope.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
+const MAX_INDEX_BYTES = 16 * 1024 * 1024;
+
 export const CheckpointListInputSchema = z.object({
 	limit: z.number().int().positive().max(200).default(20),
+	scope: ScopeSchema.optional(),
 });
 
 export type CheckpointListInput = z.infer<typeof CheckpointListInputSchema>;
+
+const CheckpointIndexRecordSchema = z.object({
+	anchor: z.string().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/u),
+	id: z.string().max(256).default(""),
+	created: z.string().max(128).default(""),
+	session_id: z.string().max(256).default(""),
+	prev_anchor: z.string().max(128).nullable().default(null),
+	path: z.string().min(1).max(4096),
+	item_count: z.number().int().nonnegative().max(1_000_000).default(0),
+	top_salience: z.number().finite().default(0),
+	scope: ConcreteScopeSchema.optional(),
+});
 
 export interface CheckpointEntry {
 	anchor: string;
@@ -30,38 +51,31 @@ export interface CheckpointEntry {
 	path: string;
 	item_count: number;
 	top_salience: number;
+	scope: string;
 }
 
 export interface CheckpointListOutput {
 	entries: CheckpointEntry[];
+	/** Number of valid records visible in the requested scope before `limit`. */
 	total_in_index: number;
+	/** Invalid JSON or invalid record shapes skipped during this bounded read. */
+	malformed_lines: number;
 }
 
-/** Absolute path to the checkpoint index within a vault. */
 function indexPath(vault: VaultConfig): string {
 	return join(vault.stateDir, "checkpoints", "index.jsonl");
 }
 
-/** Parse one JSONL line into a CheckpointEntry, returning null on bad input. */
-function parseLine(line: string): CheckpointEntry | null {
+function safeDisplay(value: string): string {
+	return neutralize(redact(value).text);
+}
+
+function parseLine(line: string): z.infer<typeof CheckpointIndexRecordSchema> | null {
 	const trimmed = line.trim();
 	if (trimmed.length === 0) return null;
 	try {
-		const obj = JSON.parse(trimmed) as Record<string, unknown>;
-		// Require at minimum anchor and path; other fields get safe defaults.
-		if (typeof obj.anchor !== "string" || typeof obj.path !== "string") {
-			return null;
-		}
-		return {
-			anchor: obj.anchor as string,
-			id: typeof obj.id === "string" ? obj.id : "",
-			created: typeof obj.created === "string" ? obj.created : "",
-			session_id: typeof obj.session_id === "string" ? obj.session_id : "",
-			prev_anchor: typeof obj.prev_anchor === "string" ? obj.prev_anchor : null,
-			path: obj.path as string,
-			item_count: typeof obj.item_count === "number" ? obj.item_count : 0,
-			top_salience: typeof obj.top_salience === "number" ? obj.top_salience : 0,
-		};
+		const parsed = CheckpointIndexRecordSchema.safeParse(JSON.parse(trimmed));
+		return parsed.success ? parsed.data : null;
 	} catch {
 		return null;
 	}
@@ -71,35 +85,67 @@ export function checkpointListTool(
 	args: CheckpointListInput,
 	vault: VaultConfig,
 ): ToolResult<CheckpointListOutput> {
-	const idxPath = indexPath(vault);
+	const requestedScope = effectiveScope(args.scope, () => vault.defaultScope());
+	const path = indexPath(vault);
 
-	if (!existsSync(idxPath)) {
-		return { ok: true, data: { entries: [], total_in_index: 0 } };
+	if (!existsSync(path)) {
+		return {
+			ok: true,
+			data: { entries: [], total_in_index: 0, malformed_lines: 0 },
+		};
 	}
 
 	let raw: string;
 	try {
-		raw = readFileSync(idxPath, "utf8");
-	} catch {
-		// Unreadable index → treat as empty rather than error.
-		return { ok: true, data: { entries: [], total_in_index: 0 } };
-	}
-
-	const lines = raw.split(/\r?\n/);
-	const all: CheckpointEntry[] = [];
-	for (const line of lines) {
-		const entry = parseLine(line);
-		if (entry !== null) {
-			all.push(entry);
+		const stat = statSync(path);
+		if (!stat.isFile()) {
+			throw new Error("checkpoint index is not a regular file");
 		}
+		if (stat.size > MAX_INDEX_BYTES) {
+			throw new Error(
+				`checkpoint index exceeds the ${MAX_INDEX_BYTES}-byte safety limit`,
+			);
+		}
+		raw = readFileSync(path, "utf8");
+	} catch {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.IO_ERROR,
+				message: "Could not read the checkpoint index safely.",
+			},
+		};
 	}
 
-	// newest-first: the index is append-only so last lines are newest.
-	const reversed = all.slice().reverse();
-	const limited = reversed.slice(0, args.limit);
+	const visible: CheckpointEntry[] = [];
+	let malformedLines = 0;
+	for (const line of raw.split(/\r?\n/u)) {
+		if (line.trim().length === 0) continue;
+		const record = parseLine(line);
+		if (record === null) {
+			malformedLines += 1;
+			continue;
+		}
+		if (!legacyScopeMatches(record.scope, requestedScope)) continue;
+		visible.push({
+			anchor: record.anchor,
+			id: safeDisplay(record.id),
+			created: safeDisplay(record.created),
+			session_id: safeDisplay(record.session_id),
+			prev_anchor: record.prev_anchor,
+			path: safeDisplay(record.path),
+			item_count: record.item_count,
+			top_salience: record.top_salience,
+			scope: record.scope ?? "default",
+		});
+	}
 
 	return {
 		ok: true,
-		data: { entries: limited, total_in_index: all.length },
+		data: {
+			entries: visible.slice().reverse().slice(0, args.limit),
+			total_in_index: visible.length,
+			malformed_lines: malformedLines,
+		},
 	};
 }

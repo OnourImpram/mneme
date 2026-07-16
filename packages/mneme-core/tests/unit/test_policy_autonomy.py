@@ -101,7 +101,9 @@ class TestApplyEdit:
         )
         result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
         assert result.applied is True
-        assert (vault.root / "notes/fact.md").read_text(encoding="utf-8") == "A fact."
+        written = (vault.root / "notes/fact.md").read_text(encoding="utf-8")
+        assert 'scope: "default"' in written
+        assert written.endswith("A fact.")
 
     def test_refused_without_policy_file(self, vault: VaultConfig) -> None:
         proposal = propose(
@@ -177,6 +179,104 @@ class TestApplyEdit:
         assert report.first_break_line == 1
 
 
+    def test_create_never_overwrites_existing_target(self, vault: VaultConfig) -> None:
+        _allow_all(vault)
+        target = vault.root / "notes/existing.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original", encoding="utf-8")
+        proposal = propose(
+            action="create",
+            target_path="notes/existing.md",
+            content="replacement",
+            category=EditCategory.EPHEMERAL,
+        )
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+        assert result.applied is False
+        assert "already exists" in result.reason
+        assert target.read_text(encoding="utf-8") == "original"
+
+    def test_update_never_creates_missing_target(self, vault: VaultConfig) -> None:
+        _allow_all(vault)
+        proposal = propose(
+            action="update",
+            target_path="notes/missing.md",
+            content="replacement",
+            category=EditCategory.EPHEMERAL,
+        )
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+        assert result.applied is False
+        assert "does not exist" in result.reason
+        assert not (vault.root / "notes/missing.md").exists()
+
+    def test_cross_scope_update_is_refused(self, vault: VaultConfig) -> None:
+        _allow_all(vault)
+        target = vault.root / "notes/clinical.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('---\nscope: "clinical"\n---\nsecret', encoding="utf-8")
+        proposal = propose(
+            action="update",
+            target_path="notes/clinical.md",
+            content="replacement",
+            category=EditCategory.EPHEMERAL,
+            scope="default",
+        )
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+        assert result.applied is False
+        assert "outside" in result.reason
+        assert target.read_text(encoding="utf-8").endswith("secret")
+
+    def test_non_default_create_is_stamped_and_journalled(self, vault: VaultConfig) -> None:
+        _allow_all(vault)
+        proposal = propose(
+            action="create",
+            target_path="notes/clinical.md",
+            content="clinical memory",
+            category=EditCategory.EPHEMERAL,
+            scope="clinical",
+        )
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+        assert result.applied and result.change_id
+        written = (vault.root / "notes/clinical.md").read_text(encoding="utf-8")
+        assert 'scope: "clinical"' in written
+        journal = json.loads(
+            (vault.state_dir / "rollback" / f"{result.change_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert journal["scope"] == "clinical"
+
+    def test_proposal_scope_participates_in_non_default_identity(self) -> None:
+        default = propose(
+            action="create",
+            target_path="notes/x.md",
+            content="same",
+            category=EditCategory.EPHEMERAL,
+        )
+        alpha = propose(
+            action="create",
+            target_path="notes/x.md",
+            content="same",
+            category=EditCategory.EPHEMERAL,
+            scope="alpha",
+        )
+        beta = propose(
+            action="create",
+            target_path="notes/x.md",
+            content="same",
+            category=EditCategory.EPHEMERAL,
+            scope="beta",
+        )
+        assert len({default.proposal_id, alpha.proposal_id, beta.proposal_id}) == 3
+        with pytest.raises(ValueError):
+            propose(
+                action="create",
+                target_path="notes/x.md",
+                content="same",
+                category=EditCategory.EPHEMERAL,
+                scope="*",
+            )
+
+
 class TestRollback:
     def _apply(self, vault: VaultConfig, path: str, content: str, action: str = "create"):
         _allow_all(vault)
@@ -201,7 +301,7 @@ class TestRollback:
         target.write_text("original", encoding="utf-8")
         result = self._apply(vault, "notes/exist.md", "replaced", action="update")
         assert result.applied and result.change_id
-        assert target.read_text(encoding="utf-8") == "replaced"
+        assert target.read_text(encoding="utf-8").endswith("replaced")
         rb = rollback_change(vault, result.change_id)
         assert rb.applied is True
         assert target.read_text(encoding="utf-8") == "original"
@@ -212,6 +312,18 @@ class TestRollback:
         assert rollback_change(vault, result.change_id).applied is True
         again = rollback_change(vault, result.change_id)
         assert again.applied is False
+
+    def test_rollback_refuses_target_reclassified_to_another_scope(
+        self, vault: VaultConfig
+    ) -> None:
+        result = self._apply(vault, "notes/moved.md", "created")
+        assert result.applied and result.change_id
+        target = vault.root / "notes/moved.md"
+        target.write_text('---\nscope: "clinical"\n---\nforeign', encoding="utf-8")
+        rollback = rollback_change(vault, result.change_id)
+        assert rollback.applied is False
+        assert "outside" in rollback.reason
+        assert target.read_text(encoding="utf-8").endswith("foreign")
 
     def test_unknown_change_id_refused(self, vault: VaultConfig) -> None:
         assert rollback_change(vault, "nope").applied is False
@@ -249,9 +361,79 @@ class TestQueueAndDrain:
         assert report.refused == 1
         assert (vault.root / "notes/ok.md").is_file()
         assert not (vault.root / "notes/bad.md").exists()
-        refused_files = list((vault.state_dir / "proposals" / "processed").glob("*.refused.jsonl"))
+        processed_dir = vault.state_dir / "proposals" / "processed"
+        refused_files = list(processed_dir.glob("*.refused.jsonl"))
         assert len(refused_files) == 1
+        assert len(list(processed_dir.glob("*.processed.jsonl"))) == 1
         assert not (vault.state_dir / "proposals" / "pending.jsonl").exists()
+
+    def test_drain_preserves_scope_and_legacy_missing_scope_is_default(
+        self, vault: VaultConfig
+    ) -> None:
+        (vault.state_dir / "policy.json").write_text(
+            json.dumps({"auto_approve": ["typo-fix"]}), encoding="utf-8"
+        )
+        scoped = propose(
+            action="create",
+            target_path="notes/scoped.md",
+            content="scoped",
+            category=EditCategory.EPHEMERAL,
+            scope="clinical",
+        )
+        queue_proposal(vault, scoped, AutoApproveClass.TYPO_FIX)
+        report = drain_proposals(vault)
+        assert report.applied == 1
+        assert 'scope: "clinical"' in (
+            vault.root / "notes/scoped.md"
+        ).read_text(encoding="utf-8")
+
+        queue = vault.state_dir / "proposals" / "pending.jsonl"
+        legacy = propose(
+            action="create",
+            target_path="notes/legacy.md",
+            content="legacy",
+            category=EditCategory.EPHEMERAL,
+        )
+        queue.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "proposal_id": legacy.proposal_id,
+            "action": legacy.action,
+            "target_path": legacy.target_path,
+            "content": legacy.content,
+            "category": legacy.category.value,
+            "status": legacy.status.value,
+            "trust": legacy.trust,
+            "edit_class": AutoApproveClass.TYPO_FIX.value,
+        }
+        queue.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        legacy_report = drain_proposals(vault)
+        assert legacy_report.applied == 1
+        assert 'scope: "default"' in (
+            vault.root / "notes/legacy.md"
+        ).read_text(encoding="utf-8")
+
+    def test_wildcard_scope_queue_record_is_malformed(self, vault: VaultConfig) -> None:
+        queue = vault.state_dir / "proposals" / "pending.jsonl"
+        queue.parent.mkdir(parents=True, exist_ok=True)
+        queue.write_text(
+            json.dumps(
+                {
+                    "proposal_id": "x",
+                    "action": "create",
+                    "target_path": "notes/x.md",
+                    "content": "x",
+                    "category": "EPHEMERAL",
+                    "scope": "*",
+                    "edit_class": "typo-fix",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        report = drain_proposals(vault)
+        assert report.malformed == 1
+        assert report.applied == 0
+        assert not (vault.root / "notes/x.md").exists()
 
     def test_drain_empty_queue_noop(self, vault: VaultConfig) -> None:
         report = drain_proposals(vault)

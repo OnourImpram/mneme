@@ -13,12 +13,17 @@
  * envelope so the caller can audit at the boundary.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { appendAuditRecord } from "../audit.js";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
+import {
+	ConcreteScopeSchema,
+	concreteScopeOrNull,
+	legacyScopeMatches,
+} from "../scope.js";
 import {
 	assertWithinVault,
 	atomicWriteText,
@@ -26,6 +31,8 @@ import {
 } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
+
+const MAX_EXISTING_BYTES = 16 * 1024 * 1024;
 
 function redactString(s: string): { redacted: string; count: number } {
 	const r = redact(s);
@@ -61,6 +68,8 @@ export const WriteInputSchema = z.object({
 	frontmatter: z
 		.record(z.string(), z.union([z.string(), z.number()]))
 		.optional(),
+	/** Concrete isolation scope for this durable write. */
+	scope: ConcreteScopeSchema.optional(),
 });
 
 export type WriteInput = z.infer<typeof WriteInputSchema>;
@@ -71,6 +80,8 @@ export interface WriteOutput {
 	operation: "added" | "replaced";
 	created_new_file: boolean;
 	redactions_applied: number;
+	scope: string;
+	audit_recorded: boolean;
 }
 
 export function writeTool(
@@ -84,10 +95,51 @@ export function writeTool(
 		if (err instanceof VaultPathError) {
 			return {
 				ok: false,
-				error: { code: ERROR_CODES.PATH_OUTSIDE_VAULT, message: err.message },
+				error: {
+					code: ERROR_CODES.PATH_OUTSIDE_VAULT,
+					message: "The target path escapes the vault.",
+				},
 			};
 		}
 		throw err;
+	}
+
+	const rawFrontmatterScope = args.frontmatter?.scope;
+	const rawFrontmatterProject = args.frontmatter?.project;
+	const frontmatterScope =
+		rawFrontmatterScope === undefined
+			? null
+			: concreteScopeOrNull(rawFrontmatterScope);
+	const frontmatterProject =
+		rawFrontmatterProject === undefined
+			? null
+			: concreteScopeOrNull(rawFrontmatterProject);
+	if (
+		(rawFrontmatterScope !== undefined && frontmatterScope === null) ||
+		(rawFrontmatterProject !== undefined && frontmatterProject === null) ||
+		(frontmatterScope !== null &&
+			frontmatterProject !== null &&
+			frontmatterScope !== frontmatterProject)
+	) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.SCOPE_MISMATCH,
+				message: "Frontmatter scope metadata is invalid or contradictory.",
+			},
+		};
+	}
+	const requestedScope = concreteScopeOrNull(
+		args.scope ?? frontmatterScope ?? frontmatterProject ?? vault.defaultScope(),
+	);
+	if (requestedScope === null) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INVALID_ARGUMENT,
+				message: "Durable writes require a concrete valid scope.",
+			},
+		};
 	}
 
 	// C4 sacred constraint: redact every string entering the vault.
@@ -100,18 +152,53 @@ export function writeTool(
 	let existing = "";
 	let createdNew = false;
 	if (existsSync(targetAbs)) {
-		existing = readFileSync(targetAbs, "utf8");
+		try {
+			const stat = statSync(targetAbs);
+			if (!stat.isFile() || stat.size > MAX_EXISTING_BYTES) {
+				throw new Error("unsafe existing target");
+			}
+			existing = readFileSync(targetAbs, "utf8");
+		} catch {
+			return {
+				ok: false,
+				error: {
+					code: ERROR_CODES.IO_ERROR,
+					message: "The existing target could not be read safely.",
+				},
+			};
+		}
+		const existingScope = classifyDocumentScope(existing);
+		if (
+			existingScope === null ||
+			!legacyScopeMatches(existingScope, requestedScope)
+		) {
+			return {
+				ok: false,
+				error: {
+					code: ERROR_CODES.SCOPE_MISMATCH,
+					message: "The target document is not visible in the requested scope.",
+				},
+			};
+		}
 	} else {
 		createdNew = true;
-		// M3: always stamp scope into new-file frontmatter so the indexer can
-		// apply scope isolation on the next rebuild. Caller-supplied `scope`
-		// key in frontmatter wins; otherwise inject config.defaultScope.
 		const fmForNew: Record<string, string | number> = {
 			...(fmRed.value ?? {}),
 		};
-		if (!("scope" in fmForNew)) {
-			fmForNew.scope = vault.defaultScope();
+		const suppliedScope = fmForNew.scope;
+		if (
+			suppliedScope !== undefined &&
+			(typeof suppliedScope !== "string" || suppliedScope !== requestedScope)
+		) {
+			return {
+				ok: false,
+				error: {
+					code: ERROR_CODES.SCOPE_MISMATCH,
+					message: "New-file frontmatter scope must match the requested scope.",
+				},
+			};
 		}
+		fmForNew.scope = requestedScope;
 		existing = serializeFrontmatter(fmForNew);
 	}
 
@@ -142,7 +229,10 @@ export function writeTool(
 		if (err instanceof VaultPathError) {
 			return {
 				ok: false,
-				error: { code: ERROR_CODES.PATH_OUTSIDE_VAULT, message: err.message },
+				error: {
+					code: ERROR_CODES.PATH_OUTSIDE_VAULT,
+					message: "The target path escapes the vault.",
+				},
 			};
 		}
 		throw err;
@@ -150,23 +240,26 @@ export function writeTool(
 
 	try {
 		atomicWriteText(targetAbs, finalContent);
-	} catch (err) {
+	} catch {
 		return {
 			ok: false,
 			error: {
 				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
+				message: "The durable write could not be committed safely.",
 			},
 		};
 	}
 
 	const relativePath = args.path.replace(/\\/g, "/");
 
-	// T4: append tamper-evident audit record whenever redaction occurred.
-	// Non-fatal: audit failure is warned but never blocks the write result.
-	if (totalRedactions > 0) {
-		appendAuditRecord(vault.stateDir, relativePath, totalRedactions);
-	}
+	// Direct MCP writes are caller-authorized rather than autonomous proposal
+	// applies, but every durable write still records a tamper-evident audit event.
+	// Audit failure remains non-fatal for backward compatibility and is exposed.
+	const auditRecorded = appendAuditRecord(
+		vault.stateDir,
+		relativePath,
+		totalRedactions,
+	);
 
 	return {
 		ok: true,
@@ -176,8 +269,54 @@ export function writeTool(
 			operation,
 			created_new_file: createdNew,
 			redactions_applied: totalRedactions,
+			scope: requestedScope,
+			audit_recorded: auditRecorded,
 		},
 	};
+}
+
+function decodeFrontmatterScalar(raw: string): string | null {
+	const value = raw.trim();
+	if (value.startsWith('"') && value.endsWith('"')) {
+		try {
+			const decoded = JSON.parse(value);
+			return typeof decoded === "string" ? decoded : null;
+		} catch {
+			return null;
+		}
+	}
+	if (value.startsWith("'") && value.endsWith("'")) {
+		return value.slice(1, -1).replace(/''/gu, "'");
+	}
+	return value;
+}
+
+/** Classify an existing document without widening malformed legacy data. */
+function classifyDocumentScope(text: string): string | null {
+	const lines = text.split(/\r?\n/u);
+	if (lines[0]?.trim() !== "---") return "default";
+	let closed = false;
+	let scope: string | undefined;
+	let project: string | undefined;
+	for (let i = 1; i < Math.min(lines.length, 512); i += 1) {
+		const line = lines[i] ?? "";
+		if (line.trim() === "---") {
+			closed = true;
+			break;
+		}
+		const match = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/u);
+		if (!match) continue;
+		const key = match[1];
+		if (key !== "scope" && key !== "project") continue;
+		const decoded = decodeFrontmatterScalar(match[2] ?? "");
+		if (decoded === null) return null;
+		if (key === "scope") scope = decoded;
+		if (key === "project") project = decoded;
+	}
+	if (!closed) return null;
+	const candidate = scope ?? project ?? "default";
+	const parsed = ConcreteScopeSchema.safeParse(candidate);
+	return parsed.success ? parsed.data : null;
 }
 
 /**

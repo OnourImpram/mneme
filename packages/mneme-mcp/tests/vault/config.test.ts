@@ -157,6 +157,19 @@ describe("VaultConfig.defaultScope resolution (M5)", () => {
     expect(cfg.defaultScope({} as NodeJS.ProcessEnv)).toBe("default");
   });
 
+  it("never promotes wildcard or malformed input to the implicit default", () => {
+    const cfg = VaultConfig.fromPath(freshTmp("scope-safe-default"));
+    expect(cfg.defaultScope({ MNEME_SCOPE: "*" } as NodeJS.ProcessEnv)).toBe(
+      "default",
+    );
+    expect(
+      cfg.defaultScope({ MNEME_SCOPE: " clinical " } as NodeJS.ProcessEnv),
+    ).toBe("default");
+    expect(
+      cfg.defaultScope({ MNEME_SCOPE: "case*all" } as NodeJS.ProcessEnv),
+    ).toBe("default");
+  });
+
   it("MNEME_SCOPE env var overrides any TOML value (env wins)", () => {
     // Verified via the testable env parameter; real TOML path not writable
     // in tests without touching homedir. See regex unit tests below for TOML.

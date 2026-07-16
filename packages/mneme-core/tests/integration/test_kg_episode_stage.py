@@ -117,13 +117,15 @@ class TestRecordShape:
             "host",
             "pid",
             "content_hash",
+            "scope",
             "payload",
             "staged_by",
             "schema_version",
         ):
             assert key in record
         assert record["staged_by"] == "mneme.kg.episode_stage"
-        assert record["schema_version"] == "1.0"
+        assert record["schema_version"] == "2.0"
+        assert record["scope"] == "default"
         assert record["host"] == "testhost"
         assert len(record["content_hash"]) == 64  # full sha256 hex
 
@@ -139,6 +141,47 @@ class TestRecordShape:
         assert date_dir[4] == "-" and date_dir[7] == "-"
 
 
+class TestScopeStamping:
+    def test_scope_is_stamped_before_queue_storage(self, config: KgConfig) -> None:
+        config.scope = "clinical"
+        _activate(config)
+        assert stage_event({"tool_name": "Edit", "x": 1}, config)
+        queue_file = next(config.queue_dir.rglob("*-events.jsonl"))
+        record = json.loads(queue_file.read_text(encoding="utf-8"))
+        assert record["scope"] == "clinical"
+
+    def test_same_payload_in_different_scopes_has_distinct_hashes(
+        self, tmp_path: Path
+    ) -> None:
+        hashes: list[str] = []
+        for scope in ("clinical", "research"):
+            state = tmp_path / scope
+            cfg = KgConfig(
+                queue_dir=state / "queue",
+                processed_dir=state / "processed",
+                active_flag=state / "active.flag",
+                credentials_path=state / "credentials.json",
+                community_refresh_flag=state / "refresh.flag",
+                worker_log=state / "worker.jsonl",
+                cost_ledger=state / "cost.jsonl",
+                host="testhost",
+                scope=scope,
+            )
+            _activate(cfg)
+            assert stage_event({"tool_name": "Edit", "x": 1}, cfg)
+            record = json.loads(
+                next(cfg.queue_dir.rglob("*-events.jsonl")).read_text(encoding="utf-8")
+            )
+            hashes.append(record["content_hash"])
+        assert hashes[0] != hashes[1]
+
+    def test_wildcard_scope_is_rejected_fail_soft(self, config: KgConfig) -> None:
+        config.scope = "*"
+        _activate(config)
+        assert stage_event({"tool_name": "Edit", "x": 1}, config) is False
+        assert not list(config.queue_dir.rglob("*.jsonl"))
+
+
 class TestFactory:
     def test_kg_config_from_vault_resolves_all_paths(self, tmp_path: Path) -> None:
         vault = VaultConfig.from_path(tmp_path)
@@ -151,4 +194,5 @@ class TestFactory:
         assert cfg.worker_log == vault.kg_worker_log
         assert cfg.cost_ledger == vault.kg_cost_ledger
         assert cfg.cost_cap_usd_monthly == 10.0
+        assert cfg.scope == "default"
         assert cfg.capture_tools == DEFAULT_CAPTURE_TOOLS

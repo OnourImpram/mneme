@@ -1,37 +1,41 @@
-﻿/**
+/**
  * mneme_propose — Queue a memory-edit proposal for a policy drain.
  *
- * The accountable-autonomy contract (conflict-resolution #4): the MCP
- * server NEVER applies an agent-initiated edit directly. It stages the
- * proposal as one JSONL record under
- * `<state>/proposals/pending.jsonl`; the Python engine
- * (`mneme_core.memory_apply.drain_proposals`) applies the queue under
- * the operator's policy.json — autonomously for allowed low-risk edit
- * classes, refused-and-archived otherwise. Durable categories
- * (identity, preference, clinical, legal, financial) are queued for
- * the human approval flow and are never auto-applied.
- *
- * The record shape mirrors `mneme_core.memory_apply.queue_proposal`
- * exactly, and the proposal_id is the same RFC-4122 uuid5 the Python
- * side derives (same namespace, same NUL-joined seed), so identical
- * proposals from either language share one identity.
- *
- * C4 sacred constraint: content is redacted before it touches disk.
- * No LLM, no network.
+ * The MCP server never applies an agent-initiated edit directly. It stages a
+ * redacted, scope-bound proposal under `<state>/proposals/pending.jsonl`; the
+ * Python policy drain applies or refuses the claimed queue snapshot. Queue
+ * appends are bounded and serialized with the same O_EXCL lock used by the
+ * Python implementation. No LLM or network request occurs on this path.
  */
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+	appendFileSync,
+	closeSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
+import { ConcreteScopeSchema, concreteScopeOrNull } from "../scope.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
 /** Same namespace bytes the Python engine uses (uuid.UUID("6ba7b810-...")). */
 const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
+const MAX_QUEUE_BYTES = 16 * 1024 * 1024;
+const MAX_QUEUE_RECORD_BYTES = 1024 * 1024;
+const QUEUE_LOCK_TIMEOUT_MS = 1_000;
+const QUEUE_LOCK_STALE_MS = 10_000;
+const QUEUE_LOCK_POLL_MS = 10;
 
 export const ProposeInputSchema = z.object({
 	action: z.enum(["create", "update", "delete"] as const),
@@ -56,11 +60,8 @@ export const ProposeInputSchema = z.object({
 			"stale-archive",
 		] as const)
 		.optional(),
-	/**
-	 * Scope to stamp on the proposal record. Omit to use config.defaultScope().
-	 * Stored in the JSONL record for the Python drain to apply on write.
-	 */
-	scope: z.string().optional(),
+	/** Concrete scope to bind to the queued durable proposal. */
+	scope: ConcreteScopeSchema.optional(),
 });
 
 export type ProposeInput = z.infer<typeof ProposeInputSchema>;
@@ -73,6 +74,7 @@ export interface ProposeOutput {
 	auto_eligible: boolean;
 	queue: string;
 	redactions_applied: number;
+	scope: string;
 	note: string;
 }
 
@@ -83,8 +85,8 @@ function uuid5(namespaceHex: string, name: string): string {
 		.update(Buffer.concat([ns, Buffer.from(name, "utf-8")]))
 		.digest();
 	const bytes = Buffer.from(digest.subarray(0, 16));
-	bytes[6] = ((bytes[6] as number) & 0x0f) | 0x50; // version 5
-	bytes[8] = ((bytes[8] as number) & 0x3f) | 0x80; // RFC-4122 variant
+	bytes[6] = ((bytes[6] as number) & 0x0f) | 0x50;
+	bytes[8] = ((bytes[8] as number) & 0x3f) | 0x80;
 	const hex = bytes.toString("hex");
 	return (
 		`${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-` +
@@ -107,6 +109,63 @@ function policyDeclaresClass(vault: VaultConfig, editClass: string): boolean {
 	}
 }
 
+function acquireQueueLock(queuePath: string): () => void {
+	const lockPath = `${queuePath}.lock`;
+	const deadline = Date.now() + QUEUE_LOCK_TIMEOUT_MS;
+	while (true) {
+		try {
+			const fd = openSync(lockPath, "wx", 0o600);
+			try {
+				appendFileSync(fd, String(process.pid), "utf-8");
+			} finally {
+				closeSync(fd);
+			}
+			return () => rmSync(lockPath, { force: true });
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code !== "EEXIST") throw err;
+			try {
+				if (Date.now() - statSync(lockPath).mtimeMs > QUEUE_LOCK_STALE_MS) {
+					rmSync(lockPath, { force: true });
+					continue;
+				}
+			} catch {
+				continue;
+			}
+			if (Date.now() >= deadline) throw new Error("proposal queue is busy");
+			const pollEnd = Date.now() + QUEUE_LOCK_POLL_MS;
+			while (Date.now() < pollEnd) {
+				// Bounded synchronous wait. Proposal staging is not a critical hook path.
+			}
+		}
+	}
+}
+
+function appendQueueRecord(queuePath: string, record: Record<string, unknown>): void {
+	const encoded = `${JSON.stringify(record)}\n`;
+	const recordBytes = Buffer.byteLength(encoded, "utf-8");
+	if (recordBytes > MAX_QUEUE_RECORD_BYTES) {
+		throw new Error("proposal queue record exceeds the safe size bound");
+	}
+	mkdirSync(dirname(queuePath), { recursive: true });
+	assertWithinVault(dirname(dirname(queuePath)), queuePath);
+	const release = acquireQueueLock(queuePath);
+	try {
+		if (existsSync(queuePath)) {
+			const queueStat = lstatSync(queuePath);
+			if (!queueStat.isFile() || queueStat.isSymbolicLink()) {
+				throw new Error("proposal queue is not a regular file");
+			}
+			if (queueStat.size + recordBytes > MAX_QUEUE_BYTES) {
+				throw new Error("proposal queue exceeds the safe size bound");
+			}
+		}
+		appendFileSync(queuePath, encoded, { encoding: "utf-8", mode: 0o600 });
+	} finally {
+		release();
+	}
+}
+
 export function proposeTool(
 	args: ProposeInput,
 	vault: VaultConfig,
@@ -119,22 +178,31 @@ export function proposeTool(
 				ok: false,
 				error: {
 					code: ERROR_CODES.PATH_OUTSIDE_VAULT,
-					message: `Proposal target escapes the vault: ${args.path}`,
+					message: "Proposal target escapes the vault.",
 				},
 			};
 		}
 		throw err;
 	}
 
+	const scope = concreteScopeOrNull(args.scope ?? vault.defaultScope());
+	if (scope === null) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INVALID_ARGUMENT,
+				message: "Proposal scope must be a concrete valid identifier.",
+			},
+		};
+	}
 	const { text: redacted, count: redactions } = redact(args.content);
 	const category = args.category.toUpperCase();
 	const trust = "agent";
-	const seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
+	let seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
+	// Preserve default-scope IDs while preventing non-default tenants from
+	// aliasing the same proposal identity.
+	if (scope !== "default") seed = `${seed}\x00${scope}`;
 	const proposalId = uuid5(UUID5_NAMESPACE, seed);
-
-	// Resolve scope from caller arg or vault default. Not part of the uuid5
-	// seed so the proposal_id stays byte-compatible with the Python engine.
-	const scope = args.scope ?? vault.defaultScope();
 
 	const record = {
 		proposal_id: proposalId,
@@ -151,16 +219,13 @@ export function proposeTool(
 
 	const queuePath = join(vault.stateDir, "proposals", "pending.jsonl");
 	try {
-		mkdirSync(dirname(queuePath), { recursive: true });
-		appendFileSync(queuePath, `${JSON.stringify(record)}\n`, "utf-8");
-	} catch (err) {
+		appendQueueRecord(queuePath, record);
+	} catch {
 		return {
 			ok: false,
 			error: {
 				code: ERROR_CODES.IO_ERROR,
-				message: `Could not queue proposal: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
+				message: "The proposal could not be queued safely.",
 			},
 		};
 	}
@@ -180,6 +245,7 @@ export function proposeTool(
 			auto_eligible: autoEligible,
 			queue: "proposals/pending.jsonl",
 			redactions_applied: redactions,
+			scope,
 			note: autoEligible
 				? "Eligible for autonomous apply at the next policy drain."
 				: "Will be held for the human approval flow at the next drain.",

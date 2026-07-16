@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..privacy import redact
+from ..scope import DEFAULT_SCOPE, persisted_scope
 from ..vault.atomic_write import atomic_write_text
 from ..vault.file_lock import file_lock
 
@@ -43,7 +44,8 @@ class Checkpoint:
     session_id: str
     prev_anchor: str | None
     items: tuple[WorkingSetItem, ...]
-    schema_version: int = 1
+    scope: str = DEFAULT_SCOPE
+    schema_version: int = 2
 
 
 def make_anchor(created: str, session_id: str) -> str:
@@ -55,41 +57,61 @@ def make_anchor(created: str, session_id: str) -> str:
     return digest[:12]
 
 
-def render_markdown(cp: Checkpoint) -> str:
-    """Render a Checkpoint to a markdown string with YAML frontmatter.
+def _yaml_string(value: str) -> str:
+    """Return a JSON-quoted scalar, which is also safe YAML syntax."""
+    return json.dumps(redact(value), ensure_ascii=False)
 
-    All text fields are passed through :func:`mneme_core.privacy.redact`
-    before rendering so ``<private>`` spans never survive to disk.
-    """
-    prev = cp.prev_anchor if cp.prev_anchor is not None else "null"
+
+def _parse_scalar(value: str) -> str:
+    """Parse a quoted JSON/YAML string while accepting legacy plain scalars."""
+    if value.startswith('"'):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("invalid quoted checkpoint frontmatter scalar") from exc
+        if not isinstance(decoded, str):
+            raise ValueError("checkpoint frontmatter scalar must be a string")
+        return decoded
+    return value
+
+
+def _single_line(value: str) -> str:
+    """Collapse line breaks and controls so one item cannot forge Markdown structure."""
+    return " ".join(redact(value).replace("`", "ˋ").split())
+
+
+def render_markdown(cp: Checkpoint) -> str:
+    """Render a checkpoint as privacy-redacted, injection-resistant Markdown."""
+    scope = persisted_scope(cp.scope)
+    prev = "null" if cp.prev_anchor is None else _yaml_string(cp.prev_anchor)
     lines: list[str] = [
         "---",
-        f"id: checkpoint-{cp.anchor}",
+        f"id: {_yaml_string(f'checkpoint-{cp.anchor}')}",
         "type: checkpoint",
-        f"created: {cp.created}",
-        f"session_id: {cp.session_id}",
-        f"anchor: {cp.anchor}",
+        f"created: {_yaml_string(cp.created)}",
+        f"session_id: {_yaml_string(cp.session_id)}",
+        f"anchor: {_yaml_string(cp.anchor)}",
         f"prev_anchor: {prev}",
+        f"scope: {_yaml_string(scope)}",
         f"schema_version: {cp.schema_version}",
         "---",
         "",
-        f"# Checkpoint {cp.anchor}",
+        f"# Checkpoint {_single_line(cp.anchor)}",
         "",
     ]
 
-    # Group items by kind, preserving insertion order of first appearance.
     sections: dict[str, list[WorkingSetItem]] = {}
     for item in cp.items:
-        sections.setdefault(item.kind, []).append(item)
+        sections.setdefault(_single_line(item.kind) or "item", []).append(item)
 
     for kind, kind_items in sections.items():
         lines.append(f"## {kind}")
         lines.append("")
         for item in kind_items:
-            safe_text = redact(item.text)
+            safe_text = _single_line(item.text)
             bullet = f"- [salience {item.salience:.2f}] {safe_text}"
             if item.refs:
-                refs_str = " ".join(f"`{redact(r)}`" for r in item.refs)
+                refs_str = " ".join(f"`{_single_line(ref)}`" for ref in item.refs)
                 bullet = f"{bullet} {refs_str}"
             lines.append(bullet)
         lines.append("")
@@ -106,6 +128,7 @@ def parse_markdown(text: str) -> Checkpoint:
     created = ""
     session_id = ""
     prev_anchor: str | None = None
+    scope = DEFAULT_SCOPE
     schema_version = 1
 
     in_frontmatter = False
@@ -128,13 +151,17 @@ def parse_markdown(text: str) -> Checkpoint:
                 key = key.strip()
                 val = val.strip()
                 if key == "anchor":
-                    anchor = val
+                    anchor = _parse_scalar(val)
                 elif key == "created":
-                    created = val
+                    created = _parse_scalar(val)
                 elif key == "session_id":
-                    session_id = val
+                    session_id = _parse_scalar(val)
                 elif key == "prev_anchor":
-                    prev_anchor = None if val in ("null", "~", "") else val
+                    prev_anchor = (
+                        None if val in ("null", "~", "") else _parse_scalar(val)
+                    )
+                elif key == "scope":
+                    scope = persisted_scope(_parse_scalar(val))
                 elif key == "schema_version":
                     try:
                         schema_version = int(val)
@@ -183,6 +210,7 @@ def parse_markdown(text: str) -> Checkpoint:
         session_id=session_id,
         prev_anchor=prev_anchor,
         items=tuple(items),
+        scope=scope,
         schema_version=schema_version,
     )
 
@@ -197,6 +225,19 @@ def delta(
     existing: set[tuple[str, str]] = {(i.kind, i.text) for i in prev.items}
     return tuple(item for item in curr.items if (item.kind, item.text) not in existing)
 
+
+def _portable_doc_path(index_path: Path, doc_path: Path) -> str:
+    """Prefer a vault-relative index path without breaking custom layouts."""
+    if (
+        index_path.parent.name == "checkpoints"
+        and index_path.parent.parent.name == ".mneme"
+    ):
+        vault_root = index_path.parent.parent.parent.resolve()
+        try:
+            return doc_path.resolve().relative_to(vault_root).as_posix()
+        except ValueError:
+            pass
+    return str(doc_path)
 
 def append_index(
     index_path: Path,
@@ -221,7 +262,8 @@ def append_index(
         "created": cp.created,
         "session_id": cp.session_id,
         "prev_anchor": cp.prev_anchor,
-        "path": str(doc_path),
+        "scope": persisted_scope(cp.scope),
+        "path": _portable_doc_path(index_path, doc_path),
         "item_count": len(cp.items),
         "top_salience": round(top_salience, 4),
     }

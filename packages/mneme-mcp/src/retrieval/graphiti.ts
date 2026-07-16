@@ -83,6 +83,19 @@ export interface TimelineFact {
 const MAX_GRAPH_HITS = 25;
 const MAX_TIMELINE_FACTS = 50;
 
+function scopeClause(alias: string, scope: string | undefined): string {
+	if (scope === undefined || scope === "*") return "";
+	if (scope === "default") {
+		return `AND (${alias}.scope = $scope OR ${alias}.group_id = $groupId OR ${alias}.scope IS NULL)`;
+	}
+	return `AND (${alias}.scope = $scope OR ${alias}.group_id = $groupId)`;
+}
+
+function scopeParams(scope: string | undefined): Record<string, string> {
+	if (scope === undefined || scope === "*") return {};
+	return { scope, groupId: `mneme:${scope}` };
+}
+
 /** True when the operator has flipped on the KG leg for this vault. */
 export function isKgActive(vault: VaultConfig): boolean {
 	try {
@@ -183,20 +196,19 @@ export async function expandTopicNeighborhood(
 	if (topic.trim().length === 0) return [];
 	const session = driver.session();
 	try {
-		// KG write-side scope stamping is deferred to the Python engine.
-		// OR-NULL keeps legacy un-scoped Entity nodes visible when a scope
-		// is requested; only entities stamped with a different scope are excluded.
-		const scopeClause =
-			scope !== undefined && scope !== "*"
-				? "AND (e.scope = $scope OR e.scope IS NULL)"
-				: "";
-		const params: Record<string, unknown> = { topic, limit: MAX_GRAPH_HITS };
-		if (scope !== undefined && scope !== "*") params.scope = scope;
+		// New writes carry a scope-derived Graphiti group_id. Legacy unscoped
+		// entities remain visible only from the concrete default scope.
+		const graphScopeClause = scopeClause("e", scope);
+		const params: Record<string, unknown> = {
+			topic,
+			limit: MAX_GRAPH_HITS,
+			...scopeParams(scope),
+		};
 		const result = await session.run(
 			`
       MATCH (e:Entity)
       WHERE toLower(e.name) CONTAINS toLower($topic)
-      ${scopeClause}
+      ${graphScopeClause}
       OPTIONAL MATCH (e)-[:MENTIONED_IN]->(ep:Episode)
       RETURN e.name AS entity,
              coalesce(e.summary, '') AS summary,
@@ -235,7 +247,7 @@ export async function timelineForSubject(
 		validFrom?: string;
 		validTo?: string;
 		asOf?: string;
-		/** KG scope filter. OR-NULL keeps legacy un-scoped nodes visible. */
+		/** KG scope filter. Legacy unscoped nodes belong only to default. */
 		scope?: string;
 	} = {},
 ): Promise<TimelineFact[]> {
@@ -263,12 +275,8 @@ export async function timelineForSubject(
 				"(r.invalid_at IS NULL OR r.invalid_at > datetime($asOf))",
 			);
 		}
-		if (opts.scope !== undefined && opts.scope !== "*") {
-			// KG write-side scope stamping is deferred to the Python engine.
-			// OR-NULL keeps legacy un-scoped KG nodes visible when a scope is
-			// requested; only nodes stamped with a different scope are excluded.
-			whereClauses.push("(s.scope = $scope OR s.scope IS NULL)");
-		}
+		const graphScopeClause = scopeClause("s", opts.scope).replace(/^AND\s+/u, "");
+		if (graphScopeClause.length > 0) whereClauses.push(graphScopeClause);
 		const cypher = `
       MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity)
       WHERE ${whereClauses.join(" AND ")}
@@ -286,8 +294,8 @@ export async function timelineForSubject(
 			validFrom: opts.validFrom,
 			validTo: opts.validTo,
 			asOf: opts.asOf,
-			scope: opts.scope,
 			limit: MAX_TIMELINE_FACTS,
+			...scopeParams(opts.scope),
 		});
 		return result.records.map((r) => {
 			const validAt = r.get("valid_at");

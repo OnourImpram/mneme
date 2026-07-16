@@ -31,6 +31,8 @@ import {
 	isoDateToUnixEndOfDay,
 	type ToolResult,
 } from "./common.js";
+import { ScopeSchema } from "../scope.js";
+
 
 export const SummarizeInputSchema = z.object({
 	topic: z.string().min(1),
@@ -46,7 +48,7 @@ export const SummarizeInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: ScopeSchema.optional(),
 });
 
 export type SummarizeInput = z.infer<typeof SummarizeInputSchema>;

@@ -19,6 +19,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { concreteScopeOrNull } from "../scope.js";
 
 export const MARKER_DIR = ".mneme";
 export const CONFIG_FILENAME = "config.toml";
@@ -100,14 +101,17 @@ export class VaultConfig {
 	 *   2. `default_scope = "..."` key in ~/.mneme/config.toml
 	 *   3. The literal 'default'
 	 *
+	 * Invalid values and the wildcard are ignored. A cross-scope read must be
+	 * requested explicitly on the individual MCP call with scope="*".
+	 *
 	 * Pass a custom `env` in tests to control the env without mutating
 	 * process.env.
 	 */
 	defaultScope(env?: NodeJS.ProcessEnv): string {
 		const e = env ?? process.env;
-		const envScope = e.MNEME_SCOPE;
-		if (envScope && envScope.length > 0) return envScope;
-		const tomlScope = readDefaultScopeFromTomlConfig();
+		const envScope = concreteScopeOrNull(e.MNEME_SCOPE);
+		if (envScope !== null) return envScope;
+		const tomlScope = concreteScopeOrNull(readDefaultScopeFromTomlConfig());
 		if (tomlScope !== null) return tomlScope;
 		return "default";
 	}

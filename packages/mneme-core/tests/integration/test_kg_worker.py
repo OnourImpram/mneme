@@ -106,7 +106,10 @@ class TestCommunityRefresh:
 
 
 def _install_graphiti_stub(
-    monkeypatch: pytest.MonkeyPatch, *, add_episode_raises: bool = False
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    add_episode_raises: bool = False,
+    captured: list[dict[str, object]] | None = None,
 ) -> None:
     """Inject a minimal in-process Graphiti so drain_live runs offline."""
     import sys
@@ -116,7 +119,9 @@ def _install_graphiti_stub(
         def __init__(self, *_a: object, **_k: object) -> None:
             pass
 
-        async def add_episode(self, **_kwargs: object) -> None:
+        async def add_episode(self, **kwargs: object) -> None:
+            if captured is not None:
+                captured.append(dict(kwargs))
             if add_episode_raises:
                 raise RuntimeError("provider boom")
 
@@ -134,6 +139,75 @@ def _write_credentials(config: KgConfig) -> None:
         json.dumps({"bolt_url": "bolt://x", "user": "neo4j", "password": "x"}),
         encoding="utf-8",
     )
+
+
+class TestScopeIngestion:
+    def test_worker_maps_queue_scope_to_graphiti_group(
+        self, config: KgConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config.scope = "clinical"
+        _seed_queue(config, 1)
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 1
+        assert captured[0]["group_id"] == "mneme:clinical"
+
+    def test_legacy_queue_record_maps_to_default_group(
+        self, config: KgConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-01-01"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            json.dumps(
+                {
+                    "event_id": "legacy",
+                    "ts": "2026-01-01T00:00:00+00:00",
+                    "content_hash": "a" * 64,
+                    "payload": {"tool_name": "Edit"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 1
+        assert captured[0]["group_id"] == "mneme:default"
+
+    def test_invalid_queue_scope_is_not_ingested(
+        self, config: KgConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-01-01"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            json.dumps(
+                {
+                    "event_id": "invalid",
+                    "scope": "*",
+                    "content_hash": "b" * 64,
+                    "payload": {"tool_name": "Edit"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 0
+        assert result["episodes_failed"] == 1
+        assert captured == []
 
 
 class TestCostCap:

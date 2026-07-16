@@ -23,7 +23,10 @@ import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
+
+from ..scope import DEFAULT_SCOPE, concrete_scope_or_none
 
 CONFIG_FILENAME = "config.toml"
 MARKER_DIR = ".mneme"
@@ -140,6 +143,25 @@ class VaultConfig:
     def checkpoint_index(self) -> Path:
         """CCE JSONL index for fast checkpoint lookup."""
         return self.state_dir / "checkpoints" / "index.jsonl"
+
+    def default_scope(self, env: Mapping[str, str] | None = None) -> str:
+        """Return the configured concrete default isolation scope.
+
+        Resolution order is ``MNEME_SCOPE``, then ``default_scope`` in
+        ``~/.mneme/config.toml``, then ``default``. Invalid values and the
+        cross-scope wildcard are ignored. Cross-scope reads must be requested
+        explicitly by the individual read operation.
+        """
+        source = os.environ if env is None else env
+        env_scope = concrete_scope_or_none(source.get("MNEME_SCOPE"))
+        if env_scope is not None:
+            return env_scope
+
+        cfg = _read_config_toml()
+        config_scope = concrete_scope_or_none(
+            cfg.get("default_scope") if cfg is not None else None
+        )
+        return config_scope if config_scope is not None else DEFAULT_SCOPE
 
     @classmethod
     def resolve(cls, explicit: Path | None = None) -> VaultConfig:

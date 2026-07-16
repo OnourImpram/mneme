@@ -570,111 +570,66 @@ def _emit_calls_edges(
     valid_at: str,
     source: bytes,
 ) -> None:
-    """Walk function/method bodies and emit 'calls' edges for call expressions.
+    """Walk function and method bodies and emit ``calls`` edges.
 
-    Resolution strategy:
-    - Direct call: `func(...)` — callee is the identifier before '('.
-    - Attribute call: `obj.method(...)` — callee is the rightmost identifier.
-    - If the callee name matches a locally-extracted function/method by name
-      (same vault, name equality) → confidence INFERRED (heuristic name match,
-      not precise binding; same-vault files only).
-    - Otherwise → external <external> node with confidence EXTRACTED (call
-      site observed directly in AST).
-
-    Limitation: no cross-file binding beyond same-vault name match. This is a
-    v1 conservative choice; precise binding requires a full symbol resolver.
+    The traversal is deliberately iterative.  Some tree-sitter Python binding
+    combinations have crashed while a deeply recursive Python walker repeatedly
+    materialised ``Node.children`` under coverage.  Keeping the parsed tree alive
+    in ``extract_file`` and traversing an explicit stack avoids both Python stack
+    growth and dependence on ``Node.text`` lifetime behaviour.
     """
-    # Collect function/method graph nodes to walk their bodies.
-    fn_nodes_by_id = {n.node_id: n for n in nodes if n.kind == "function"}
+    fn_nodes = [node for node in nodes if node.kind == "function"]
+    fn_by_name: dict[str, list[GraphNode]] = {}
+    for fn_node in fn_nodes:
+        fn_by_name.setdefault(fn_node.name, []).append(fn_node)
 
-    # Map tree-sitter line ranges to function graph nodes for body matching.
-    # We associate a call_expression to the innermost enclosing function by
-    # checking which function_definition subtree it belongs to.
-    # Simplification: do a single recursive walk of the tree once.
-    _walk_calls(
-        root,
-        None,
-        nodes,
-        edges,
-        local_fn_index,
-        rel_path,
-        chash,
-        valid_at,
-        source,
-        fn_nodes_by_id,
-    )
+    node_ids = {node.node_id for node in nodes}
+    edge_ids = {edge.edge_id for edge in edges}
+    stack: list[tuple[Node, GraphNode | None]] = [(root, None)]
 
+    while stack:
+        node, enclosing_fn = stack.pop()
+        node_type = node.type
+        active_fn = enclosing_fn
 
-def _walk_calls(
-    node: Node,
-    enclosing_fn: GraphNode | None,
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    local_fn_index: dict[str, str],
-    rel_path: str,
-    chash: str,
-    valid_at: str,
-    source: bytes,
-    fn_nodes_by_id: dict[str, GraphNode],
-) -> None:
-    """Recursively walk the AST and emit 'calls' edges for call expressions."""
-    node_type = node.type
+        if node_type in ("function_definition", "async_function_definition"):
+            fn_name = _identifier_text(node, source)
+            if fn_name:
+                row = node.start_point.row
+                for candidate in fn_by_name.get(fn_name, ()):
+                    if (
+                        candidate.source_path == rel_path
+                        and candidate.line_start <= row <= candidate.line_end
+                    ):
+                        active_fn = candidate
+                        break
 
-    # Track the enclosing function/method: when we enter a function_definition
-    # or async_function_definition, update the enclosing context.
-    new_enclosing = enclosing_fn
-    if node_type in ("function_definition", "async_function_definition"):
-        # Find the corresponding graph node by name + source_path + line-range
-        # containment. Name alone is ambiguous when two functions/methods share
-        # a name (e.g. every class has __init__): the def's start row must fall
-        # within the graph node's [line_start, line_end] window. This is unique
-        # per definition and also holds for decorated defs (the graph node range
-        # starts at the decorator and still contains the inner def).
-        fn_name = _identifier_text(node, source)
-        if fn_name:
-            for n in fn_nodes_by_id.values():
-                if (
-                    n.name == fn_name
-                    and n.source_path == rel_path
-                    and n.line_start <= node.start_point.row <= n.line_end
-                ):
-                    new_enclosing = n
-                    break
+        if node_type == "call" and active_fn is not None:
+            callee_name = _extract_callee_name(node, source)
+            if callee_name:
+                _emit_one_call_edge(
+                    callee_name,
+                    active_fn,
+                    nodes,
+                    edges,
+                    local_fn_index,
+                    rel_path,
+                    chash,
+                    valid_at,
+                    node.start_point.row,
+                    node.end_point.row,
+                    node_ids,
+                    edge_ids,
+                )
 
-    if node_type == "call" and new_enclosing is not None:
-        # call: function arguments
-        # The first child is the function being called.
-        callee_name = _extract_callee_name(node)
-        if callee_name:
-            _emit_one_call_edge(
-                callee_name,
-                new_enclosing,
-                nodes,
-                edges,
-                local_fn_index,
-                rel_path,
-                chash,
-                valid_at,
-                node.start_point.row,
-                node.end_point.row,
-            )
-
-    for child in node.children:
-        _walk_calls(
-            child,
-            new_enclosing,
-            nodes,
-            edges,
-            local_fn_index,
-            rel_path,
-            chash,
-            valid_at,
-            source,
-            fn_nodes_by_id,
-        )
+        # Reverse preserves the source-order behaviour of the old recursive
+        # depth-first traversal while keeping memory bounded by tree width.
+        children = node.children
+        for child in reversed(children):
+            stack.append((child, active_fn))
 
 
-def _extract_callee_name(call_node: Node) -> str:
+def _extract_callee_name(call_node: Node, source: bytes) -> str:
     """Extract the callee name from a call node.
 
     Handles:
@@ -685,19 +640,18 @@ def _extract_callee_name(call_node: Node) -> str:
         return ""
     fn_child = call_node.children[0]
     if fn_child.type == "identifier":
-        text = fn_child.text
-        if text is not None:
-            return text.decode("utf-8", errors="replace")
-        return ""
+        return source[fn_child.start_byte : fn_child.end_byte].decode(
+            "utf-8", errors="replace"
+        )
     if fn_child.type == "attribute":
         # attribute: object '.' attribute_name
         # The last child of type 'identifier' is the method name.
         last_id = ""
         for child in fn_child.children:
             if child.type == "identifier":
-                text = child.text
-                if text is not None:
-                    last_id = text.decode("utf-8", errors="replace")
+                last_id = source[child.start_byte : child.end_byte].decode(
+                    "utf-8", errors="replace"
+                )
         return last_id
     return ""
 
@@ -713,6 +667,8 @@ def _emit_one_call_edge(
     valid_at: str,
     line_start: int,
     line_end: int,
+    node_ids: set[str],
+    edge_ids: set[str],
 ) -> None:
     """Emit a single 'calls' edge from caller_node to the resolved callee."""
     if callee_name in local_fn_index:
@@ -732,9 +688,9 @@ def _emit_one_call_edge(
             trust="extracted",
         )
         # Only append if not already present (dedup by node_id).
-        existing_ids = {n.node_id for n in nodes}
-        if ext_node.node_id not in existing_ids:
+        if ext_node.node_id not in node_ids:
             nodes.append(ext_node)
+            node_ids.add(ext_node.node_id)
         dst_id = ext_node.node_id
         confidence = "EXTRACTED"
 
@@ -748,9 +704,9 @@ def _emit_one_call_edge(
         confidence=confidence,  # type: ignore[arg-type]
         valid_at=valid_at,
     )
-    existing_edge_ids = {e.edge_id for e in edges}
-    if edge.edge_id not in existing_edge_ids:
+    if edge.edge_id not in edge_ids:
         edges.append(edge)
+        edge_ids.add(edge.edge_id)
 
 
 # ---------------------------------------------------------------------------

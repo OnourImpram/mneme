@@ -107,3 +107,42 @@ class TestImmutability:
         cfg = VaultConfig(root=tmp_path)
         with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.root = tmp_path / "other"  # type: ignore[misc]
+
+
+class TestDefaultScope:
+    def test_env_scope_takes_priority(self, tmp_path: Path) -> None:
+        cfg = VaultConfig(root=tmp_path)
+        assert cfg.default_scope({"MNEME_SCOPE": "clinical"}) == "clinical"
+
+    def test_wildcard_cannot_become_implicit_default(self, tmp_path: Path) -> None:
+        cfg = VaultConfig(root=tmp_path)
+        assert cfg.default_scope({"MNEME_SCOPE": "*"}) == "default"
+
+    def test_invalid_scope_falls_back_to_default(self, tmp_path: Path) -> None:
+        cfg = VaultConfig(root=tmp_path)
+        assert cfg.default_scope({"MNEME_SCOPE": " clinical "}) == "default"
+        assert cfg.default_scope({"MNEME_SCOPE": "case*all"}) == "default"
+
+    def test_toml_default_scope(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _set_home(monkeypatch, tmp_path)
+        config_dir = tmp_path / MARKER_DIR
+        config_dir.mkdir()
+        (config_dir / "config.toml").write_text(
+            'default_scope = "research"\n', encoding="utf-8"
+        )
+        cfg = VaultConfig(root=tmp_path / "vault")
+        assert cfg.default_scope({}) == "research"
+
+    def test_invalid_toml_scope_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _set_home(monkeypatch, tmp_path)
+        config_dir = tmp_path / MARKER_DIR
+        config_dir.mkdir()
+        (config_dir / "config.toml").write_text(
+            'default_scope = "*"\n', encoding="utf-8"
+        )
+        cfg = VaultConfig(root=tmp_path / "vault")
+        assert cfg.default_scope({}) == "default"

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from ..privacy import redact_value as _privacy_redact_value
+from ..scope import DEFAULT_SCOPE, persisted_scope
 
 DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
     {"Edit", "Write", "Bash", "Task", "MultiEdit"}
@@ -78,6 +79,7 @@ class KgConfig:
     community_refresh_flag: Path
     worker_log: Path
     cost_ledger: Path
+    scope: str = DEFAULT_SCOPE
     cost_cap_usd_monthly: float | None = None
     host: str = field(default_factory=_short_hostname)
     capture_tools: frozenset[str] = DEFAULT_CAPTURE_TOOLS
@@ -118,6 +120,7 @@ def kg_config_from_vault(
         community_refresh_flag=vault.kg_community_refresh_flag,
         worker_log=vault.kg_worker_log,
         cost_ledger=vault.kg_cost_ledger,
+        scope=vault.default_scope(),
         cost_cap_usd_monthly=cost_cap_usd_monthly,
         capture_tools=capture_tools if capture_tools is not None else DEFAULT_CAPTURE_TOOLS,
     )
@@ -164,8 +167,12 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
         _hash_exclude = frozenset(
             {"captured_at", "host", "content_hash", "ts", "pid", "event_id"}
         )
+        scope = persisted_scope(config.scope)
         canonical = {
-            k: v for k, v in redacted_event.items() if k not in _hash_exclude
+            "scope": scope,
+            "payload": {
+                k: v for k, v in redacted_event.items() if k not in _hash_exclude
+            },
         }
         content_hash = hashlib.sha256(
             json.dumps(
@@ -179,9 +186,10 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
             "host": config.host,
             "pid": os.getpid(),
             "content_hash": content_hash,
+            "scope": scope,
             "payload": json.loads(safe_blob),
             "staged_by": "mneme.kg.episode_stage",
-            "schema_version": "1.0",
+            "schema_version": "2.0",
         }
         with out_file.open("a", encoding="utf-8") as fp:
             fp.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")

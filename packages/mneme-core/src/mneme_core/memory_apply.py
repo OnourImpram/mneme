@@ -27,22 +27,37 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 from .approval import EditCategory, MemoryProposal, ProposalStatus, can_apply
 from .audit_chain import append_chain_record
 from .policy import AutoApproveClass, PolicyConfig, evaluate, load_policy
+from .scope import (
+    DEFAULT_SCOPE,
+    DocumentScopeError,
+    classify_markdown_scope,
+    concrete_scope_or_none,
+    stamp_markdown_scope,
+)
 from .vault.atomic_write import atomic_write_text
 from .vault.config import VaultConfig
 
 ROLLBACK_DIR_NAME = "rollback"
 PROPOSALS_DIR_NAME = "proposals"
 PENDING_QUEUE_FILENAME = "pending.jsonl"
+MAX_QUEUE_BYTES = 16 * 1024 * 1024
+MAX_QUEUE_LINES = 10_000
+MAX_QUEUE_RECORD_BYTES = 1 * 1024 * 1024
+_QUEUE_LOCK_TIMEOUT_S = 1.0
+_QUEUE_LOCK_STALE_S = 10.0
 
 _NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
@@ -73,6 +88,47 @@ def _rollback_dir(vault: VaultConfig) -> Path:
 
 def _queue_path(vault: VaultConfig) -> Path:
     return vault.state_dir / PROPOSALS_DIR_NAME / PENDING_QUEUE_FILENAME
+
+
+@contextlib.contextmanager
+def _queue_lock(queue: Path) -> Iterator[None]:
+    """Cross-language O_EXCL lock shared with the TypeScript queue writer."""
+
+    lock = queue.with_name(f"{queue.name}.lock")
+    deadline = time.monotonic() + _QUEUE_LOCK_TIMEOUT_S
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd: int | None = None
+    while fd is None:
+        try:
+            fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > _QUEUE_LOCK_STALE_S:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError("proposal queue is busy")
+            time.sleep(0.01)
+    try:
+        os.write(fd, str(os.getpid()).encode("ascii", errors="ignore"))
+        yield
+    finally:
+        os.close(fd)
+        with contextlib.suppress(OSError):
+            lock.unlink()
+
+
+def _claim_queue(queue: Path) -> Path | None:
+    """Atomically claim the current queue while allowing new appends."""
+
+    with _queue_lock(queue):
+        if not queue.is_file():
+            return None
+        claimed = queue.with_name(f"processing-{uuid.uuid4().hex}.jsonl")
+        os.replace(queue, claimed)
+        return claimed
 
 
 def _resolve_target(vault: VaultConfig, target_path: str) -> Path | None:
@@ -114,6 +170,10 @@ def apply_edit(
         if not decision.auto_approved:
             return EditResult(False, None, decision.reason, proposal.target_path)
 
+    proposal_scope = concrete_scope_or_none(proposal.scope)
+    if proposal_scope is None:
+        return EditResult(False, None, "proposal scope is invalid", proposal.target_path)
+
     target = _resolve_target(vault, proposal.target_path)
     if target is None:
         return EditResult(False, None, "target path escapes the vault root", proposal.target_path)
@@ -126,12 +186,43 @@ def apply_edit(
     if target.is_file():
         try:
             prior_content = target.read_text(encoding="utf-8")
-        except OSError as exc:
+        except OSError:
+            return EditResult(False, None, "cannot read prior content", proposal.target_path)
+        try:
+            target_scope = classify_markdown_scope(prior_content).scope
+        except DocumentScopeError:
             return EditResult(
-                False, None, f"cannot read prior content: {exc}", proposal.target_path
+                False,
+                None,
+                "target scope metadata is malformed",
+                proposal.target_path,
             )
+        if target_scope != proposal_scope:
+            return EditResult(
+                False,
+                None,
+                "target is outside the proposal scope",
+                proposal.target_path,
+            )
+
+    if proposal.action == "create" and prior_content is not None:
+        return EditResult(False, None, "create target already exists", proposal.target_path)
+    if proposal.action == "update" and prior_content is None:
+        return EditResult(False, None, "update target does not exist", proposal.target_path)
     if proposal.action == "delete" and prior_content is None:
         return EditResult(False, None, "delete target does not exist", proposal.target_path)
+
+    new_content: str | None = None
+    if proposal.action != "delete":
+        try:
+            new_content = stamp_markdown_scope(proposal.content, proposal_scope)
+        except DocumentScopeError:
+            return EditResult(
+                False,
+                None,
+                "proposed content has conflicting scope metadata",
+                proposal.target_path,
+            )
 
     prior_hash = _content_hash(prior_content) if prior_content is not None else ""
     change_id = str(uuid.uuid5(_NAMESPACE, f"{proposal.proposal_id}\x00{prior_hash}"))
@@ -142,10 +233,11 @@ def apply_edit(
         "action": proposal.action,
         "path": proposal.target_path,
         "category": proposal.category.value,
+        "scope": proposal_scope,
         "edit_class": edit_class.value if edit_class else None,
         "auto_approved": decision.auto_approved and not human_approved,
         "prior_content": prior_content,
-        "new_content": None if proposal.action == "delete" else proposal.content,
+        "new_content": new_content,
         "applied_at": datetime.now(UTC).isoformat(),
         "status": "applied",
     }
@@ -159,7 +251,8 @@ def apply_edit(
             target.unlink()
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(target, proposal.content)
+            assert new_content is not None
+            atomic_write_text(target, new_content)
     except OSError as exc:
         journal["status"] = "failed"
         atomic_write_text(journal_path, json.dumps(journal, indent=2, ensure_ascii=False) + "\n")
@@ -173,6 +266,7 @@ def apply_edit(
             "change_id": change_id,
             "action": proposal.action,
             "category": proposal.category.value,
+            "scope": proposal_scope,
             "edit_class": edit_class.value if edit_class else None,
             "auto_approved": journal["auto_approved"],
         },
@@ -201,9 +295,25 @@ def rollback_change(vault: VaultConfig, change_id: str) -> EditResult:
         )
 
     rel_path = str(journal.get("path") or "")
+    scope = concrete_scope_or_none(journal.get("scope", DEFAULT_SCOPE))
+    if scope is None:
+        return EditResult(False, change_id, "journal scope is invalid", rel_path)
     target = _resolve_target(vault, rel_path)
     if target is None:
         return EditResult(False, change_id, "journal path escapes the vault root", rel_path)
+
+    if target.is_file():
+        try:
+            current_scope = classify_markdown_scope(target.read_text(encoding="utf-8")).scope
+        except (OSError, DocumentScopeError):
+            return EditResult(False, change_id, "current target scope cannot be verified", rel_path)
+        if current_scope != scope:
+            return EditResult(
+                False,
+                change_id,
+                "current target is outside the journal scope",
+                rel_path,
+            )
 
     prior = journal.get("prior_content")
     try:
@@ -227,6 +337,7 @@ def rollback_change(vault: VaultConfig, change_id: str) -> EditResult:
             "change_id": change_id,
             "action": "rollback",
             "category": str(journal.get("category") or ""),
+            "scope": scope,
             "edit_class": journal.get("edit_class"),
             "auto_approved": False,
         },
@@ -256,6 +367,7 @@ def list_changes(vault: VaultConfig) -> list[dict[str, Any]]:
                     "action",
                     "path",
                     "category",
+                    "scope",
                     "edit_class",
                     "auto_approved",
                     "applied_at",
@@ -272,12 +384,11 @@ def queue_proposal(
     proposal: MemoryProposal,
     edit_class: AutoApproveClass | None,
 ) -> Path:
-    """Append *proposal* to the pending queue for a later policy drain.
+    """Append a bounded, scope-bound proposal for a later policy drain."""
 
-    This is the surface MCP clients use: the server stages the
-    (already-redacted) proposal; nothing touches vault markdown until
-    ``drain_proposals`` applies it under the operator's policy.
-    """
+    scope = concrete_scope_or_none(proposal.scope)
+    if scope is None:
+        raise ValueError("proposal scope must be a concrete valid identifier")
     queue = _queue_path(vault)
     queue.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -286,37 +397,95 @@ def queue_proposal(
         "target_path": proposal.target_path,
         "content": proposal.content,
         "category": proposal.category.value,
+        "scope": scope,
         "status": proposal.status.value,
         "trust": proposal.trust,
         "edit_class": edit_class.value if edit_class else None,
         "queued_at": datetime.now(UTC).isoformat(),
     }
-    with queue.open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    encoded = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+    if len(encoded) > MAX_QUEUE_RECORD_BYTES:
+        raise ValueError("proposal queue record exceeds the safe size bound")
+    with _queue_lock(queue):
+        current_size = queue.stat().st_size if queue.is_file() else 0
+        if current_size + len(encoded) > MAX_QUEUE_BYTES:
+            raise ValueError("proposal queue exceeds the safe size bound")
+        with queue.open("ab") as f:
+            f.write(encoded)
+            f.flush()
+            os.fsync(f.fileno())
     return queue
 
 
 def drain_proposals(vault: VaultConfig) -> DrainReport:
-    """Apply every queued proposal under the current policy, then archive.
+    """Atomically claim and drain one bounded proposal queue snapshot.
 
-    Refused proposals are preserved in the archive file (suffix
-    ``.refused.jsonl``) so a human can review and approve them later;
-    the pending queue is emptied either way. Malformed lines are counted
-    and dropped. Deterministic file IO only.
+    New proposals may be appended to a fresh queue while the claimed snapshot
+    is processed. Every claimed record is archived, refused and malformed
+    records receive dedicated review archives, and no malformed input widens a
+    scope or bypasses policy.
     """
+
     queue = _queue_path(vault)
-    if not queue.is_file():
+    try:
+        claimed = _claim_queue(queue)
+    except (OSError, TimeoutError):
+        return DrainReport(0, 1, 0, [EditResult(False, None, "proposal queue is busy", "")])
+    if claimed is None:
         return DrainReport(0, 0, 0, [])
+
+    archive_dir = queue.parent / "processed"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%f")
+    try:
+        if claimed.stat().st_size > MAX_QUEUE_BYTES:
+            destination = archive_dir / f"{stamp}.oversized.jsonl"
+            os.replace(claimed, destination)
+            return DrainReport(
+                0,
+                1,
+                1,
+                [EditResult(False, None, "proposal queue exceeds the safe size bound", "")],
+            )
+        raw_text = claimed.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        with contextlib.suppress(OSError):
+            os.replace(claimed, archive_dir / f"{stamp}.unreadable.jsonl")
+        return DrainReport(
+            0,
+            1,
+            1,
+            [EditResult(False, None, "proposal queue is unreadable", "")],
+        )
+
+    raw_lines = raw_text.splitlines()
+    if len(raw_lines) > MAX_QUEUE_LINES:
+        os.replace(claimed, archive_dir / f"{stamp}.oversized.jsonl")
+        return DrainReport(
+            0,
+            1,
+            1,
+            [EditResult(False, None, "proposal queue has too many records", "")],
+        )
+
     policy = load_policy(vault)
     applied = refused = malformed = 0
     results: list[EditResult] = []
     kept: list[str] = []
-    for raw in queue.read_text(encoding="utf-8").splitlines():
-        raw = raw.strip()
+    malformed_lines: list[str] = []
+    for raw_line in raw_lines:
+        raw = raw_line.strip()
         if not raw:
+            continue
+        if len(raw.encode("utf-8")) > MAX_QUEUE_RECORD_BYTES:
+            malformed += 1
+            malformed_lines.append(raw)
             continue
         try:
             rec = json.loads(raw)
+            scope = concrete_scope_or_none(rec.get("scope", DEFAULT_SCOPE))
+            if scope is None:
+                raise ValueError("invalid proposal scope")
             proposal = MemoryProposal(
                 proposal_id=str(rec["proposal_id"]),
                 action=str(rec["action"]),
@@ -325,11 +494,13 @@ def drain_proposals(vault: VaultConfig) -> DrainReport:
                 category=EditCategory(str(rec["category"])),
                 status=ProposalStatus(str(rec.get("status") or "PENDING")),
                 trust=str(rec.get("trust") or "agent"),
+                scope=scope,
             )
             raw_class = rec.get("edit_class")
             edit_class = AutoApproveClass(str(raw_class)) if raw_class else None
-        except (KeyError, ValueError, TypeError):
+        except (AttributeError, KeyError, ValueError, TypeError, json.JSONDecodeError):
             malformed += 1
+            malformed_lines.append(raw)
             continue
         result = apply_edit(vault, proposal, edit_class, policy=policy)
         results.append(result)
@@ -339,13 +510,13 @@ def drain_proposals(vault: VaultConfig) -> DrainReport:
             refused += 1
             kept.append(raw)
 
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-    archive_dir = queue.parent / "processed"
-    archive_dir.mkdir(parents=True, exist_ok=True)
+    # Preserve the complete claimed snapshot as provenance before removing it.
+    os.replace(claimed, archive_dir / f"{stamp}.processed.jsonl")
     if kept:
+        atomic_write_text(archive_dir / f"{stamp}.refused.jsonl", "\n".join(kept) + "\n")
+    if malformed_lines:
         atomic_write_text(
-            archive_dir / f"{stamp}.refused.jsonl", "\n".join(kept) + "\n"
+            archive_dir / f"{stamp}.malformed.jsonl",
+            "\n".join(malformed_lines) + "\n",
         )
-    with contextlib.suppress(OSError):
-        queue.unlink()
     return DrainReport(applied=applied, refused=refused, malformed=malformed, results=results)

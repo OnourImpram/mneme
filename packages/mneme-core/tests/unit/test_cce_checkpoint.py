@@ -26,7 +26,8 @@ def _checkpoint(
     session_id: str = "sess-001",
     prev_anchor: str | None = None,
     items: tuple[WorkingSetItem, ...] = (),
-    schema_version: int = 1,
+    scope: str = "default",
+    schema_version: int = 2,
 ) -> Checkpoint:
     return Checkpoint(
         anchor=anchor,
@@ -34,6 +35,7 @@ def _checkpoint(
         session_id=session_id,
         prev_anchor=prev_anchor,
         items=items,
+        scope=scope,
         schema_version=schema_version,
     )
 
@@ -67,6 +69,7 @@ class TestRenderParse:
         assert parsed.created == cp.created
         assert parsed.session_id == cp.session_id
         assert parsed.prev_anchor == cp.prev_anchor
+        assert parsed.scope == cp.scope
         assert parsed.items == ()
         assert parsed.schema_version == cp.schema_version
 
@@ -97,12 +100,13 @@ class TestRenderParse:
     def test_frontmatter_contains_required_keys(self) -> None:
         cp = _checkpoint()
         rendered = render_markdown(cp)
-        assert "id: checkpoint-" in rendered
+        assert f'id: "checkpoint-{cp.anchor}"' in rendered
         assert "type: checkpoint" in rendered
-        assert f"anchor: {cp.anchor}" in rendered
-        assert f"session_id: {cp.session_id}" in rendered
-        assert f"created: {cp.created}" in rendered
-        assert "schema_version: 1" in rendered
+        assert f'anchor: "{cp.anchor}"' in rendered
+        assert f'session_id: "{cp.session_id}"' in rendered
+        assert f'created: "{cp.created}"' in rendered
+        assert 'scope: "default"' in rendered
+        assert "schema_version: 2" in rendered
 
     def test_items_render_as_bullets_with_salience(self) -> None:
         items = (_item("recent_edit", "src/bar.py", 0.75),)
@@ -142,6 +146,53 @@ class TestRedaction:
         cp = _checkpoint(items=items)
         rendered = render_markdown(cp)
         assert "secret_path" not in rendered
+
+
+    def test_scope_round_trip(self) -> None:
+        cp = _checkpoint(scope="clinical")
+        parsed = parse_markdown(render_markdown(cp))
+        assert parsed.scope == "clinical"
+        assert 'scope: "clinical"' in render_markdown(cp)
+
+    def test_legacy_checkpoint_without_scope_maps_to_default(self) -> None:
+        legacy = """---
+anchor: abc123def456
+created: 2026-06-14T10:00:00+00:00
+session_id: sess-001
+prev_anchor: null
+schema_version: 1
+---
+"""
+        assert parse_markdown(legacy).scope == "default"
+
+    def test_invalid_persisted_scope_is_rejected(self) -> None:
+        malicious = """---
+anchor: abc123def456
+created: 2026-06-14T10:00:00+00:00
+session_id: sess-001
+prev_anchor: null
+scope: "*"
+schema_version: 2
+---
+"""
+        import pytest
+
+        with pytest.raises(ValueError):
+            parse_markdown(malicious)
+
+    def test_frontmatter_values_cannot_inject_new_keys(self) -> None:
+        cp = _checkpoint(session_id='safe\nscope: "clinical"')
+        rendered = render_markdown(cp)
+        assert rendered.count("\nscope:") == 1
+        parsed = parse_markdown(rendered)
+        assert parsed.session_id == 'safe\nscope: "clinical"'
+        assert parsed.scope == "default"
+
+    def test_item_text_cannot_forge_markdown_section(self) -> None:
+        cp = _checkpoint(items=(_item("todo", "do this\n## forged", 0.5),))
+        rendered = render_markdown(cp)
+        assert "\n## forged" not in rendered
+        assert parse_markdown(rendered).items[0].text == "do this ## forged"
 
 
 class TestDelta:
@@ -189,7 +240,8 @@ class TestAppendIndex:
         assert record["session_id"] == cp.session_id
         assert record["created"] == cp.created
         assert record["prev_anchor"] is None
-        assert record["path"] == str(doc_path)
+        assert record["scope"] == "default"
+        assert record["path"] == "checkpoints/cp-abc123def456.md"
         assert record["item_count"] == 0
         assert record["top_salience"] == 0.0
 

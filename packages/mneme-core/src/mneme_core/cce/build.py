@@ -118,6 +118,7 @@ def build_checkpoint(
         session_id=session_id,
         prev_anchor=prev_anchor,
         items=tuple(items),
+        scope=vault.default_scope(),
     )
 
 
@@ -270,7 +271,14 @@ def _prune_checkpoints(vault: VaultConfig, max_checkpoints: int) -> None:
     except OSError:
         return
     kept: list[str] = []
-    removed_paths = {str(p) for p in to_remove}
+    removed_paths = {
+        value
+        for checkpoint_path in to_remove
+        for value in (
+            str(checkpoint_path),
+            checkpoint_path.resolve().relative_to(vault.root.resolve()).as_posix(),
+        )
+    }
     for line in lines:
         line = line.strip()
         if not line:

@@ -262,6 +262,34 @@ class TestEmptyFile:
         assert edges == []
 
 
+class TestTraversalResilience:
+    def test_deep_call_tree_does_not_use_python_recursion(self, tmp_path: Path) -> None:
+        depth = 1_200
+        expression = "external(" * depth + "0" + ")" * depth
+        py_file = tmp_path / "deep_calls.py"
+        py_file.write_text(
+            f"def caller():\n    return {expression}\n",
+            encoding="utf-8",
+        )
+
+        nodes, edges = extract_file(py_file, tmp_path)
+
+        caller = next(node for node in nodes if node.name == "caller")
+        external = next(
+            node
+            for node in nodes
+            if node.name == "external" and node.source_path == "<external>"
+        )
+        call_edges = [
+            edge
+            for edge in edges
+            if edge.kind == "calls"
+            and edge.src_id == caller.node_id
+            and edge.dst_id == external.node_id
+        ]
+        assert len(call_edges) == 1
+
+
 class TestIdempotency:
     def test_same_file_same_nodes(self, simple_file: tuple[Path, Path]) -> None:
         vault_root, py_file = simple_file

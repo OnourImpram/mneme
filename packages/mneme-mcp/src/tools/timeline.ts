@@ -33,6 +33,8 @@ import {
 	isoDateToUnixEndOfDay,
 	type ToolResult,
 } from "./common.js";
+import { ScopeSchema } from "../scope.js";
+
 
 export const TimelineInputSchema = z.object({
 	subject: z.string().min(1),
@@ -54,7 +56,7 @@ export const TimelineInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: ScopeSchema.optional(),
 });
 
 export type TimelineInput = z.infer<typeof TimelineInputSchema>;

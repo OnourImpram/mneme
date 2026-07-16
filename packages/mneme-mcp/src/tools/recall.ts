@@ -21,36 +21,29 @@ import {
 	isoDateToUnixEndOfDay,
 	type ToolResult,
 } from "./common.js";
+import { ScopeSchema } from "../scope.js";
 
-export const RecallInputSchema = z
-	.object({
-		session_id: z.string().min(1).optional(),
-		date_from: z
-			.string()
-			.regex(/^\d{4}-\d{2}-\d{2}$/)
-			.optional(),
-		date_to: z
-			.string()
-			.regex(/^\d{4}-\d{2}-\d{2}$/)
-			.optional(),
-		top_n: z.number().int().positive().max(50).default(10),
-		/** When true, the response includes the full markdown body. */
-		include_body: z.boolean().default(true),
-		/**
-		 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
-		 * silently spans scopes). Pass "*" for cross-scope (no predicate).
-		 * Skipped transparently when the index pre-dates the M1 schema migration.
-		 */
-		scope: z.string().max(256).optional(),
-	})
-	.refine(
-		(v) =>
-			v.session_id !== undefined ||
-			v.date_from !== undefined ||
-			v.date_to !== undefined ||
-			true,
-		{ message: "any combination of session_id, date_from, date_to is allowed" },
-	);
+
+export const RecallInputSchema = z.object({
+	session_id: z.string().min(1).optional(),
+	date_from: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.optional(),
+	date_to: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.optional(),
+	top_n: z.number().int().positive().max(50).default(10),
+	/** When true, the response includes the full markdown body. */
+	include_body: z.boolean().default(true),
+	/**
+	 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
+	 * silently spans scopes). Pass "*" for cross-scope (no predicate).
+	 * Skipped transparently when the index pre-dates the M1 schema migration.
+	 */
+	scope: ScopeSchema.optional(),
+});
 
 export type RecallInput = z.infer<typeof RecallInputSchema>;
 

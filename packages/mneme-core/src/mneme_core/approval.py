@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .privacy import redact
+from .scope import DEFAULT_SCOPE, concrete_scope_or_none
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -97,6 +98,8 @@ class MemoryProposal:
         Current lifecycle status (PENDING / APPROVED / REJECTED).
     trust:
         Proposer identity string; defaults to ``"agent"``.
+    scope:
+        Concrete isolation scope. The wildcard is never valid for a write.
     """
 
     proposal_id: str
@@ -106,6 +109,7 @@ class MemoryProposal:
     category: EditCategory
     status: ProposalStatus
     trust: str
+    scope: str = DEFAULT_SCOPE
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +129,7 @@ def propose(
     content: str,
     category: EditCategory,
     trust: str = "agent",
+    scope: str = DEFAULT_SCOPE,
 ) -> MemoryProposal:
     """Create a new :class:`MemoryProposal` in PENDING status.
 
@@ -133,12 +138,19 @@ def propose(
     ``action + NUL + target_path + NUL + redacted_content`` so that identical
     inputs always yield the same proposal ID.
     """
+    concrete_scope = concrete_scope_or_none(scope)
+    if concrete_scope is None:
+        raise ValueError("proposal scope must be a concrete valid identifier")
     redacted = redact(content)
     # category and trust are part of proposal identity: an EPHEMERAL and a
     # CLINICAL proposal for the same path+content must NOT share a proposal_id,
     # else a downstream store keyed on it could alias the durable edit to an
     # already-applied ephemeral one and bypass the human-approval gate.
     seed = f"{action}\x00{target_path}\x00{category.value}\x00{trust}\x00{redacted}"
+    # Preserve the historical default-scope UUIDs while preventing two
+    # non-default tenants from aliasing the same proposal identity.
+    if concrete_scope != DEFAULT_SCOPE:
+        seed = f"{seed}\x00{concrete_scope}"
     proposal_id = str(uuid.uuid5(_NAMESPACE, seed))
     return MemoryProposal(
         proposal_id=proposal_id,
@@ -148,6 +160,7 @@ def propose(
         category=category,
         status=ProposalStatus.PENDING,
         trust=trust,
+        scope=concrete_scope,
     )
 
 

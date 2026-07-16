@@ -17,6 +17,8 @@ export const ERROR_CODES = {
 	INDEX_NOT_FOUND: "INDEX_NOT_FOUND",
 	/** The target path resolved outside vault root. */
 	PATH_OUTSIDE_VAULT: "PATH_OUTSIDE_VAULT",
+	/** The target record is not visible in the requested isolation scope. */
+	SCOPE_MISMATCH: "SCOPE_MISMATCH",
 	/** The requested feature requires the standard or full install profile. */
 	FEATURE_UNAVAILABLE: "FEATURE_UNAVAILABLE",
 	/** The query was below the gating threshold and was dropped. */

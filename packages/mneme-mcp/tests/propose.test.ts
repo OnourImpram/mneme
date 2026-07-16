@@ -9,7 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { proposeTool } from "../src/tools/propose.js";
+import { proposeTool, ProposeInputSchema } from "../src/tools/propose.js";
 import { makeTempVault } from "./helpers/vault_fixture.js";
 
 function readQueue(rootDir: string): Array<Record<string, unknown>> {
@@ -48,6 +48,8 @@ describe("mneme_propose", () => {
 		expect(rec.status).toBe("PENDING");
 		expect(rec.trust).toBe("agent");
 		expect(rec.edit_class).toBeNull();
+		expect(rec.scope).toBe("default");
+		expect(result.data.scope).toBe("default");
 	});
 
 	it("derives the same uuid5 proposal_id as the Python engine", () => {
@@ -69,6 +71,43 @@ describe("mneme_propose", () => {
 		expect(result.data.proposal_id).toBe(
 			"6b3b75e0-c5ac-5916-a299-faa94d74a8d2",
 		);
+	});
+
+	it("uses scope in non-default proposal identity while preserving default IDs", () => {
+		const { vault } = makeTempVault("propose-scoped-id");
+		const alpha = proposeTool(
+			ProposeInputSchema.parse({
+				action: "create",
+				path: "notes/parity.md",
+				content: "same",
+				scope: "alpha",
+			}),
+			vault,
+		);
+		const beta = proposeTool(
+			ProposeInputSchema.parse({
+				action: "create",
+				path: "notes/parity.md",
+				content: "same",
+				scope: "beta",
+			}),
+			vault,
+		);
+		expect(alpha.ok && alpha.data.scope).toBe("alpha");
+		expect(beta.ok && beta.data.scope).toBe("beta");
+		expect(alpha.ok && beta.ok && alpha.data.proposal_id).not.toBe(
+			beta.ok ? beta.data.proposal_id : "",
+		);
+	});
+
+	it("rejects wildcard durable scope in the public schema", () => {
+		expect(
+			ProposeInputSchema.safeParse({
+				action: "create",
+				path: "notes/x.md",
+				scope: "*",
+			}).success,
+		).toBe(false);
 	});
 
 	it("refuses a path that escapes the vault", () => {

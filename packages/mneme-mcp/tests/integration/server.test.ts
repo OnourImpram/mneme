@@ -2,7 +2,7 @@
  * End-to-end smoke test for the MCP server.
  *
  * Spawns the server via `tsx src/index.ts` and connects an MCP Client
- * over stdio. Verifies the tools/list response surfaces all seven
+ * over stdio. Verifies the tools/list response surfaces all nine
  * `mneme_*` tools with non-empty descriptions and JSON Schema input
  * declarations.
  *
@@ -77,6 +77,27 @@ describe("mneme-mcp server end-to-end", () => {
     for (const t of res.tools) {
       expect(t.inputSchema).toBeTruthy();
       expect((t.inputSchema as { type?: string }).type).toBe("object");
+    }
+  });
+
+  it("surfaces scope in ListTools for every scope-aware tool", async () => {
+    const res = await client.listTools();
+    const scoped = new Set([
+      "mneme_search",
+      "mneme_recall",
+      "mneme_summarize",
+      "mneme_timeline",
+      "mneme_prime",
+      "mneme_propose",
+      "mneme_checkpoint_list",
+      "mneme_working_set_load",
+    ]);
+    for (const tool of res.tools) {
+      if (!scoped.has(tool.name)) continue;
+      const properties = (tool.inputSchema as {
+        properties?: Record<string, unknown>;
+      }).properties;
+      expect(properties, `${tool.name} has no properties`).toHaveProperty("scope");
     }
   });
 

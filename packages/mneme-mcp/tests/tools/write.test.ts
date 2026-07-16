@@ -42,6 +42,17 @@ describe("WriteInputSchema", () => {
     });
     expect(parsed.frontmatter?.id).toBe("abc");
   });
+
+  it("rejects wildcard durable scopes", () => {
+    expect(
+      WriteInputSchema.safeParse({
+        path: "a.md",
+        section: "S",
+        content: "x",
+        scope: "*",
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("writeTool runtime", () => {
@@ -59,7 +70,10 @@ describe("writeTool runtime", () => {
     if (res.ok) {
       expect(res.data.operation).toBe("added");
       expect(res.data.created_new_file).toBe(true);
+      expect(res.data.scope).toBe("default");
+      expect(res.data.audit_recorded).toBe(true);
       const written = readFileSync(join(rootDir, "daily/notes.md"), "utf8");
+      expect(written).toContain('scope: "default"');
       expect(written).toContain("## Today");
       expect(written).toContain("Logged X.");
     }
@@ -168,6 +182,107 @@ describe("writeTool runtime", () => {
     expect(after2.split("---").length).toBeLessThanOrEqual(3);
     expect(after2).toContain('id: "abc"');
     expect(after2).not.toContain('id: "different"');
+  });
+
+  it("stamps a caller-selected concrete scope on new files", () => {
+    const { vault, rootDir } = makeBareVault("write-scope-new");
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "clinical/note.md",
+        section: "Notes",
+        content: "bounded",
+        scope: "clinical",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.scope).toBe("clinical");
+    expect(readFileSync(join(rootDir, "clinical/note.md"), "utf8")).toContain(
+      'scope: "clinical"',
+    );
+  });
+
+  it("refuses cross-scope updates without changing the target", () => {
+    const { vault, rootDir } = makeBareVault("write-scope-mismatch");
+    const target = join(rootDir, "clinical.md");
+    writeFileSync(target, '---\nscope: "clinical"\n---\n\n## Notes\n\nsecret\n');
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "clinical.md",
+        section: "Notes",
+        content: "replacement",
+        replace: true,
+        scope: "default",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe(ERROR_CODES.SCOPE_MISMATCH);
+    expect(readFileSync(target, "utf8")).toContain("secret");
+  });
+
+  it("accepts the legacy project field only when it matches the requested scope", () => {
+    const { vault, rootDir } = makeBareVault("write-project-scope");
+    const ok = writeTool(
+      WriteInputSchema.parse({
+        path: "legacy.md",
+        section: "Notes",
+        content: "body",
+        frontmatter: { project: "alpha" },
+      }),
+      vault,
+    );
+    expect(ok.ok).toBe(true);
+    const written = readFileSync(join(rootDir, "legacy.md"), "utf8");
+    expect(written).toContain('project: "alpha"');
+    expect(written).toContain('scope: "alpha"');
+
+    const conflict = writeTool(
+      WriteInputSchema.parse({
+        path: "conflict.md",
+        section: "Notes",
+        content: "body",
+        frontmatter: { scope: "alpha", project: "beta" },
+      }),
+      vault,
+    );
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.error.code).toBe(ERROR_CODES.SCOPE_MISMATCH);
+  });
+
+  it("fails closed on malformed existing frontmatter", () => {
+    const { vault, rootDir } = makeBareVault("write-malformed-scope");
+    const target = join(rootDir, "broken.md");
+    writeFileSync(target, '---\nscope: "clinical"\n## no closing delimiter\n');
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "broken.md",
+        section: "Notes",
+        content: "replacement",
+        scope: "clinical",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe(ERROR_CODES.SCOPE_MISMATCH);
+    expect(readFileSync(target, "utf8")).toContain("no closing delimiter");
+  });
+
+  it("refuses unsafe oversized existing files", () => {
+    const { vault, rootDir } = makeBareVault("write-oversized");
+    const target = join(rootDir, "large.md");
+    writeFileSync(target, "x".repeat(16 * 1024 * 1024 + 1));
+    const res = writeTool(
+      WriteInputSchema.parse({
+        path: "large.md",
+        section: "Notes",
+        content: "replacement",
+      }),
+      vault,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe(ERROR_CODES.IO_ERROR);
   });
 });
 
@@ -475,7 +590,7 @@ describe("writeTool audit log (T4)", () => {
     expect(mode).toBe(0o600);
   });
 
-  it("a write with no private block does NOT create an audit record", () => {
+  it("every durable write creates an audit record, including zero-redaction writes", () => {
     const { vault, rootDir } = makeBareVault("write-t4-noredact");
 
     const res = writeTool(
@@ -490,11 +605,13 @@ describe("writeTool audit log (T4)", () => {
     if (!res.ok) return;
     expect(res.data.redactions_applied).toBe(0);
 
-    // Audit dir must either not exist or contain no records for today.
+    expect(res.data.audit_recorded).toBe(true);
     const today = new Date().toISOString().slice(0, 10);
     const jsonlPath = join(rootDir, ".mneme", "audit", `${today}.jsonl`);
-    // File should not exist (no redaction → no audit call).
-    expect(() => readFileSync(jsonlPath)).toThrow();
+    const records = readAuditRecords(jsonlPath);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.relative_path).toBe("plain.md");
+    expect(records[0]!.redactions_applied).toBe(0);
   });
 
   it("stale lock file (old mtime) is stolen and append still succeeds (Finding 3)", () => {
@@ -530,6 +647,7 @@ describe("writeTool audit log (T4)", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.redactions_applied).toBe(1);
+    expect(res.data.audit_recorded).toBe(true);
 
     // The JSONL file must contain exactly one well-formed record.
     const records = readAuditRecords(jsonlPath);
@@ -573,6 +691,7 @@ describe("writeTool audit log (T4)", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.data.redactions_applied).toBe(1);
+    expect(res.data.audit_recorded).toBe(false);
 
     // JSONL must NOT exist — the audit append timed out without writing.
     expect(() => readFileSync(jsonlPath)).toThrow();

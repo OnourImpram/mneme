@@ -26,6 +26,7 @@ import {
 	isoDateToUnixEndOfDay,
 	type ToolResult,
 } from "./common.js";
+import { ScopeSchema } from "../scope.js";
 
 /**
  * The full set of canonical memory types indexed by mneme_core.
@@ -34,6 +35,7 @@ import {
  * A parity test in tests/tools/search.test.ts asserts these two lists
  * are identical so they cannot drift independently.
  */
+
 export const CANONICAL_MEMORY_TYPES = [
 	"session",
 	"topic",
@@ -79,7 +81,7 @@ export const SearchInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: ScopeSchema.optional(),
 });
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;

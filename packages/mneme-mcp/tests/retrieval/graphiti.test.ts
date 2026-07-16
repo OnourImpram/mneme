@@ -81,33 +81,33 @@ function makeFakeDriver(
 	return driver;
 }
 
-/**
- * Fake driver that simulates Neo4j scope filtering by inspecting params.scope.
- *
- * Records carry an internal `scope` field used only for filtering. When
- * params.scope is set, only records whose scope equals params.scope OR whose
- * scope is null are returned (the OR-NULL migration leg). This mirrors the
- * Cypher clause: `AND (e.scope = $scope OR e.scope IS NULL)`.
- */
+/** Simulate the production scope and Graphiti group_id predicates. */
 function makeScopeFilteringDriver(
-	records: Array<{ scope?: string | null } & Record<string, unknown>>,
+	records: Array<
+		{ scope?: string | null; group_id?: string | null } & Record<string, unknown>
+	>,
 ): Neo4jDriverLike {
 	return {
 		session() {
 			return {
 				run: async (_query: string, params?: Record<string, unknown>) => {
 					const requestedScope = params?.scope as string | undefined;
+					const requestedGroup = params?.groupId as string | undefined;
 					const filtered =
-						requestedScope !== undefined
-							? records.filter(
-									(r) => r.scope === requestedScope || r.scope === null,
-								)
-							: records;
+						requestedScope === undefined
+							? records
+							: records.filter((record) => {
+								if (record.scope === requestedScope) return true;
+								if (record.group_id === requestedGroup) return true;
+								return requestedScope === "default" && record.scope == null;
+							});
 					return {
 						records: filtered.map((row) => ({
 							keys: Object.keys(row),
-							get: (k: string) =>
-								Object.prototype.hasOwnProperty.call(row, k) ? row[k] : null,
+							get: (key: string) =>
+								Object.prototype.hasOwnProperty.call(row, key)
+									? row[key]
+									: null,
 						})),
 					};
 				},
@@ -117,6 +117,7 @@ function makeScopeFilteringDriver(
 		close: async () => undefined,
 	};
 }
+
 
 describe("isKgActive", () => {
 	it("returns false without the flag", () => {
@@ -328,78 +329,72 @@ describe("closeDriver", () => {
 // ---------------------------------------------------------------------------
 
 describe("expandTopicNeighborhood scope filtering", () => {
-	it("scope='clinical' returns clinical and null-scope entities; excludes freelance", async () => {
-		const driver = makeScopeFilteringDriver([
-			{
-				entity: "ClinicalEntity",
-				summary: "clinical summary",
-				source_doc: null,
-				scope: "clinical",
-			},
-			{
-				entity: "FreelanceEntity",
-				summary: "freelance summary",
-				source_doc: null,
-				scope: "freelance",
-			},
-			{
-				entity: "LegacyEntity",
-				summary: "legacy no-scope summary",
-				source_doc: null,
-				scope: null,
-			},
-		]);
-		const hits = await expandTopicNeighborhood(driver, "entity", "clinical");
-		// clinical-scoped entity is returned
-		expect(hits.some((h) => h.entity.includes("ClinicalEntity"))).toBe(true);
-		// freelance-scoped entity is excluded
-		expect(hits.some((h) => h.entity.includes("FreelanceEntity"))).toBe(false);
-		// null-scope entity IS returned (OR-NULL migration leg)
-		expect(hits.some((h) => h.entity.includes("LegacyEntity"))).toBe(true);
-		expect(hits).toHaveLength(2);
+	const records = [
+		{ entity: "ClinicalEntity", summary: "clinical", scope: "clinical" },
+		{ entity: "FreelanceEntity", summary: "freelance", scope: "freelance" },
+		{ entity: "GroupedClinical", summary: "group", group_id: "mneme:clinical" },
+		{ entity: "LegacyEntity", summary: "legacy", scope: null },
+	];
+
+	it("a non-default scope excludes legacy unscoped entities", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"clinical",
+		);
+		expect(hits.some((hit) => hit.entity.includes("ClinicalEntity"))).toBe(true);
+		expect(hits.some((hit) => hit.entity.includes("GroupedClinical"))).toBe(true);
+		expect(hits.some((hit) => hit.entity.includes("FreelanceEntity"))).toBe(false);
+		expect(hits.some((hit) => hit.entity.includes("LegacyEntity"))).toBe(false);
+	});
+
+	it("default owns legacy unscoped entities", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"default",
+		);
+		expect(hits.some((hit) => hit.entity.includes("LegacyEntity"))).toBe(true);
+		expect(hits.some((hit) => hit.entity.includes("ClinicalEntity"))).toBe(false);
+	});
+
+	it("the explicit wildcard returns all scopes", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"*",
+		);
+		expect(hits).toHaveLength(records.length);
 	});
 });
 
 describe("timelineForSubject scope filtering", () => {
-	it("scope='clinical' returns clinical and null-scope facts; excludes freelance", async () => {
-		const driver = makeScopeFilteringDriver([
-			{
-				subject: "ClinicalSubject",
-				fact: "clinical fact",
-				object: "X",
-				valid_at: "2026-01-01T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-01T12:00:00Z",
-				scope: "clinical",
-			},
-			{
-				subject: "FreelanceSubject",
-				fact: "freelance fact",
-				object: "Y",
-				valid_at: "2026-01-02T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-02T12:00:00Z",
-				scope: "freelance",
-			},
-			{
-				subject: "LegacySubject",
-				fact: "legacy null-scope fact",
-				object: "Z",
-				valid_at: "2026-01-03T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-03T12:00:00Z",
-				scope: null,
-			},
-		]);
-		const facts = await timelineForSubject(driver, "Subject", {
-			scope: "clinical",
-		});
-		// clinical fact is returned
-		expect(facts.some((f) => f.subject.includes("ClinicalSubject"))).toBe(true);
-		// freelance fact is excluded
-		expect(facts.some((f) => f.subject.includes("FreelanceSubject"))).toBe(false);
-		// null-scope fact IS returned (OR-NULL migration leg)
-		expect(facts.some((f) => f.subject.includes("LegacySubject"))).toBe(true);
-		expect(facts).toHaveLength(2);
+	const records = [
+		{ subject: "ClinicalSubject", fact: "clinical", scope: "clinical" },
+		{ subject: "FreelanceSubject", fact: "freelance", scope: "freelance" },
+		{ subject: "GroupedClinical", fact: "group", group_id: "mneme:clinical" },
+		{ subject: "LegacySubject", fact: "legacy", scope: null },
+	];
+
+	it("a non-default scope excludes legacy unscoped facts", async () => {
+		const facts = await timelineForSubject(
+			makeScopeFilteringDriver(records),
+			"Subject",
+			{ scope: "clinical" },
+		);
+		expect(facts.some((fact) => fact.subject.includes("ClinicalSubject"))).toBe(true);
+		expect(facts.some((fact) => fact.subject.includes("GroupedClinical"))).toBe(true);
+		expect(facts.some((fact) => fact.subject.includes("FreelanceSubject"))).toBe(false);
+		expect(facts.some((fact) => fact.subject.includes("LegacySubject"))).toBe(false);
+	});
+
+	it("default owns legacy unscoped facts", async () => {
+		const facts = await timelineForSubject(
+			makeScopeFilteringDriver(records),
+			"Subject",
+			{ scope: "default" },
+		);
+		expect(facts.some((fact) => fact.subject.includes("LegacySubject"))).toBe(true);
+		expect(facts.some((fact) => fact.subject.includes("ClinicalSubject"))).toBe(false);
 	});
 });

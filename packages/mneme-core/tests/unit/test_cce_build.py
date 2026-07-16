@@ -62,6 +62,8 @@ class TestBuildCheckpoint:
         assert len(cp.anchor) == 12
         assert cp.session_id == "s1"
         assert cp.prev_anchor is None
+        assert cp.scope == "default"
+        assert cp.schema_version == 2
 
     def test_files_touched_appear_as_items(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)
@@ -113,6 +115,20 @@ class TestBuildCheckpoint:
         assert any("login" in t.lower() or "implement" in t.lower() for t in texts)
 
 
+    def test_configured_scope_is_persisted(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+        monkeypatch.setenv("MNEME_SCOPE", "clinical")
+        cp = build_checkpoint(vault, "s1", "", None)
+        assert cp.scope == "clinical"
+        doc_path = write_checkpoint(vault, cp)
+        assert 'scope: "clinical"' in doc_path.read_text(encoding="utf-8")
+        record = json.loads(vault.checkpoint_index.read_text(encoding="utf-8"))
+        assert record["scope"] == "clinical"
+
+
 class TestWriteCheckpoint:
     def test_markdown_file_created(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)
@@ -137,6 +153,8 @@ class TestWriteCheckpoint:
         assert len(lines) == 1
         record = json.loads(lines[0])
         assert record["anchor"] == cp.anchor
+        assert record["scope"] == "default"
+        assert record["path"].startswith("checkpoints/")
 
     def test_round_trip_via_parse_markdown(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)

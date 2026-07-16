@@ -40,6 +40,7 @@ from ..compression.ledger import (
     rollback_reservation,
     settle_reservation,
 )
+from ..scope import DEFAULT_SCOPE, persisted_scope
 from .episode_stage import KgConfig
 
 KG_LEDGER_KIND = "kg_add_episode"
@@ -252,6 +253,13 @@ def drain_live(
                     skipped_by_cap += 1
                     continue
             text = _episode_text(e)
+            try:
+                scope = persisted_scope(e.get("scope", DEFAULT_SCOPE))
+            except ValueError:
+                file_failed += 1
+                failed += 1
+                _release_reservation(config, reservation_id)
+                continue
             ts = e.get("ts") or datetime.now(UTC).isoformat()
             try:
                 ref_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
@@ -267,6 +275,7 @@ def drain_live(
                         source=EpisodeType.text,
                         source_description="mneme PostToolUse stage",
                         reference_time=ref_time,
+                        group_id=f"mneme:{scope}",
                     )
                 )
                 file_added += 1

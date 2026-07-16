@@ -40,6 +40,8 @@ import {
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import { DEFAULT_STOPWORDS, type ToolResult } from "./common.js";
+import { ScopeSchema } from "../scope.js";
+
 
 export const PrimeInputSchema = z.object({
 	task_description: z.string().min(1).max(2048),
@@ -51,7 +53,7 @@ export const PrimeInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: ScopeSchema.optional(),
 });
 
 export type PrimeInput = z.infer<typeof PrimeInputSchema>;
