@@ -1,12 +1,14 @@
 # MCP Tool Reference
 
-mneme-mcp exposes nine tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client.
+mneme-mcp exposes nine tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client. The JSON Schema returned by MCP `tools/list` is generated from the same Zod schema that validates tool calls. There is no separate hand-maintained public schema.
+
+The scope-aware tools are `mneme_search`, `mneme_recall`, `mneme_summarize`, `mneme_timeline`, `mneme_prime`, and `mneme_propose`. Omit `scope` to use the configured default. Pass `"*"` only when an explicit cross-scope operation is intended.
 
 ## Tools
 
 ### mneme_search
 
-Retrieval across the vault. **Shipped v1.0 MCP server**: FTS5 BM25 only. **Gated**: summarize and timeline can add Graphiti fields when full-profile KG state and local Neo4j are active. **Roadmap**: packaged dense LEANN retrieval inside MCP search. The RRF fusion protocol is available in `mneme-core` for Python callers and in Benchmark A through a deterministic BoW surrogate.
+Retrieval across the vault. **Shipped**: FTS5 BM25 only. **Gated**: summarize and timeline can add Graphiti fields when full-profile KG state and local Neo4j are active. **Roadmap**: packaged semantic dense retrieval inside MCP search. The feature-hashed lexical-vector adapter and RRF protocol are experimental Python-library and benchmark surfaces. They are not executed by `mneme_search`.
 
 **Input schema**:
 
@@ -17,9 +19,10 @@ Retrieval across the vault. **Shipped v1.0 MCP server**: FTS5 BM25 only. **Gated
   "filters": {
     "date_from": "ISO8601 date (optional)",
     "date_to": "ISO8601 date (optional)",
-    "tags": ["string array (optional)"],
-    "type": "session|topic|reference|pattern|trajectory|observation (optional)"
-  }
+    "type": "session|topic|reference|pattern|trajectory|compressed|observation|session_summary|user_prompt|claim|failure (optional)"
+  },
+  "min_query_length": "integer (default 0)",
+  "scope": "string (optional; '*' is explicit cross-scope)"
 }
 ```
 
@@ -50,7 +53,7 @@ Retrieval across the vault. **Shipped v1.0 MCP server**: FTS5 BM25 only. **Gated
 
 Recall a specific session by id or date.
 
-**Input**: `{ "session_id": "string" }` or `{ "date": "ISO8601 date" }`.
+**Input**: any combination of `session_id`, `date_from`, `date_to`, `top_n`, `include_body`, and `scope`. With no session or date filter, the tool returns the newest documents in the selected scope.
 
 **Output**: full session markdown with frontmatter.
 
@@ -75,7 +78,7 @@ Append a structured section into the vault. Honors privacy redaction (constraint
 
 Inject preflight context for a session. Combines recent sessions, relevant topics, and active references using the Adaptive Context Layer for format selection.
 
-**Input**: `{ "task_description": "string", "budget_tokens": "integer (default 4000)" }`.
+**Input**: `{ "task_description": "string", "budget_tokens": "integer (default 4000)", "recent_session_count": "integer", "topic_doc_count": "integer", "session_id": "string (optional)", "scope": "string (optional)" }`.
 
 **Output**: prepared markdown ready for inclusion in the session preamble.
 
@@ -83,7 +86,7 @@ Inject preflight context for a session. Combines recent sessions, relevant topic
 
 Summarize a topic across multiple sessions. Shipped default groups FTS5 matches by directory. Gated full-profile KG enrichment can add `related_entities` when the KG active flag and local Neo4j are present. The tool does not call an LLM in v1.0.
 
-**Input**: `{ "topic": "string", "date_range": ["ISO8601 date", "ISO8601 date"] }`.
+**Input**: `{ "topic": "string", "date_range": ["ISO8601 date", "ISO8601 date"], "top_k": "integer", "scope": "string (optional)" }`.
 
 **Output**: a topic markdown document with citations to source sessions.
 
@@ -98,7 +101,9 @@ Temporal query for a subject. Shipped default returns FTS5 hits sorted by mtime.
   "subject": "string (entity or concept)",
   "valid_from": "ISO8601 date (optional)",
   "valid_to": "ISO8601 date (optional)",
-  "as_of": "ISO8601 date (optional, default now)"
+  "as_of": "ISO8601 date (optional; Graphiti facts only)",
+  "top_k": "integer (default 25)",
+  "scope": "string (optional; '*' is explicit cross-scope)"
 }
 ```
 
@@ -116,7 +121,8 @@ Queue a memory-edit proposal (create, update, or delete) for the policy drain. T
   "path": "string (vault-relative)",
   "content": "string (proposed full file content; ignored for delete)",
   "category": "ephemeral | identity | preference | clinical | legal | financial",
-  "edit_class": "dedup-merge | typo-fix | tag-normalize | supersede-link | stale-archive (optional)"
+  "edit_class": "dedup-merge | typo-fix | tag-normalize | supersede-link | stale-archive (optional)",
+  "scope": "string (optional)"
 }
 ```
 
@@ -228,11 +234,11 @@ Load the working-set items from a CCE checkpoint for cross-agent handoff or JIT 
 
 ## Empty Results and Short Queries
 
-Very short or empty queries — for example `"hi"` or `"ok"` — return no results by design. The retrieval pipeline gates queries whose stripped length is below `min_query_length` (default 3 characters) **or** that contain fewer than `min_query_words` meaningful tokens after stopword removal (default 1). A blank result on a tiny query is therefore expected and explainable; send a more descriptive query to get hits.
+An empty query is rejected by Zod. `min_query_length` defaults to zero and can be raised by the caller as an explicit context-saving gate. Independently, FTS5 query construction discards stopwords and tokens shorter than two normalized characters. A non-empty query containing no surviving token returns an empty successful result with `backends_used: []`.
 
 ## Error Handling
 
-All tools return a structured error envelope on failure rather than throwing a raw exception. The envelope is callable-by-Zod-schema and stable across v1.x.
+All tools return a structured error envelope on failure rather than exposing a raw exception.
 
 ```json
 {

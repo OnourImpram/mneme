@@ -16,7 +16,13 @@ import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
 export const CheckpointListInputSchema = z.object({
-	limit: z.number().int().positive().max(200).default(20),
+	limit: z
+		.number()
+		.int()
+		.positive()
+		.max(200)
+		.default(20)
+		.describe("Maximum number of checkpoint index entries to return."),
 });
 
 export type CheckpointListInput = z.infer<typeof CheckpointListInputSchema>;

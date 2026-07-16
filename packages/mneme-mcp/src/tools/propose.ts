@@ -34,9 +34,19 @@ import type { ToolResult } from "./common.js";
 const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
 
 export const ProposeInputSchema = z.object({
-	action: z.enum(["create", "update", "delete"] as const),
-	path: z.string().min(1).max(1024),
-	content: z.string().max(100000).default(""),
+	action: z
+		.enum(["create", "update", "delete"] as const)
+		.describe("Requested memory edit operation."),
+	path: z
+		.string()
+		.min(1)
+		.max(1024)
+		.describe("Target path relative to the vault root."),
+	content: z
+		.string()
+		.max(100000)
+		.default("")
+		.describe("Proposed full file content. Ignored for delete operations."),
 	category: z
 		.enum([
 			"ephemeral",
@@ -46,7 +56,8 @@ export const ProposeInputSchema = z.object({
 			"legal",
 			"financial",
 		] as const)
-		.default("ephemeral"),
+		.default("ephemeral")
+		.describe("Sensitivity category used by the approval policy."),
 	edit_class: z
 		.enum([
 			"dedup-merge",
@@ -55,12 +66,17 @@ export const ProposeInputSchema = z.object({
 			"supersede-link",
 			"stale-archive",
 		] as const)
+		.describe("Low-risk mechanical edit class for autonomous eligibility.")
 		.optional(),
 	/**
 	 * Scope to stamp on the proposal record. Omit to use config.defaultScope().
 	 * Stored in the JSONL record for the Python drain to apply on write.
 	 */
-	scope: z.string().optional(),
+	scope: z
+		.string()
+		.max(256)
+		.describe("Scope stamped on the proposal. Omit for the configured default scope.")
+		.optional(),
 });
 
 export type ProposeInput = z.infer<typeof ProposeInputSchema>;

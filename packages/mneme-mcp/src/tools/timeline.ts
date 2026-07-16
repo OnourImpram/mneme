@@ -35,26 +35,45 @@ import {
 } from "./common.js";
 
 export const TimelineInputSchema = z.object({
-	subject: z.string().min(1),
+	subject: z
+		.string()
+		.min(1)
+		.max(2048)
+		.describe("Subject query for the timeline."),
 	valid_from: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.describe("Inclusive valid-time lower bound in YYYY-MM-DD form.")
 		.optional(),
 	valid_to: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.describe("Inclusive valid-time upper bound in YYYY-MM-DD form.")
 		.optional(),
 	/** Bi-temporal point-in-time. Honored at the Graphiti layer only. */
 	as_of: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.describe("Transaction-time point in YYYY-MM-DD form for Graphiti facts.")
 		.optional(),
-	top_k: z.number().int().positive().max(100).default(25),
+	top_k: z
+		.number()
+		.int()
+		.positive()
+		.max(100)
+		.default(25)
+		.describe("Maximum number of FTS5 timeline entries to return."),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: z
+		.string()
+		.max(256)
+		.describe(
+			"Scope to query. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+		)
+		.optional(),
 });
 
 export type TimelineInput = z.infer<typeof TimelineInputSchema>;

@@ -37,8 +37,18 @@ import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
 export const WorkingSetLoadInputSchema = z.object({
-	anchor: z.string().min(1),
-	top_k: z.number().int().positive().max(500).optional(),
+	anchor: z
+		.string()
+		.min(1)
+		.max(256)
+		.describe("Checkpoint anchor returned by mneme_checkpoint_list."),
+	top_k: z
+		.number()
+		.int()
+		.positive()
+		.max(500)
+		.describe("Return only the highest-salience items up to this limit.")
+		.optional(),
 });
 
 export type WorkingSetLoadInput = z.infer<typeof WorkingSetLoadInputSchema>;

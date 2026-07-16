@@ -99,8 +99,8 @@ A capability is classified as shipped only when an ordinary user can reach it th
 
 | ID | Loop | Severity | Category | Subsystem | Evidence and impact | Planned or completed correction | Status |
 |---|---:|---|---|---|---|---|---|
-| MNEME-001 | 1 | P1 | Reliability | mneme-graph | `tree-sitter 0.26.0` terminates graph builds with SIGSEGV or SIGBUS | Constrain ABI, add runtime guard and regression tests | Fixed locally, CI pending |
-| MNEME-002 | 1 | P1 | API contract | MCP schemas | Hand-authored `ListTools` schema omits runtime-supported `scope` and canonical memory types | Generate public JSON Schema from the authoritative Zod schema and add contract tests | Open |
+| MNEME-001 | 1 | P1 | Reliability | mneme-graph | `tree-sitter 0.26.0` terminates graph builds with SIGSEGV or SIGBUS | Constrained to the tested 0.25 ABI, added a pre-parse runtime guard and six regression tests | Resolved in Loop 2, branch CI pending |
+| MNEME-002 | 1 | P1 | API contract | MCP schemas | Hand-authored `ListTools` schema omits runtime-supported `scope` and canonical memory types | Generated MCP Draft 7 input schemas from runtime Zod schemas and added registry plus end-to-end contract tests | Resolved in Loop 2, branch CI pending |
 | MNEME-003 | 1 | P1 | Isolation | FTS5 | A restricted query against a legacy index silently skips scope filtering | Fail closed and require rebuild, while preserving explicit `scope="*"` | Open |
 | MNEME-004 | 1 | P1 | Isolation | Graphiti and Neo4j | Restricted Cypher admits legacy `scope IS NULL` nodes | Exclude unscoped nodes from restricted queries and test query construction | Open |
 | MNEME-005 | 1 | P1 | Claim integrity | Retrieval | README advertises an installer flag and an MCP dense path that do not exist | Reclassify feature hashing and RRF as experimental, disconnected surfaces | In progress |
@@ -110,7 +110,7 @@ A capability is classified as shipped only when an ordinary user can reach it th
 | MNEME-009 | 1 | P2 | Error handling | Graph extraction | Public registry swallows containment violations under a broad `Exception` | Preserve fail-soft parsing while propagating security-boundary violations | Open |
 | MNEME-010 | 1 | P2 | Observability | Retrieval telemetry | Backend labels can describe interfaces not executed by the MCP path | Derive provenance only from executed results and document path truth | Open |
 | MNEME-011 | 1 | P2 | Benchmark integrity | Evaluation | Headline retrieval numbers use a title-anchored synthetic corpus and BoW surrogate | Label every public use as synthetic and publish ablations and limitations | Open |
-| MNEME-012 | 1 | P2 | Supply chain | Packaging | Native tree-sitter dependency had no upper compatibility bound | Pin tested ABI range and add a clean-install smoke gate | Fixed locally, CI pending |
+| MNEME-012 | 1 | P2 | Supply chain | Packaging | Native tree-sitter dependency had no upper compatibility bound | Pinned `tree-sitter>=0.25,<0.26`, added runtime compatibility diagnostics and clean-suite verification | Resolved in Loop 2, branch CI pending |
 
 Each resolved entry is updated with its implementation commit, test command, benchmark consequence, compatibility effect, and final status before release review.
 
@@ -159,7 +159,23 @@ Current public surfaces are being reconciled to nine tools, six registered Claud
 
 ## Loop 2. Functional correctness and API contracts
 
-Pending completion.
+### Inspection and model
+
+The MCP request path was re-traced from `tools/list` to runtime validation for all nine tools. The server maintained two independent input contracts: hand-authored JSON objects in `src/index.ts` and Zod schemas in each handler module. The public contract was narrower than runtime behavior. In particular, every scope-aware tool validated `scope`, but no MCP client could discover it from `tools/list`, and the search type enum advertised only three of eleven canonical memory types. Separately, graph extraction was reproduced in isolated child processes to distinguish Python exceptions from native-process termination.
+
+### Findings
+
+The MCP mismatch was architectural rather than a single missing field. Any future Zod change could drift silently because CI had no schema-parity assertion. The recall schema also contained a refinement that was unconditionally true. The graph failure was a repeatable native ABI incompatibility between `tree-sitter 0.26.0` and the released language wheels. It caused SIGSEGV or SIGBUS rather than a catchable exception, so fail-soft Python wrappers could not contain it.
+
+### Changes
+
+A new `tool_registry.ts` is now the single registry for tool names, descriptions, runtime handlers, and Zod schemas. MCP Draft 7 input schemas are generated with `z.toJSONSchema(..., {io: "input"})` from those authoritative runtime schemas. Scope, defaults, bounds, date patterns, all canonical memory types, and field descriptions are therefore visible to clients without duplication. The no-op recall refinement was removed, scope length is consistently bounded, and high-cost text inputs received explicit maximum lengths.
+
+The graph package now constrains `tree-sitter` to the tested 0.25 ABI line. Both native extractors call a compatibility guard before parsing so an overridden incompatible dependency fails with a diagnostic Python exception instead of entering known-unsafe native traversal. Six compatibility tests cover the supported release, unsupported older and newer releases, and malformed version metadata. The complete extractor suite independently exercises both guarded native extractors.
+
+### Verification
+
+The complete graph suite passes with 406 tests and 91.06 percent coverage under Python 3.13.5. Ruff and strict mypy pass for the graph package. The exact self-analysis reproducer that previously terminated the process now succeeds. New TypeScript registry tests assert nine tools, generated-schema identity, visible scope on all six scope-aware tools, all eleven canonical memory types, numeric defaults and limits, and nested date patterns. The stdio integration test independently checks the `tools/list` scope contract. TypeScript build, test, and lint verification is delegated to the branch CI matrix because the local execution container cannot download the locked pnpm runtime.
 
 ## Loop 3. Security, privacy, and adversarial vault content
 

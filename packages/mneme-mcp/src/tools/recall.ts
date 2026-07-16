@@ -22,35 +22,47 @@ import {
 	type ToolResult,
 } from "./common.js";
 
-export const RecallInputSchema = z
-	.object({
-		session_id: z.string().min(1).optional(),
-		date_from: z
-			.string()
-			.regex(/^\d{4}-\d{2}-\d{2}$/)
-			.optional(),
-		date_to: z
-			.string()
-			.regex(/^\d{4}-\d{2}-\d{2}$/)
-			.optional(),
-		top_n: z.number().int().positive().max(50).default(10),
-		/** When true, the response includes the full markdown body. */
-		include_body: z.boolean().default(true),
-		/**
-		 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
-		 * silently spans scopes). Pass "*" for cross-scope (no predicate).
-		 * Skipped transparently when the index pre-dates the M1 schema migration.
-		 */
-		scope: z.string().max(256).optional(),
-	})
-	.refine(
-		(v) =>
-			v.session_id !== undefined ||
-			v.date_from !== undefined ||
-			v.date_to !== undefined ||
-			true,
-		{ message: "any combination of session_id, date_from, date_to is allowed" },
-	);
+export const RecallInputSchema = z.object({
+	session_id: z
+		.string()
+		.min(1)
+		.max(256)
+		.describe("Exact session identifier to retrieve.")
+		.optional(),
+	date_from: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.describe("Inclusive UTC date lower bound in YYYY-MM-DD form.")
+		.optional(),
+	date_to: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.describe("Inclusive UTC date upper bound in YYYY-MM-DD form.")
+		.optional(),
+	top_n: z
+		.number()
+		.int()
+		.positive()
+		.max(50)
+		.default(10)
+		.describe("Maximum number of documents to return."),
+	/** When true, the response includes the full markdown body. */
+	include_body: z
+		.boolean()
+		.default(true)
+		.describe("Include the full markdown body in each result."),
+	/**
+	 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
+	 * silently spans scopes). Pass "*" for cross-scope (no predicate).
+	 */
+	scope: z
+		.string()
+		.max(256)
+		.describe(
+			"Scope to recall. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+		)
+		.optional(),
+});
 
 export type RecallInput = z.infer<typeof RecallInputSchema>;
 
