@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: mneme-engineering-bundle
+  cancel-in-progress: false
+
 jobs:
   apply:
     name: Apply reviewed local commits
@@ -18,16 +22,101 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Decode and apply commit bundle
+
+      - name: Decode and validate commit bundle
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/ten-loop-engineering.part-* > /tmp/mneme-engineering.mbox.gz.b64
-          base64 --decode /tmp/mneme-engineering.mbox.gz.b64 > /tmp/mneme-engineering.mbox.gz
-          gzip --decompress --stdout /tmp/mneme-engineering.mbox.gz > /tmp/mneme-engineering.mbox
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import gzip
+          import hashlib
+          import re
+          from pathlib import Path
+
+          root = Path('.github')
+          manifest_path = root / 'ten-loop-engineering.ready'
+          manifest = {}
+          for line in manifest_path.read_text(encoding='utf-8').splitlines():
+              if '=' in line:
+                  key, value = line.split('=', 1)
+                  manifest[key.strip()] = value.strip()
+
+          expected = manifest.get('sha256_gzip')
+          if not expected or not re.fullmatch(r'[0-9a-f]{64}', expected):
+              raise SystemExit('ready manifest is missing a valid sha256_gzip')
+
+          part_paths = sorted(root.glob('ten-loop-engineering.part-*'))
+          if not part_paths:
+              raise SystemExit('no engineering bundle parts found')
+
+          alphabet = re.compile(r'[^A-Za-z0-9+/=]')
+          texts = [path.read_text(encoding='ascii') for path in part_paths]
+
+          def clean(value: str) -> str:
+              return alphabet.sub('', value)
+
+          candidates: list[tuple[str, bytes]] = []
+
+          joined = clean(''.join(texts))
+          try:
+              candidates.append(('joined', base64.b64decode(joined, validate=True)))
+          except Exception as exc:
+              print(f'joined decode rejected: {exc}')
+
+          try:
+              chunks = [base64.b64decode(clean(text), validate=True) for text in texts]
+              candidates.append(('per-part', b''.join(chunks)))
+          except Exception as exc:
+              print(f'per-part decode rejected: {exc}')
+
+          # Some transfer clients insert padding at part boundaries. Remove only
+          # interior padding and restore final padding as a last-resort candidate.
+          try:
+              depadded = ''.join(clean(text).rstrip('=') for text in texts)
+              depadded += '=' * (-len(depadded) % 4)
+              candidates.append(
+                  ('interior-padding-normalized', base64.b64decode(depadded, validate=True))
+              )
+          except Exception as exc:
+              print(f'interior-padding-normalized decode rejected: {exc}')
+
+          selected: tuple[str, bytes] | None = None
+          for name, payload in candidates:
+              digest = hashlib.sha256(payload).hexdigest()
+              print(f'candidate={name} bytes={len(payload)} sha256={digest}')
+              if digest == expected:
+                  selected = (name, payload)
+                  break
+
+          if selected is None:
+              raise SystemExit(
+                  'no decoded candidate matched the manifest sha256_gzip, refusing to apply'
+              )
+
+          name, compressed = selected
+          mbox = gzip.decompress(compressed)
+          if b'From ' not in mbox[:256]:
+              raise SystemExit('decoded payload is not a git format-patch mailbox')
+
+          Path('/tmp/mneme-engineering.mbox.gz').write_bytes(compressed)
+          Path('/tmp/mneme-engineering.mbox').write_bytes(mbox)
+          print(
+              f'selected={name} compressed_bytes={len(compressed)} '
+              f'mbox_bytes={len(mbox)} mbox_sha256={hashlib.sha256(mbox).hexdigest()}'
+          )
+          PY
+
+      - name: Apply commit bundle
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "mneme engineering automation"
           git config user.email "actions@users.noreply.github.com"
-          git am /tmp/mneme-engineering.mbox
+          git am --3way /tmp/mneme-engineering.mbox
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
@@ -36,30 +125,26 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-      - name: Verify applied Python changes
+
+      - name: Verify applied changes
         shell: bash
         run: |
           set -euo pipefail
-          pip install -e "packages/mneme-graph[dev]"
-          pytest packages/mneme-graph/tests -q
-          ruff check packages/mneme-graph
-          mypy --strict packages/mneme-graph/mneme_graph
+          make install-dev
+          make test
+          make lint
           python tools/version_bump.py --check
           python tools/spec_verify.py
           python tools/repo_integrity.py
-      - name: Verify applied TypeScript changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm install --frozen-lockfile
-          pnpm -r build
-          pnpm -r test
-          pnpm -r lint
-      - name: Remove one-time bundle and publish applied commits
+          python tools/validate_codex_plugin.py packages/mneme-codex-plugin
+          python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin
+
+      - name: Remove one-time transfer files and publish commits
         shell: bash
         run: |
           set -euo pipefail
           rm .github/ten-loop-engineering.part-* .github/ten-loop-engineering.ready
+          rm .github/workflows/apply-engineering-bundle.yml
           git add -A
-          git commit -m "chore: remove applied engineering bundle"
+          git commit -m "chore: remove one-time engineering transfer files"
           git push origin "HEAD:${GITHUB_REF_NAME}"
