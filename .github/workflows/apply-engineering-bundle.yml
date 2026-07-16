@@ -47,8 +47,11 @@ jobs:
                   manifest[key.strip()] = value.strip()
 
           expected = manifest.get('sha256_gzip')
+          expected_base64 = manifest.get('sha256_base64')
           if not expected or not re.fullmatch(r'[0-9a-f]{64}', expected):
               raise SystemExit('ready manifest is missing a valid sha256_gzip')
+          if not expected_base64 or not re.fullmatch(r'[0-9a-f]{64}', expected_base64):
+              raise SystemExit('ready manifest is missing a valid sha256_base64')
 
           part_paths = sorted(root.glob('ten-loop-engineering.part-*'))
           if not part_paths:
@@ -59,6 +62,7 @@ jobs:
 
           diagnostic: dict[str, object] = {
               'expected_sha256_gzip': expected,
+              'expected_sha256_base64': expected_base64,
               'manifest': manifest,
               'parts': [
                   {
@@ -79,8 +83,8 @@ jobs:
               return alphabet.sub('', value)
 
           candidates: list[tuple[str, bytes]] = []
-
           joined = clean(''.join(texts))
+
           try:
               candidates.append(('joined', base64.b64decode(joined, validate=True)))
           except Exception as exc:
@@ -102,6 +106,40 @@ jobs:
               diagnostic['errors'].append(
                   {'candidate': 'interior-padding-normalized', 'error': str(exc)}
               )
+
+          # The transfer manifest protects both the encoded text and decoded
+          # gzip bytes. The diagnostic established that the concatenated text
+          # is exactly one character too long. Locate and remove that single
+          # transport corruption only when the repaired text matches the
+          # pre-recorded SHA256 exactly. No heuristic payload is ever applied.
+          if len(joined) % 4 == 1:
+              repaired_text: str | None = None
+              repaired_index: int | None = None
+              for index in range(len(joined)):
+                  candidate_text = joined[:index] + joined[index + 1 :]
+                  if hashlib.sha256(candidate_text.encode('ascii')).hexdigest() == expected_base64:
+                      repaired_text = candidate_text
+                      repaired_index = index
+                      break
+              if repaired_text is not None and repaired_index is not None:
+                  diagnostic['repair'] = {
+                      'kind': 'single-character-removal',
+                      'index': repaired_index,
+                      'removed_character': joined[repaired_index],
+                  }
+                  candidates.append(
+                      (
+                          f'single-character-repair@{repaired_index}',
+                          base64.b64decode(repaired_text, validate=True),
+                      )
+                  )
+              else:
+                  diagnostic['errors'].append(
+                      {
+                          'candidate': 'single-character-repair',
+                          'error': 'no one-character deletion matched sha256_base64',
+                      }
+                  )
 
           selected: tuple[str, bytes] | None = None
           for name, payload in candidates:
