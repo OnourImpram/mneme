@@ -34,13 +34,16 @@ jobs:
           mkdir -p ten-loop-diagnostics
           python -m pip install -e 'packages/mneme-core[dev]' > ten-loop-diagnostics/python-install.log 2>&1
           python_install=$?
+          cp "$(command -v ruff)" ten-loop-diagnostics/ruff-bin
           ruff check packages/mneme-core --output-format=full > ten-loop-diagnostics/ruff.log 2>&1
           ruff_exit=$?
+          ruff check packages/mneme-core --fix --diff > ten-loop-diagnostics/ruff-fix.diff 2>&1
+          ruff_fix_diff=$?
           pnpm install --frozen-lockfile > ten-loop-diagnostics/pnpm-install.log 2>&1
           pnpm_install=$?
           pnpm --filter mneme-mcp-server test -- --reporter=verbose > ten-loop-diagnostics/node-test.log 2>&1
           node_test=$?
-          printf 'python_install=%s\nruff=%s\npnpm_install=%s\nnode_test=%s\n' "$python_install" "$ruff_exit" "$pnpm_install" "$node_test" | tee ten-loop-diagnostics/results.txt
+          printf 'python_install=%s\nruff=%s\nruff_fix_diff=%s\npnpm_install=%s\nnode_test=%s\n' "$python_install" "$ruff_exit" "$ruff_fix_diff" "$pnpm_install" "$node_test" | tee ten-loop-diagnostics/results.txt
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
