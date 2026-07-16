@@ -4,7 +4,7 @@ on:
   push:
     branches: [sol-ultra/mneme-ten-loop-upgrade-20260716]
     paths:
-      - '.github/ten-loop-engineering.mbox.gz.b64'
+      - '.github/ten-loop-engineering.ready'
 
 permissions:
   contents: write
@@ -22,7 +22,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .github/ten-loop-engineering.mbox.gz.b64 > /tmp/mneme-engineering.mbox.gz
+          cat .github/ten-loop-engineering.part-* > /tmp/mneme-engineering.mbox.gz.b64
+          base64 --decode /tmp/mneme-engineering.mbox.gz.b64 > /tmp/mneme-engineering.mbox.gz
           gzip --decompress --stdout /tmp/mneme-engineering.mbox.gz > /tmp/mneme-engineering.mbox
           git config user.name "mneme engineering automation"
           git config user.email "actions@users.noreply.github.com"
@@ -58,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/ten-loop-engineering.mbox.gz.b64
+          rm .github/ten-loop-engineering.part-* .github/ten-loop-engineering.ready
           git add -A
           git commit -m "chore: remove applied engineering bundle"
           git push origin "HEAD:${GITHUB_REF_NAME}"
