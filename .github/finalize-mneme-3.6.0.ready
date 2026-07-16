@@ -1,0 +1,3 @@
+version=3.6.0
+source_pull_request=30
+mode=clean-main-reconciliation-and-publication
