@@ -32,7 +32,7 @@ jobs:
       - name: Check out clean target branch
         uses: actions/checkout@v7
         with:
-          ref: sol-ultra/mneme-ten-loop-upgrade-20260716
+          ref: sol-ultra/mneme-ten-loop-upgrade-20260716-r2
           path: target
           token: ${{ github.token }}
 
@@ -71,4 +71,4 @@ jobs:
             exit 1
           fi
           git -C target commit -m 'loops 1-5: harden schemas, scope, checkpoints, and graph'
-          git -C target push origin HEAD:sol-ultra/mneme-ten-loop-upgrade-20260716
+          git -C target push origin HEAD:sol-ultra/mneme-ten-loop-upgrade-20260716-r2
