@@ -32,12 +32,41 @@ export interface ToolDefinition {
 	handler: (args: unknown, vault: VaultConfig) => unknown | Promise<unknown>;
 }
 
+/**
+ * Match Zod's default object-input contract in the client-visible JSON Schema.
+ *
+ * `z.object(...)` accepts unknown properties and strips them unless a schema is
+ * explicitly strict. Zod's JSON-Schema converter emits
+ * `additionalProperties: false` for those objects, which would tell MCP
+ * clients that the same payload is invalid. Mneme does not use strict public
+ * input objects, so normalize every generated object node to permit unknown
+ * properties while retaining all named-property constraints. Runtime parsing
+ * remains authoritative and still strips the unknown values before handlers
+ * execute.
+ */
+function normalizeObjectInputContract(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(normalizeObjectInputContract);
+	if (value === null || typeof value !== "object") return value;
+
+	const source = value as Record<string, unknown>;
+	const normalized: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(source)) {
+		if (key === "$schema") continue;
+		normalized[key] = normalizeObjectInputContract(child);
+	}
+	if (normalized.type === "object" && normalized.additionalProperties === false) {
+		normalized.additionalProperties = true;
+	}
+	return normalized;
+}
+
 /** Convert a runtime input schema to the draft understood by MCP clients. */
 export function toMcpInputSchema(schema: z.ZodType): Record<string, unknown> {
-	return z.toJSONSchema(schema, {
+	const generated = z.toJSONSchema(schema, {
 		target: "draft-07",
 		io: "input",
-	}) as Record<string, unknown>;
+	});
+	return normalizeObjectInputContract(generated) as Record<string, unknown>;
 }
 
 function defineTool(

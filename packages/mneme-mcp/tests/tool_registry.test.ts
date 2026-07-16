@@ -38,6 +38,32 @@ describe("authoritative MCP tool registry", () => {
 		}
 	});
 
+	it("matches Zod's unknown-key stripping contract in advertised schemas", () => {
+		for (const tool of TOOLS) {
+			expect(tool.inputSchema).not.toHaveProperty("$schema");
+			expect(tool.inputSchema.additionalProperties).toBe(true);
+		}
+
+		const search = TOOLS.find((tool) => tool.name === "mneme_search");
+		expect(search).toBeDefined();
+		const parsed = search?.zodSchema.parse({
+			query: "scope contract",
+			unknown_root_key: "accepted then stripped",
+			filters: {
+				type: "session",
+				unknown_filter_key: "accepted then stripped",
+			},
+		}) as Record<string, unknown>;
+		expect(parsed).not.toHaveProperty("unknown_root_key");
+		expect(parsed.filters).not.toHaveProperty("unknown_filter_key");
+
+		const properties = search?.inputSchema.properties as Record<
+			string,
+			Record<string, unknown>
+		>;
+		expect(properties.filters.additionalProperties).toBe(true);
+	});
+
 	it("surfaces scope for every scope-aware tool", () => {
 		for (const name of SCOPED_TOOL_NAMES) {
 			const tool = TOOLS.find((candidate) => candidate.name === name);

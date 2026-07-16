@@ -10,10 +10,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
 import { redact } from "../privacy.js";
-import { hasScopeColumn } from "../retrieval/fts5.js";
+import { requireScopeColumn } from "../retrieval/fts5.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
@@ -92,8 +92,8 @@ export function recallTool(
 	try {
 		db.pragma("query_only = ON");
 
-		// Build conditions after opening the DB so we can check the scope
-		// column presence on the live connection (pre-M1 index compat guard).
+		// Build conditions after opening the DB so scope isolation is checked
+		// against the live index before any row can be returned.
 		// S1: always restrict to session-typed documents.
 		const conditions: string[] = ["frontmatter_type = ?"];
 		const bindings: (string | number)[] = ["session"];
@@ -109,8 +109,8 @@ export function recallTool(
 			conditions.push("mtime <= ?");
 			bindings.push(isoDateToUnixEndOfDay(args.date_to));
 		}
-		// Scope predicate — guarded against pre-M1 indexes that lack the column.
-		if (scope !== "*" && hasScopeColumn(db, vault.fts5Db)) {
+		requireScopeColumn(db, vault.fts5Db, scope);
+		if (scope !== "*") {
 			conditions.push("scope = ?");
 			bindings.push(scope);
 		}
@@ -129,13 +129,7 @@ export function recallTool(
 		bindings.push(args.top_n);
 		rows = db.prepare(sql).all(...bindings) as typeof rows;
 	} catch (err) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+		return { ok: false, error: toMnemeError(err) };
 	} finally {
 		db.close();
 	}

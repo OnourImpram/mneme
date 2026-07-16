@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Mapping
 from typing import Any
 
 from ..scope import DEFAULT_SCOPE, concrete_scope_or_none

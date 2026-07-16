@@ -9,8 +9,8 @@
  *      omitted (no MNEME_SCOPE env and no config.toml override in tests).
  *   3. Returns all rows when scope = "*" (cross-scope).
  *
- * Also covers backward compatibility (pre-M1 index without a scope column)
- * and the M3 write/propose scope-stamping contract.
+ * Also covers fail-closed migration behavior for a pre-scope index and the
+ * M3 write/propose scope-stamping contract.
  */
 
 import Database from "better-sqlite3";
@@ -92,10 +92,9 @@ function setIndexProfile(dbPath: string, profile: string): void {
 }
 
 /**
- * Build a pre-M1 SQLite database at dbPath that intentionally omits the
- * `scope` column. Used by the backward-compatibility test to verify that
- * tools degrade gracefully (unfiltered results, one-time stderr warning)
- * rather than throwing.
+ * Build a pre-scope SQLite database at dbPath that intentionally omits the
+ * `scope` column. Concrete-scope reads must refuse it because no row carries
+ * evidence that it belongs to the caller's isolation domain.
  */
 function buildLegacyDbNoScope(dbPath: string): void {
 	mkdirSync(dirname(dbPath), { recursive: true });
@@ -391,30 +390,39 @@ describe("timelineTool scope isolation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Backward compatibility — pre-M1 index without scope column
+// Pre-scope index migration safety
 // ---------------------------------------------------------------------------
 
-describe("backward compatibility — pre-M1 index (no scope column)", () => {
-	it("recallTool degrades to unfiltered results and emits one-time stderr warning", () => {
+describe("pre-scope index (no scope column)", () => {
+	it("fails closed for concrete scope and permits only explicit cross-scope access", () => {
 		const { vault } = makeTempVault("scope-compat", []);
-		// Overwrite the absent db with a legacy schema that has no scope column.
 		buildLegacyDbNoScope(vault.fts5Db);
 		const spy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
 		try {
-			const res = recallTool(
+			const scoped = recallTool(
 				RecallInputSchema.parse({ include_body: false }),
 				vault,
 			);
-			expect(res.ok).toBe(true);
-			if (res.ok) {
-				// Scope predicate is skipped → the sole legacy doc is returned.
-				expect(res.data.entries.length).toBe(1);
-				expect(res.data.entries[0]?.path).toBe("legacy/doc.md");
+			expect(scoped.ok).toBe(false);
+			if (!scoped.ok) {
+				expect(scoped.error.code).toBe(
+					"INDEX_STALE_OR_LOCALE_MISMATCH",
+				);
+				expect(scoped.error.message).toContain("index rebuild");
 			}
-			// hasScopeColumn emitted exactly one warning.
-			expect(spy).toHaveBeenCalled();
+
+			const crossScope = recallTool(
+				RecallInputSchema.parse({ scope: "*", include_body: false }),
+				vault,
+			);
+			expect(crossScope.ok).toBe(true);
+			if (crossScope.ok) {
+				expect(crossScope.data.entries).toHaveLength(1);
+				expect(crossScope.data.entries[0]?.path).toBe("legacy/doc.md");
+			}
+			expect(spy).toHaveBeenCalledTimes(1);
 		} finally {
 			spy.mockRestore();
 		}

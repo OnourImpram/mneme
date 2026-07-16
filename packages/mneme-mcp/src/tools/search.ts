@@ -9,7 +9,7 @@
 import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
@@ -79,7 +79,7 @@ export const SearchInputSchema = z.object({
 	min_query_length: z.number().int().nonnegative().default(0),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
-	 * cross-scope. Skipped when the index lacks the scope column.
+	 * cross-scope. Concrete-scope reads require a scope-aware index.
 	 */
 	scope: ScopeSchema.optional(),
 });
@@ -324,13 +324,7 @@ export function searchTool(
 			scope,
 		});
 	} catch (err) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+		return { ok: false, error: toMnemeError(err) };
 	}
 	const elapsedMs = Date.now() - searchStart;
 

@@ -15,7 +15,6 @@ from typing import Any, Final
 
 import yaml
 
-
 DEFAULT_SCOPE: Final = "default"
 MAX_SCOPE_LENGTH: Final = 256
 MAX_FRONTMATTER_BYTES: Final = 64 * 1024

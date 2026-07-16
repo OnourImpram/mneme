@@ -15,7 +15,7 @@
 
 import { existsSync } from "node:fs";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { neutralize } from "../injection.js";
 import { normalizeTr } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
@@ -54,7 +54,7 @@ export const TimelineInputSchema = z.object({
 	top_k: z.number().int().positive().max(100).default(25),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
-	 * cross-scope. Skipped when the index lacks the scope column.
+	 * cross-scope. Concrete-scope reads require a scope-aware index.
 	 */
 	scope: ScopeSchema.optional(),
 });
@@ -117,13 +117,7 @@ export async function timelineTool(
 				scope,
 			});
 		} catch (err) {
-			return {
-				ok: false,
-				error: {
-					code: ERROR_CODES.IO_ERROR,
-					message: err instanceof Error ? err.message : String(err),
-				},
-			};
+			return { ok: false, error: toMnemeError(err) };
 		}
 	}
 

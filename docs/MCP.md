@@ -238,7 +238,7 @@ All tools return a structured error envelope on failure rather than throwing a r
 {
   "ok": false,
   "error": {
-    "code": "INVALID_ARGUMENT | UNKNOWN_TOOL | INDEX_NOT_FOUND | INDEX_STALE_OR_LOCALE_MISMATCH | PATH_OUTSIDE_VAULT | FEATURE_UNAVAILABLE | QUERY_TOO_SHORT | IO_ERROR",
+    "code": "INVALID_ARGUMENT | UNKNOWN_TOOL | INDEX_NOT_FOUND | INDEX_STALE_OR_LOCALE_MISMATCH | PATH_OUTSIDE_VAULT | SCOPE_MISMATCH | FEATURE_UNAVAILABLE | QUERY_TOO_SHORT | IO_ERROR",
     "message": "human-readable description"
   }
 }
@@ -249,7 +249,8 @@ All tools return a structured error envelope on failure rather than throwing a r
 | `INVALID_ARGUMENT` | Zod validation failed or a required argument is missing. | Fix the request payload against the tool schema. |
 | `UNKNOWN_TOOL` | The client requested a tool name this server does not expose. | Call `tools/list` and use one of the advertised `mneme_*` names. |
 | `INDEX_NOT_FOUND` | FTS5 sqlite is missing. | Run `mneme-core index rebuild`. |
-| `INDEX_STALE_OR_LOCALE_MISMATCH` | The index was built with a different locale normalizer than the query path expects. | Run `mneme index rebuild --locale tr` to rebuild with the correct profile. |
+| `INDEX_STALE_OR_LOCALE_MISMATCH` | The index schema predates scope isolation, or its locale normalizer differs from the query path. | Run `mneme-core index rebuild` and use the configured locale. Scoped reads fail closed until the rebuild completes. |
+| `SCOPE_MISMATCH` | A durable record exists but is not visible or writable in the requested scope. | Use the record's concrete scope. Cross-scope reads require the exact explicit selector `scope: "*"`; writes never accept it. |
 | `PATH_OUTSIDE_VAULT` | `mneme_write` target resolved outside the vault root. | Use a relative path inside the vault. |
 | `FEATURE_UNAVAILABLE` | The requested feature is unavailable in the current local configuration. | Enable the needed local profile or disable the feature-specific call. |
 | `QUERY_TOO_SHORT` | The query is below the configured gating threshold. | Send a longer query or lower the threshold. |

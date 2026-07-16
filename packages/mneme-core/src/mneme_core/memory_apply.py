@@ -30,11 +30,11 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from collections.abc import Iterator
 from typing import Any
 
 from .approval import EditCategory, MemoryProposal, ProposalStatus, can_apply
@@ -101,7 +101,7 @@ def _queue_lock(queue: Path) -> Iterator[None]:
     while fd is None:
         try:
             fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
+        except FileExistsError as exc:
             try:
                 if time.time() - lock.stat().st_mtime > _QUEUE_LOCK_STALE_S:
                     lock.unlink(missing_ok=True)
@@ -109,7 +109,7 @@ def _queue_lock(queue: Path) -> Iterator[None]:
             except OSError:
                 continue
             if time.monotonic() >= deadline:
-                raise TimeoutError("proposal queue is busy")
+                raise TimeoutError("proposal queue is busy") from exc
             time.sleep(0.01)
     try:
         os.write(fd, str(os.getpid()).encode("ascii", errors="ignore"))

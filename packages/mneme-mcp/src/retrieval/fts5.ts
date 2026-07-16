@@ -13,6 +13,7 @@
  */
 
 import Database from "better-sqlite3";
+import { ERROR_CODES, MnemeToolError } from "../errors.js";
 
 export interface Fts5Hit {
 	path: string;
@@ -43,13 +44,12 @@ export interface Fts5SearchOptions {
 	/** Optional inclusive upper bound for `mtime` (unix seconds). */
 	mtimeTo?: number;
 	/**
-	 * Optional scope filter. Callers resolve this from args or
+	 * Required scope filter. Callers resolve this from args or
 	 * config.defaultScope() before passing it in. Pass `"*"` to disable
-	 * filtering (cross-scope). When the documents table lacks a scope
-	 * column (pre-M1 index), the predicate is silently skipped and a
-	 * one-time warning is emitted to stderr.
+	 * filtering only through an explicit cross-scope read. Concrete-scope
+	 * reads fail closed when a pre-scope index is detected.
 	 */
-	scope?: string;
+	scope: string;
 }
 
 /**
@@ -118,13 +118,10 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			filters.push("d.mtime <= ?");
 			bindings.push(opts.mtimeTo);
 		}
-		// Scope predicate — skipped when scope is "*" (cross-scope) or when
-		// the documents table pre-dates the M1 schema migration (no scope column).
-		if (
-			opts.scope !== undefined &&
-			opts.scope !== "*" &&
-			hasScopeColumn(db, opts.dbPath)
-		) {
+		// Concrete-scope reads must never silently widen on a legacy index.
+		// Explicit `"*"` remains the only cross-scope selector.
+		requireScopeColumn(db, opts.dbPath, opts.scope);
+		if (opts.scope !== "*") {
 			filters.push("d.scope = ?");
 			bindings.push(opts.scope);
 		}
@@ -192,7 +189,7 @@ function identity(s: string): string {
  * next call without a process restart.
  */
 const scopeColumnPresence = new Map<string, boolean>();
-/** Tracks which db paths have already received the one-time absence warning. */
+/** Tracks which db paths have already received the one-time refusal warning. */
 const scopeColumnAbsentWarned = new Set<string>();
 
 /**
@@ -201,7 +198,7 @@ const scopeColumnAbsentWarned = new Set<string>();
  * Caches positive results per db path (column present: PRAGMA runs once per
  * process lifetime). When the column is absent, the result is NOT cached so a
  * later in-process reindex that adds the column is detected automatically on
- * the next call. The one-time absence warning is suppressed after the first
+ * the next call. The one-time refusal warning is suppressed after the first
  * emission per path to avoid log spam.
  *
  * Requires an already-open, query_only connection so we reuse the
@@ -218,8 +215,31 @@ export function hasScopeColumn(db: Database.Database, dbPath: string): boolean {
 	} else if (!scopeColumnAbsentWarned.has(dbPath)) {
 		scopeColumnAbsentWarned.add(dbPath);
 		process.stderr.write(
-			"[mneme-mcp] documents.scope column absent — pre-M1 index detected; scope predicate skipped.\n",
+			"[mneme-mcp] documents.scope column absent — pre-scope index detected; concrete-scope reads are refused until the index is rebuilt.\n",
 		);
 	}
 	return has;
+}
+
+
+/**
+ * Enforce the scope-isolation schema boundary for an already-open database.
+ *
+ * A legacy index has no trustworthy tenant label. Returning its rows for a
+ * concrete scope would silently widen access, so the only safe behavior is to
+ * refuse the read and require a deterministic local rebuild. Explicit `"*"`
+ * is allowed because the caller has deliberately requested cross-scope access.
+ */
+export function requireScopeColumn(
+	db: Database.Database,
+	dbPath: string,
+	scope: string,
+): void {
+	if (scope === "*") return;
+	if (hasScopeColumn(db, dbPath)) return;
+	throw new MnemeToolError(
+		ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+		"The FTS5 index predates scope isolation and cannot satisfy a scoped read. " +
+			"Run 'mneme-core index rebuild' before retrying, or pass scope='*' only for an intentional cross-scope read.",
+	);
 }
