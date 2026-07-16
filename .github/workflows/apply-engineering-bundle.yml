@@ -50,8 +50,6 @@ jobs:
           expected_base64 = manifest.get('sha256_base64')
           if not expected or not re.fullmatch(r'[0-9a-f]{64}', expected):
               raise SystemExit('ready manifest is missing a valid sha256_gzip')
-          if not expected_base64 or not re.fullmatch(r'[0-9a-f]{64}', expected_base64):
-              raise SystemExit('ready manifest is missing a valid sha256_base64')
 
           part_paths = sorted(root.glob('ten-loop-engineering.part-*'))
           if not part_paths:
@@ -83,7 +81,8 @@ jobs:
               return alphabet.sub('', value)
 
           candidates: list[tuple[str, bytes]] = []
-          joined = clean(''.join(texts))
+          clean_parts = [clean(text) for text in texts]
+          joined = ''.join(clean_parts)
 
           try:
               candidates.append(('joined', base64.b64decode(joined, validate=True)))
@@ -91,13 +90,13 @@ jobs:
               diagnostic['errors'].append({'candidate': 'joined', 'error': str(exc)})
 
           try:
-              chunks = [base64.b64decode(clean(text), validate=True) for text in texts]
+              chunks = [base64.b64decode(text, validate=True) for text in clean_parts]
               candidates.append(('per-part', b''.join(chunks)))
           except Exception as exc:
               diagnostic['errors'].append({'candidate': 'per-part', 'error': str(exc)})
 
           try:
-              depadded = ''.join(clean(text).rstrip('=') for text in texts)
+              depadded = ''.join(text.rstrip('=') for text in clean_parts)
               depadded += '=' * (-len(depadded) % 4)
               candidates.append(
                   ('interior-padding-normalized', base64.b64decode(depadded, validate=True))
@@ -107,37 +106,40 @@ jobs:
                   {'candidate': 'interior-padding-normalized', 'error': str(exc)}
               )
 
-          # The transfer manifest protects both the encoded text and decoded
-          # gzip bytes. The diagnostic established that the concatenated text
-          # is exactly one character too long. Locate and remove that single
-          # transport corruption only when the repaired text matches the
-          # pre-recorded SHA256 exactly. No heuristic payload is ever applied.
-          if len(joined) % 4 == 1:
-              repaired_text: str | None = None
-              repaired_index: int | None = None
-              for index in range(len(joined)):
-                  candidate_text = joined[:index] + joined[index + 1 :]
-                  if hashlib.sha256(candidate_text.encode('ascii')).hexdigest() == expected_base64:
-                      repaired_text = candidate_text
-                      repaired_index = index
+          # The first part is one character longer than every intended 9000
+          # character transport chunk. Recover only a single-character deletion
+          # whose decoded bytes exactly match the pre-recorded gzip SHA256.
+          # This uses the payload digest as the authority and never applies a
+          # merely decodable or heuristic candidate.
+          if clean_parts and len(clean_parts[0]) == 9001 and len(joined) % 4 == 1:
+              prefix_length = 0
+              repaired: tuple[int, str, bytes] | None = None
+              for local_index in range(len(clean_parts[0])):
+                  global_index = prefix_length + local_index
+                  candidate_text = joined[:global_index] + joined[global_index + 1 :]
+                  try:
+                      payload = base64.b64decode(candidate_text, validate=True)
+                  except Exception:
+                      continue
+                  if hashlib.sha256(payload).hexdigest() == expected:
+                      repaired = (global_index, joined[global_index], payload)
                       break
-              if repaired_text is not None and repaired_index is not None:
+              if repaired is not None:
+                  repaired_index, removed_character, repaired_payload = repaired
                   diagnostic['repair'] = {
                       'kind': 'single-character-removal',
                       'index': repaired_index,
-                      'removed_character': joined[repaired_index],
+                      'removed_character': removed_character,
+                      'authority': 'sha256_gzip',
                   }
                   candidates.append(
-                      (
-                          f'single-character-repair@{repaired_index}',
-                          base64.b64decode(repaired_text, validate=True),
-                      )
+                      (f'single-character-repair@{repaired_index}', repaired_payload)
                   )
               else:
                   diagnostic['errors'].append(
                       {
                           'candidate': 'single-character-repair',
-                          'error': 'no one-character deletion matched sha256_base64',
+                          'error': 'no one-character deletion matched sha256_gzip',
                       }
                   )
 
