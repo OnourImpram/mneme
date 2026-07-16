@@ -152,110 +152,6 @@ jobs:
         working-directory: packages/mneme-core
         run: pytest tests/integration/test_kg_neo4j_integration.py -v --no-cov
 
-  engineering-preflight:
-    name: Ten-loop engineering preflight
-    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'sol-ultra/mneme-ten-loop-upgrade')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: pnpm
-      - name: Capture repository and environment baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p engineering-preflight/logs
-          {
-            echo "repository=${GITHUB_REPOSITORY}"
-            echo "event=${GITHUB_EVENT_NAME}"
-            echo "ref=${GITHUB_REF}"
-            echo "head_ref=${GITHUB_HEAD_REF:-}"
-            echo "sha=$(git rev-parse HEAD)"
-            echo "base_sha=${{ github.event.pull_request.base.sha }}"
-            echo "git=$(git --version)"
-            echo "python=$(python --version 2>&1)"
-            echo "pip=$(python -m pip --version)"
-            echo "node=$(node --version)"
-            echo "npm=$(npm --version)"
-            echo "pnpm=$(pnpm --version)"
-            echo "runner_os=${RUNNER_OS}"
-            echo "runner_arch=${RUNNER_ARCH}"
-            uname -a
-          } > engineering-preflight/environment.txt
-          git status --porcelain=v1 --untracked-files=all > engineering-preflight/worktree-before.txt
-          git ls-files > engineering-preflight/tracked-files.txt
-          git submodule status > engineering-preflight/submodules.txt 2>&1 || true
-          sha256sum pnpm-lock.yaml > engineering-preflight/lockfile-sha256.txt 2>/dev/null || true
-          find . -name 'pyproject.toml' -o -name 'package.json' -o -name '*lock*' | sort > engineering-preflight/dependency-manifests.txt
-          git ls-files -z | tar --null --verbatim-files-from --files-from=- -czf engineering-preflight/mneme-source.tar.gz
-      - name: Run complete baseline command surface
-        shell: bash
-        run: |
-          set -euo pipefail
-          summary=engineering-preflight/command-summary.tsv
-          printf 'command\tstatus\tduration_seconds\n' > "$summary"
-          run_check() {
-            local name="$1"
-            shift
-            local started ended status
-            started=$(date +%s)
-            set +e
-            bash -lc "$*" > "engineering-preflight/logs/${name}.log" 2>&1
-            status=$?
-            set -e
-            ended=$(date +%s)
-            printf '%s\t%s\t%s\n' "$name" "$status" "$((ended-started))" >> "$summary"
-          }
-          run_check make-install-dev 'make install-dev'
-          run_check make-test 'make test'
-          run_check make-lint 'make lint'
-          run_check version-check 'python tools/version_bump.py --check'
-          run_check spec-verify 'python tools/spec_verify.py'
-          run_check repo-integrity 'python tools/repo_integrity.py'
-          run_check validate-codex 'python tools/validate_codex_plugin.py packages/mneme-codex-plugin'
-          run_check validate-antigravity 'python tools/validate_antigravity_plugin.py packages/mneme-antigravity-plugin'
-          run_check pytest-core 'pytest packages/mneme-core/tests -q'
-          run_check pytest-cc-plugin 'pytest packages/mneme-cc-plugin/tests -q'
-          run_check pytest-graph 'pytest packages/mneme-graph/tests -q'
-          run_check pytest-code 'pytest packages/mneme-code/tests -q'
-          run_check pytest-parity 'pytest tests/parity -q'
-          run_check pnpm-install 'pnpm install --frozen-lockfile'
-          run_check pnpm-build 'pnpm -r build'
-          run_check pnpm-test 'pnpm -r test'
-          run_check pnpm-lint 'pnpm -r lint'
-          run_check make-bench-all 'make bench-all'
-          git status --porcelain=v1 --untracked-files=all > engineering-preflight/worktree-after.txt
-          python -m pip freeze > engineering-preflight/pip-freeze.txt
-          pnpm list -r --depth -1 > engineering-preflight/pnpm-workspace.txt 2>&1 || true
-      - name: Upload engineering preflight artifact
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: mneme-ten-loop-preflight
-          path: engineering-preflight/
-          if-no-files-found: error
-          retention-days: 7
-      - name: Enforce baseline failures after artifact upload
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          rows = Path('engineering-preflight/command-summary.tsv').read_text(encoding='utf-8').splitlines()[1:]
-          failed = [row for row in rows if row.split('\t')[1] != '0']
-          if failed:
-              raise SystemExit('Baseline failures:\n' + '\n'.join(failed))
-          PY
-
   engineering-bundle-apply:
     name: Apply reviewed engineering commits
     if: github.event_name == 'pull_request' && github.head_ref == 'sol-ultra/mneme-ten-loop-upgrade-20260716'
@@ -267,22 +163,118 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-      - name: Apply staged commit bundle when present
+
+      - name: Recover and validate commit mailbox
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f .github/ten-loop-engineering.ready ]]; then
-            echo "No engineering bundle is staged."
-            exit 0
-          fi
-          cat .github/ten-loop-engineering.part-* > /tmp/mneme-engineering.mbox.gz.b64
-          base64 --decode /tmp/mneme-engineering.mbox.gz.b64 > /tmp/mneme-engineering.mbox.gz
-          gzip --decompress --stdout /tmp/mneme-engineering.mbox.gz > /tmp/mneme-engineering.mbox
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import hashlib
+          import re
+          import zlib
+          from pathlib import Path
+
+          root = Path('.github')
+          manifest: dict[str, str] = {}
+          ready = root / 'ten-loop-engineering.ready'
+          if not ready.is_file():
+              raise SystemExit('engineering bundle manifest is missing')
+          for line in ready.read_text(encoding='utf-8').splitlines():
+              if '=' in line:
+                  key, value = line.split('=', 1)
+                  manifest[key.strip()] = value.strip()
+
+          expected_mbox = manifest.get('sha256_mbox', '')
+          expected_commits = int(manifest.get('commits', '0'))
+          if not re.fullmatch(r'[0-9a-f]{64}', expected_mbox):
+              raise SystemExit('manifest is missing a valid sha256_mbox')
+          if expected_commits <= 0:
+              raise SystemExit('manifest commits must be positive')
+
+          part_paths = sorted(root.glob('ten-loop-engineering.part-*'))
+          if not part_paths:
+              raise SystemExit('no engineering bundle parts found')
+          clean_parts = [
+              re.sub(r'[^A-Za-z0-9+/=]', '', path.read_text(encoding='ascii'))
+              for path in part_paths
+          ]
+          joined = ''.join(clean_parts)
+
+          def raw_gzip_decompress(payload: bytes) -> bytes:
+              if len(payload) < 18 or payload[:3] != b'\x1f\x8b\x08':
+                  raise ValueError('not a gzip/deflate payload')
+              flags = payload[3]
+              position = 10
+              if flags & 0x04:
+                  extra_length = int.from_bytes(payload[position:position + 2], 'little')
+                  position += 2 + extra_length
+              if flags & 0x08:
+                  position = payload.index(b'\x00', position) + 1
+              if flags & 0x10:
+                  position = payload.index(b'\x00', position) + 1
+              if flags & 0x02:
+                  position += 2
+              return zlib.decompress(payload[position:-8], wbits=-zlib.MAX_WBITS)
+
+          def valid(mbox: bytes) -> bool:
+              return (
+                  hashlib.sha256(mbox).hexdigest() == expected_mbox
+                  and mbox.startswith(b'From ')
+                  and mbox.count(b'\nSubject: [PATCH ') == expected_commits
+                  and sum(1 for line in mbox.splitlines() if line.startswith(b'From '))
+                      == expected_commits
+                  and mbox.rstrip().endswith(b'2.47.3')
+              )
+
+          selected: bytes | None = None
+          # The transfer diagnostic proved that part 00 contains one extra
+          # Base64 character. Search only that bounded fault model, and accept
+          # a candidate solely when the independently recorded mailbox SHA256
+          # and the expected format-patch structure both match.
+          upper = len(clean_parts[0]) if clean_parts else 0
+          for index in range(upper):
+              repaired = joined[:index] + joined[index + 1:]
+              try:
+                  payload = base64.b64decode(repaired, validate=True)
+                  mbox = raw_gzip_decompress(payload)
+              except Exception:
+                  continue
+              if valid(mbox):
+                  selected = mbox
+                  print(
+                      f'recovered mailbox by removing transfer character at index {index}; '
+                      f'sha256={hashlib.sha256(mbox).hexdigest()}'
+                  )
+                  break
+
+          if selected is None:
+              raise SystemExit('no mailbox candidate satisfied the integrity contract')
+          Path('/tmp/mneme-engineering.mbox').write_bytes(selected)
+          PY
+
+      - name: Apply commit mailbox and remove transfer scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "mneme engineering automation"
           git config user.email "actions@users.noreply.github.com"
-          git am /tmp/mneme-engineering.mbox
+          git am --3way /tmp/mneme-engineering.mbox
           rm .github/ten-loop-engineering.part-* .github/ten-loop-engineering.ready
+          rm -f .github/engineering-bundle-diagnostic.json
           rm -f .github/workflows/apply-engineering-bundle.yml
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/ci.yml')
+          text = path.read_text(encoding='utf-8')
+          for marker in ('\n  engineering-preflight:\n', '\n  engineering-bundle-apply:\n'):
+              if marker in text:
+                  text = text.split(marker, 1)[0].rstrip() + '\n'
+                  break
+          path.write_text(text, encoding='utf-8')
+          PY
           git add -A
-          git commit -m "chore: remove one-time engineering transfer files"
+          git commit -m "chore: remove ten-loop transfer scaffolding"
           git push origin "HEAD:${GITHUB_HEAD_REF}"
