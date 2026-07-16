@@ -17,13 +17,13 @@
     },
     {
       "candidate": "single-character-repair",
-      "error": "no one-character deletion matched sha256_base64"
+      "error": "no one-character deletion matched sha256_gzip"
     }
   ],
   "expected_sha256_base64": "f6d095ec42dabbea64fc3cf31b720d17e6d3f9e87707f53af71e2f304554b57b",
   "expected_sha256_gzip": "e562c8bfbac8fe596363e75c6daefe3fdeaeda3c6ade03a7a0d481562d0e860d",
   "manifest": {
-    "attempt": "4",
+    "attempt": "5",
     "bundle": "loop1-loop2",
     "commits": "2",
     "sha256_base64": "f6d095ec42dabbea64fc3cf31b720d17e6d3f9e87707f53af71e2f304554b57b",
