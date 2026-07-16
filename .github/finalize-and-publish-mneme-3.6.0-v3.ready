@@ -1,0 +1,4 @@
+version=3.6.0
+source_pull_request=30
+operation=reconcile-verify-merge-tag-publish-confirm
+finalizer=v3
