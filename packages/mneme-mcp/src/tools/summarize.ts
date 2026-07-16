@@ -33,20 +33,37 @@ import {
 } from "./common.js";
 
 export const SummarizeInputSchema = z.object({
-	topic: z.string().min(1),
+	topic: z
+		.string()
+		.min(1)
+		.max(2048)
+		.describe("Topic query to summarize."),
 	date_range: z
 		.tuple([
 			z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 			z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 		])
+		.describe("Inclusive [from, to] UTC date range in YYYY-MM-DD form.")
 		.optional(),
 	/** Maximum number of FTS5 docs to walk. KG hits are reported separately. */
-	top_k: z.number().int().positive().max(50).default(20),
+	top_k: z
+		.number()
+		.int()
+		.positive()
+		.max(50)
+		.default(20)
+		.describe("Maximum number of FTS5 documents to group."),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: z
+		.string()
+		.max(256)
+		.describe(
+			"Scope to summarize. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+		)
+		.optional(),
 });
 
 export type SummarizeInput = z.infer<typeof SummarizeInputSchema>;

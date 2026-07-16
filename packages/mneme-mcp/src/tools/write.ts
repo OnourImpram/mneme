@@ -52,14 +52,29 @@ function redactFrontmatter(fm: Record<string, string | number> | undefined): {
 }
 
 export const WriteInputSchema = z.object({
-	path: z.string().min(1).max(1024),
-	section: z.string().min(1).max(2048),
-	content: z.string().max(100000),
+	path: z
+		.string()
+		.min(1)
+		.max(1024)
+		.describe("Target path relative to the vault root."),
+	section: z
+		.string()
+		.min(1)
+		.max(2048)
+		.describe("H2 heading text without the leading markdown marker."),
+	content: z
+		.string()
+		.max(100000)
+		.describe("Markdown body for the section."),
 	/** When true, replaces an existing section with the same heading. */
-	replace: z.boolean().default(false),
+	replace: z
+		.boolean()
+		.default(false)
+		.describe("Replace an existing section with the same heading."),
 	/** Optional YAML frontmatter applied to newly created files only. */
 	frontmatter: z
 		.record(z.string(), z.union([z.string(), z.number()]))
+		.describe("YAML frontmatter applied only when a new file is created.")
 		.optional(),
 });
 

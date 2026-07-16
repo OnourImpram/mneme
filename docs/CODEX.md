@@ -45,20 +45,20 @@ pipx install mneme-cc-plugin   # provides the `mneme` CLI (hook dispatch)
 npm install -g mneme-mcp-server  # provides the mneme-mcp command
 ```
 
-These publish with mneme v1.0.0. Until then, install from source in this
-monorepo.
+Published package versions are kept in lockstep with the repository status line. For unreleased changes, install from source in this monorepo.
 
 ## What works on Codex
 
-The six MCP tools (`mneme_search`, `mneme_recall`, `mneme_write`,
-`mneme_prime`, `mneme_summarize`, `mneme_timeline`) and the two skills
+The nine MCP tools (`mneme_search`, `mneme_recall`, `mneme_write`,
+`mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`,
+`mneme_checkpoint_list`, `mneme_working_set_load`) and the two skills
 (`mneme-prime`, `mneme-search`) are identical across clients. Four of the
-five mneme lifecycle hooks map to native Codex events. A single
+six registered Claude Code hook events map to four native Codex events. A single
 `mneme hook <event>` command serves both clients.
 
 | Capability | Claude Code (native) | Codex (extended) |
 |---|---|---|
-| 6 MCP tools | full | full |
+| 9 MCP tools | full | full |
 | Skills (prime, search) | full | full |
 | SessionStart prime | full | full |
 | PostToolUse capture | full | full (Bash-output compression is tuned to Claude Code tool names) |

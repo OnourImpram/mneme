@@ -42,16 +42,50 @@ import type { VaultConfig } from "../vault/config.js";
 import { DEFAULT_STOPWORDS, type ToolResult } from "./common.js";
 
 export const PrimeInputSchema = z.object({
-	task_description: z.string().min(1).max(2048),
-	budget_tokens: z.number().int().positive().max(20_000).default(4_000),
-	recent_session_count: z.number().int().nonnegative().max(20).default(3),
-	topic_doc_count: z.number().int().nonnegative().max(20).default(5),
-	session_id: z.string().max(256).optional(),
+	task_description: z
+		.string()
+		.min(1)
+		.max(2048)
+		.describe("Current task used to retrieve topic-relevant context."),
+	budget_tokens: z
+		.number()
+		.int()
+		.positive()
+		.max(20_000)
+		.default(4_000)
+		.describe("Approximate token budget for the returned preflight bundle."),
+	recent_session_count: z
+		.number()
+		.int()
+		.nonnegative()
+		.max(20)
+		.default(3)
+		.describe("Maximum number of recent session documents to consider."),
+	topic_doc_count: z
+		.number()
+		.int()
+		.nonnegative()
+		.max(20)
+		.default(5)
+		.describe("Maximum number of topic-relevant documents to consider."),
+	session_id: z
+		.string()
+		.max(256)
+		.describe(
+			"Caller session identifier used for injection deduplication and progressive formatting.",
+		)
+		.optional(),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: z
+		.string()
+		.max(256)
+		.describe(
+			"Scope to prime. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+		)
+		.optional(),
 });
 
 export type PrimeInput = z.infer<typeof PrimeInputSchema>;

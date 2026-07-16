@@ -58,28 +58,55 @@ export type CanonicalMemoryType = (typeof CANONICAL_MEMORY_TYPES)[number];
 const QUERY_SIDE_NORMALIZER_PROFILE = "tr-cldr";
 
 export const SearchInputSchema = z.object({
-	query: z.string().min(1).max(2048),
-	top_k: z.number().int().positive().max(50).default(10),
+	query: z
+		.string()
+		.min(1)
+		.max(2048)
+		.describe("Free-text query. Maximum 2048 characters."),
+	top_k: z
+		.number()
+		.int()
+		.positive()
+		.max(50)
+		.default(10)
+		.describe("Maximum number of ranked results to return."),
 	filters: z
 		.object({
 			date_from: z
 				.string()
 				.regex(/^\d{4}-\d{2}-\d{2}$/)
+				.describe("Inclusive UTC date lower bound in YYYY-MM-DD form.")
 				.optional(),
 			date_to: z
 				.string()
 				.regex(/^\d{4}-\d{2}-\d{2}$/)
+				.describe("Inclusive UTC date upper bound in YYYY-MM-DD form.")
 				.optional(),
-			type: z.enum(CANONICAL_MEMORY_TYPES).optional(),
+			type: z
+				.enum(CANONICAL_MEMORY_TYPES)
+				.describe("Canonical memory type filter.")
+				.optional(),
 		})
+		.describe("Optional date and canonical memory-type filters.")
 		.optional(),
 	/** Hard floor below which the query is dropped to save context. */
-	min_query_length: z.number().int().nonnegative().default(0),
+	min_query_length: z
+		.number()
+		.int()
+		.nonnegative()
+		.default(0)
+		.describe("Reject queries shorter than this many characters."),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z.string().max(256).optional(),
+	scope: z
+		.string()
+		.max(256)
+		.describe(
+			"Scope to search. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+		)
+		.optional(),
 });
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;

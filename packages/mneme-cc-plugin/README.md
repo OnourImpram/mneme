@@ -21,7 +21,7 @@ Claude Code plugin manifest for [mneme](https://github.com/OnourImpram/mneme).
 ## Skills
 
 - `mneme-prime` is the context priming workflow.
-- `mneme-search` is the vault search workflow. v1.0 search is FTS5, with RRF and KG surfaces gated as documented in the root README.
+- `mneme-search` is the vault search workflow. production  gated for summa expPython RRF and feature-hashed lexical-vector surfaces are experimental, while KG fields are gated as documented in the root README.
 
 ## Installation
 
@@ -33,7 +33,7 @@ This mutates your Claude Code `settings.json` in a BOM-safe way (Windows-friendl
 
 ## Three-Tier Install Profiles
 
-- `lite`: hooks + commands + 6 MCP tools (Python + Node only).
+- `lite`: hooks + commands + 9 MCP tools (Python + Node only).
 - `standard`: lite + optional ONNX runtime slot and RRF extension points. Packaged LEANN retrieval is roadmap.
 - `full`: standard + gated Graphiti temporal knowledge graph enrichment for summarize and timeline (Docker + Neo4j required).
 

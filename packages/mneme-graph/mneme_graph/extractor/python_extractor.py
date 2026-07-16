@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..schema import GraphEdge, GraphNode
+from ._tree_sitter_compat import assert_tree_sitter_compatible
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -89,6 +90,9 @@ def extract_file(
 
     nodes: list[GraphNode] = []
     edges: list[GraphEdge] = []
+
+    # Guard the binding before constructing any native AST objects.
+    assert_tree_sitter_compatible()
 
     # Lazy import so the package can be imported without tree-sitter installed
     # in environments that only need the schema or store (e.g. type-checkers).

@@ -261,7 +261,7 @@ Cursor `mcp.json`:
 }
 ```
 
-Both clients now see the same seven `mneme_*` tools. Search results are consistent because they share the same vault and indexes. The `mneme_` prefix on tool names guarantees no namespace clash with other MCP servers registered in the same client.
+Both clients now see the same nine `mneme_*` tools. Search results are consistent because they share the same vault and indexes. The `mneme_` prefix on tool names guarantees no namespace clash with other MCP servers registered in the same client.
 
 This is the "vault-native, client-agnostic" half of the thesis: the vault outlives any single client.
 
