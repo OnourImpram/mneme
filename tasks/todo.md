@@ -143,4 +143,4 @@ The first remote candidate passed every job except Python 3.11 on Windows, where
 - [x] Validate semantic structure, links, copy controls, responsive layout, overflow, and browser console output.
 - [x] Capture desktop and mobile localhost screenshots before publishing the site branch.
 - [x] Publish only the verified `gh-pages` tree and confirm the live Pages deployment uses the expected commit.
-- [ ] Re-run PR 36 required checks and release dry run on the documentation closeout SHA.
+- [x] Re-run PR 36 required checks and release dry run on the documentation closeout SHA.

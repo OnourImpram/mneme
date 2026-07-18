@@ -175,6 +175,8 @@ HTML parsing found one H1, no duplicate IDs, no missing local anchors, valid JSO
 
 GitHub Pages reported status `built` at exact commit `45b6890a000617a5a54467caea85079b8b97c8ab`. A no-cache live fetch and a second Playwright pass confirmed the release-candidate heading, not-published label, stable 3.5.0 JSON-LD value, responsive mobile boundary layout, zero page overflow, and zero browser console warnings at [the live site](https://onourimpram.github.io/mneme/).
 
+Website documentation head `6e8520f` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29651790795), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29651790813), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29651790796), and the exact-head [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29651794839). All 30 reported PR checks succeeded. The dry-run summary passed and every package, registry, and marketplace publication job was skipped.
+
 ## Residual risks
 
 1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on evidence SHA `17d5651`.
