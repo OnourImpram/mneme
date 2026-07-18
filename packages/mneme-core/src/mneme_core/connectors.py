@@ -97,26 +97,34 @@ def ingest(connector: Connector, *, fetched_at: datetime) -> list[IngestedMemory
 def to_markdown(memory: IngestedMemory) -> str:
     """Render an :class:`IngestedMemory` as a vault note with external provenance.
 
-    All text is already redacted upstream. String values are JSON-encoded so
-    arbitrary external ids/titles stay valid YAML.
+    The object is treated as untrusted even if it normally came from
+    :func:`ingest`. Every text field is re-redacted at the render sink and
+    string values are JSON-encoded so arbitrary external ids/titles stay valid
+    YAML.
     """
+    external_id = redact(memory.external_id)
+    source_kind = redact(memory.source_kind)
+    title = redact(memory.title)
+    content = redact(memory.content)
+    trust = redact(memory.trust)
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     front = [
         "---",
-        f"id: {json.dumps(memory.external_id)}",
+        f"id: {json.dumps(external_id)}",
         "type: reference",
         f"created: {_to_utc_iso(memory.fetched_at)}",
         "tags:",
         "  - external",
-        f"source_kind: {json.dumps(memory.source_kind)}",
-        f"external_id: {json.dumps(memory.external_id)}",
-        f"content_hash: {memory.content_hash}",
-        f"trust: {memory.trust}",
+        f"source_kind: {json.dumps(source_kind)}",
+        f"external_id: {json.dumps(external_id)}",
+        f"content_hash: {content_hash}",
+        f"trust: {trust}",
         "---",
     ]
     # Collapse any newlines in the title so a single-line heading cannot break
     # the note structure.
-    safe_title = memory.title.replace("\r", " ").replace("\n", " ")
-    body = [f"# {safe_title}", "", memory.content]
+    safe_title = title.replace("\r", " ").replace("\n", " ")
+    body = [f"# {safe_title}", "", content]
     return "\n".join(front) + "\n\n" + "\n".join(body) + "\n"
 
 

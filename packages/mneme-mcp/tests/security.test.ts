@@ -91,7 +91,7 @@ describe("S2: working_set_load path traversal", () => {
 		mkdirSync(indexDir, { recursive: true });
 		writeFileSync(
 			join(indexDir, "index.jsonl"),
-			`${JSON.stringify({ anchor: "evil", path: "../escape.md" })}\n`,
+			`${JSON.stringify({ anchor: "evil", path: "../escape.md", scope: "default" })}\n`,
 			"utf8",
 		);
 
@@ -123,7 +123,7 @@ describe("S3a: working_set_load checkpoint bullet sanitization", () => {
 		mkdirSync(cpDir, { recursive: true });
 		writeFileSync(
 			join(indexDir, "index.jsonl"),
-			`${JSON.stringify({ anchor, path: `checkpoints/cp-${anchor}.md` })}\n`,
+			`${JSON.stringify({ anchor, path: `checkpoints/cp-${anchor}.md`, scope: "default" })}\n`,
 			"utf8",
 		);
 		writeFileSync(join(cpDir, `cp-${anchor}.md`), md, "utf8");
@@ -135,6 +135,7 @@ describe("S3a: working_set_load checkpoint bullet sanitization", () => {
 		const md = `---
 type: checkpoint
 anchor: ${anchor}
+scope: default
 ---
 
 ## Decisions
@@ -161,6 +162,7 @@ anchor: ${anchor}
 		const md = `---
 type: checkpoint
 anchor: ${anchor}
+scope: default
 ---
 
 ## Injections

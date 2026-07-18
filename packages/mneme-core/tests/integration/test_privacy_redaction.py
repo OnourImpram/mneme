@@ -79,6 +79,26 @@ class TestRedactValue:
         result = redact_value({"k": "a <private>s</private> b", "n": 42})
         assert result == {"k": "a [REDACTED] b", "n": 42}
 
+    def test_dict_keys_are_redacted_without_losing_colliding_values(self) -> None:
+        source = {
+            "[REDACTED]": "visible",
+            "<private>first-key</private>": "first <private>value</private>",
+            "<private>second-key</private>": "second",
+        }
+
+        result = redact_value(source)
+
+        assert result == {
+            "[REDACTED]": "visible",
+            "[REDACTED]#2": "first [REDACTED]",
+            "[REDACTED]#3": "second",
+        }
+        assert list(source) == [
+            "[REDACTED]",
+            "<private>first-key</private>",
+            "<private>second-key</private>",
+        ]
+
     def test_list_recursive(self) -> None:
         result = redact_value(["<private>x</private>", 1, None])
         assert result == ["[REDACTED]", 1, None]
@@ -124,6 +144,31 @@ class TestStagingRedaction:
         )
         assert "TOKEN" not in line
         assert "[REDACTED]" in line
+
+    def test_capture_event_redacts_mapping_keys_from_event_and_audit(
+        self, staging_config: StagingConfig
+    ) -> None:
+        key = "prefix-<private>STAGING_KEY_SECRET</private>"
+        assert capture_event(
+            {
+                "tool_name": "Bash",
+                "tool_input": {key: "<private>STAGING_VALUE_SECRET</private>"},
+            },
+            staging_config,
+        )
+
+        event_text = next(
+            staging_config.staging_dir.rglob("*-events.jsonl")
+        ).read_text(encoding="utf-8")
+        audit_text = next(staging_config.audit_dir.rglob("*.jsonl")).read_text(
+            encoding="utf-8"
+        )
+        record = json.loads(event_text)
+
+        assert record["tool_input"] == {"prefix-[REDACTED]": "[REDACTED]"}
+        assert "STAGING_KEY_SECRET" not in event_text + audit_text
+        assert "STAGING_VALUE_SECRET" not in event_text + audit_text
+        assert "prefix-[REDACTED].[key]" in audit_text
 
     def test_redact_private_uses_canonical_token(
         self, staging_config: StagingConfig
@@ -187,6 +232,28 @@ class TestKgEpisodeStageRedaction:
         record = _json.loads(files[0].read_text(encoding="utf-8").strip())
         cmd = record["payload"]["command"]
         assert "SECRET" not in cmd
+
+    def test_private_mapping_key_stripped_before_queue_write(
+        self, kg_config: KgConfig
+    ) -> None:
+        key = "prefix-<private>KG_KEY_SECRET</private>"
+        assert stage_event(
+            {
+                "tool_name": "Bash",
+                "tool_input": {key: "<private>KG_VALUE_SECRET</private>"},
+            },
+            kg_config,
+        )
+
+        queue_text = next(kg_config.queue_dir.rglob("*-events.jsonl")).read_text(
+            encoding="utf-8"
+        )
+        record = json.loads(queue_text)
+        safe_key = next(iter(record["payload"]["tool_input"]))
+
+        assert safe_key.startswith("prefix-<REDACTED:")
+        assert "KG_KEY_SECRET" not in queue_text
+        assert "KG_VALUE_SECRET" not in queue_text
 
     def test_uppercase_private_stripped(self, kg_config: KgConfig) -> None:
         import json as _json

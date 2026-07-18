@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { redact } from "../src/privacy.js";
+import { redact, redactValue } from "../src/privacy.js";
 
 interface RedactionCase {
 	id: string;
@@ -17,11 +17,7 @@ interface RedactionCase {
 	expected: string;
 }
 
-const FIXTURE_PATH = join(
-	__dirname,
-	"fixtures",
-	"redaction_cases.json",
-);
+const FIXTURE_PATH = join(__dirname, "fixtures", "redaction_cases.json");
 
 const cases: RedactionCase[] = JSON.parse(
 	readFileSync(FIXTURE_PATH, "utf8"),
@@ -91,5 +87,20 @@ describe("redact — replacement token", () => {
 	it("uses [REDACTED] as the replacement token", () => {
 		const r = redact("<private>x</private>");
 		expect(r.text).toBe("[REDACTED]");
+	});
+});
+
+describe("redactValue", () => {
+	it("redacts nested values and mapping keys without mutating input", () => {
+		const input = {
+			"<private>SECRET_KEY</private>": [
+				{ value: "before <private>SECRET_VALUE</private> after" },
+			],
+		};
+		const output = redactValue(input);
+
+		expect(JSON.stringify(output)).not.toContain("SECRET_KEY");
+		expect(JSON.stringify(output)).not.toContain("SECRET_VALUE");
+		expect(JSON.stringify(input)).toContain("SECRET_VALUE");
 	});
 });

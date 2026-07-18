@@ -9,7 +9,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { proposeTool } from "../src/tools/propose.js";
+import { ProposeInputSchema, proposeTool } from "../src/tools/propose.js";
 import { makeTempVault } from "./helpers/vault_fixture.js";
 
 function readQueue(rootDir: string): Array<Record<string, unknown>> {
@@ -69,6 +69,39 @@ describe("mneme_propose", () => {
 		expect(result.data.proposal_id).toBe(
 			"6b3b75e0-c5ac-5916-a299-faa94d74a8d2",
 		);
+	});
+
+	it("binds non-default proposal identity and queue record to scope", () => {
+		const { vault, rootDir } = makeTempVault("propose-scope-id");
+		const result = proposeTool(
+			{
+				action: "create",
+				path: "notes/parity.md",
+				content: "hello <private>secret</private> world",
+				category: "ephemeral",
+				edit_class: undefined,
+				scope: "clinical",
+			},
+			vault,
+		);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.data.proposal_id).toBe(
+			"fe3efd45-07f6-5b1d-b1b3-76faf81a86a0",
+		);
+		expect(result.data.scope).toBe("clinical");
+		expect(readQueue(rootDir)[0]?.scope).toBe("clinical");
+	});
+
+	it("rejects wildcard scope for durable proposal writes", () => {
+		expect(
+			ProposeInputSchema.safeParse({
+				action: "create",
+				path: "notes/x.md",
+				content: "x",
+				scope: "*",
+			}).success,
+		).toBe(false);
 	});
 
 	it("refuses a path that escapes the vault", () => {

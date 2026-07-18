@@ -24,8 +24,10 @@
  * leak into the vault.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	closeSync,
+	constants,
 	fsyncSync,
 	lstatSync,
 	mkdirSync,
@@ -33,6 +35,7 @@ import {
 	realpathSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeSync,
 } from "node:fs";
 import { dirname, resolve as resolvePath, sep } from "node:path";
@@ -41,6 +44,47 @@ export class VaultPathError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = "VaultPathError";
+	}
+}
+
+export interface AtomicWriteOptions {
+	/** Revalidate containment immediately before every filesystem mutation. */
+	vaultRoot?: string;
+}
+
+interface DirectoryIdentity {
+	dev: number;
+	ino: number;
+	realpath: string;
+}
+
+function directoryIdentity(path: string): DirectoryIdentity {
+	const stat = statSync(path);
+	if (!stat.isDirectory()) {
+		throw new VaultPathError(
+			`Atomic-write parent "${path}" is not a directory.`,
+		);
+	}
+	return { dev: stat.dev, ino: stat.ino, realpath: realpathSync(path) };
+}
+
+function assertDirectoryIdentity(
+	path: string,
+	expected: DirectoryIdentity,
+	vaultRoot?: string,
+): void {
+	if (vaultRoot !== undefined) {
+		assertWithinVault(vaultRoot, path);
+	}
+	const actual = directoryIdentity(path);
+	if (
+		actual.dev !== expected.dev ||
+		actual.ino !== expected.ino ||
+		actual.realpath !== expected.realpath
+	) {
+		throw new VaultPathError(
+			`Atomic-write parent "${path}" changed during the operation. Operation refused.`,
+		);
 	}
 }
 
@@ -147,21 +191,45 @@ function rmSyncWithRetry(path: string, maxAttempts = 3, delayMs = 50): void {
 	}
 }
 
-export function atomicWriteText(targetPath: string, content: string): void {
+export function atomicWriteText(
+	targetPath: string,
+	content: string,
+	options: AtomicWriteOptions = {},
+): void {
 	const target = resolvePath(targetPath);
-	mkdirSync(dirname(target), { recursive: true });
+	const parent = dirname(target);
+	if (options.vaultRoot !== undefined) {
+		// Check before mkdir so an escaping path cannot create directories as a
+		// side effect, then check again after mkdir resolves the full parent chain.
+		assertWithinVault(options.vaultRoot, target);
+	}
+	mkdirSync(parent, { recursive: true });
+	if (options.vaultRoot !== undefined) {
+		assertWithinVault(options.vaultRoot, target);
+	}
+	const parentIdentity = directoryIdentity(parent);
 
-	const tmpPath = `${target}.tmp-${process.pid}-${Date.now()}`;
+	const nonce = randomBytes(16).toString("hex");
+	const tmpPath = `${target}.tmp-${process.pid}-${nonce}`;
 	let fd: number | null = null;
 	// Track whether the write was committed so cleanup failures on the
 	// success path are surfaced rather than silently swallowed (S5).
 	let writeOk = false;
 	try {
-		fd = openSync(tmpPath, "w");
+		const noFollow = constants.O_NOFOLLOW ?? 0;
+		fd = openSync(
+			tmpPath,
+			constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow,
+			0o600,
+		);
+		// The temp file is still empty here. If a parent symlink or reparse
+		// point was swapped during open, refuse before writing caller content.
+		assertDirectoryIdentity(parent, parentIdentity, options.vaultRoot);
 		writeSync(fd, content, 0, "utf8");
 		fsyncSync(fd);
 		closeSync(fd);
 		fd = null;
+		assertDirectoryIdentity(parent, parentIdentity, options.vaultRoot);
 		try {
 			renameSync(tmpPath, target);
 			writeOk = true; // POSIX atomic rename succeeded
@@ -174,8 +242,9 @@ export function atomicWriteText(targetPath: string, content: string): void {
 			// restore the backup before raising.
 			const code = (err as NodeJS.ErrnoException).code;
 			if (code === "EEXIST" || code === "EPERM" || code === "EACCES") {
-				const backupPath = `${target}.bak-${process.pid}-${Date.now()}`;
+				const backupPath = `${target}.bak-${process.pid}-${nonce}`;
 				try {
+					assertDirectoryIdentity(parent, parentIdentity, options.vaultRoot);
 					renameSync(target, backupPath);
 				} catch {
 					// Target may have vanished between rename failure and backup;
@@ -183,6 +252,7 @@ export function atomicWriteText(targetPath: string, content: string): void {
 					// preserve the original-behavior compatibility for that edge.
 				}
 				try {
+					assertDirectoryIdentity(parent, parentIdentity, options.vaultRoot);
 					renameSync(tmpPath, target);
 					writeOk = true; // Windows fallback rename succeeded
 				} catch (err2) {

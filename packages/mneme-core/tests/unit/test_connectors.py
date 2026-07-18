@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 from mneme_core.connectors import (
+    IngestedMemory,
     LocalMarkdownConnector,
     SourceDocument,
     ingest,
@@ -77,6 +79,31 @@ class TestToMarkdown:
         conn = _StubConnector(_docs(), enabled=True)
         md = to_markdown(ingest(conn, fetched_at=_AT)[0])
         assert "created: 2026-06-02T00:00:00.000000+00:00" in md
+
+    def test_reredacts_manually_constructed_memory_at_render_sink(self) -> None:
+        memory = IngestedMemory(
+            external_id="id-<private>ID_SECRET</private>",
+            source_kind="<private>KIND_SECRET</private>",
+            title="Title <private>TITLE_SECRET</private>",
+            content="Body <private>CONTENT_SECRET</private>",
+            content_hash="<private>HASH_SECRET</private>",
+            fetched_at=_AT,
+            trust="<private>TRUST_SECRET</private>",
+        )
+
+        markdown = to_markdown(memory)
+
+        for secret in (
+            "ID_SECRET",
+            "KIND_SECRET",
+            "TITLE_SECRET",
+            "CONTENT_SECRET",
+            "HASH_SECRET",
+            "TRUST_SECRET",
+        ):
+            assert secret not in markdown
+        expected_hash = hashlib.sha256(b"Body [REDACTED]").hexdigest()
+        assert f"content_hash: {expected_hash}" in markdown
 
 
 class TestLocalMarkdownConnector:

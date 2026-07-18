@@ -10,7 +10,12 @@ from unittest.mock import patch
 import pytest
 
 from mneme_core.vault import atomic_write as aw_module
-from mneme_core.vault.atomic_write import _fsync_dir, atomic_write_text
+from mneme_core.vault.atomic_write import (
+    AtomicWritePathError,
+    _fsync_dir,
+    atomic_write_bytes,
+    atomic_write_text,
+)
 
 
 class TestAtomicWriteText:
@@ -52,6 +57,67 @@ class TestAtomicWriteText:
         raw = target.read_bytes()
         assert b"\r\n" not in raw
         assert raw == b"line1\nline2\n"
+
+    @pytest.mark.skipif(os.name == "nt", reason="symlink creation needs elevation")
+    def test_guarded_write_rejects_symlink_escape(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        outside = tmp_path / "outside"
+        vault.mkdir()
+        outside.mkdir()
+        escape = vault / "escape"
+        escape.symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(AtomicWritePathError):
+            atomic_write_text(
+                escape / "leaked.md", "secret", vault_root=vault
+            )
+
+        assert not (outside / "leaked.md").exists()
+
+    def test_parent_identity_change_fails_before_content_write(
+        self, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "out.md"
+        original = aw_module._directory_identity
+        calls = 0
+
+        def changing_identity(directory: Path) -> tuple[int, int, Path]:
+            nonlocal calls
+            calls += 1
+            dev, ino, resolved = original(directory)
+            if calls > 1:
+                return dev, ino + 1, resolved
+            return dev, ino, resolved
+
+        with (
+            patch.object(aw_module, "_directory_identity", changing_identity),
+            pytest.raises(AtomicWritePathError),
+        ):
+            atomic_write_text(target, "secret", vault_root=tmp_path)
+
+        assert not target.exists()
+        assert not any(".tmp" in entry.name for entry in tmp_path.iterdir())
+
+
+class TestAtomicWriteBytes:
+    def test_creates_and_overwrites_binary_file(self, tmp_path: Path) -> None:
+        target = tmp_path / "artifact.bin"
+        atomic_write_bytes(target, b"first\x00payload", vault_root=tmp_path)
+        atomic_write_bytes(target, b"second\xffpayload", vault_root=tmp_path)
+        assert target.read_bytes() == b"second\xffpayload"
+        assert not any(".tmp" in entry.name for entry in tmp_path.iterdir())
+
+    @pytest.mark.skipif(os.name == "nt", reason="symlink creation needs elevation")
+    def test_guarded_binary_write_rejects_symlink_escape(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        outside = tmp_path / "outside"
+        vault.mkdir()
+        outside.mkdir()
+        escape = vault / "escape"
+        escape.symlink_to(outside, target_is_directory=True)
+        with pytest.raises(AtomicWritePathError):
+            atomic_write_bytes(escape / "leaked.bin", b"secret", vault_root=vault)
+        assert not (outside / "leaked.bin").exists()
 
 
 class TestDirectoryFsync:

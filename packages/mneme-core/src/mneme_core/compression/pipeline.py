@@ -39,6 +39,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from ..privacy import redact, redact_value
 from ..vault.atomic_write import atomic_write_text
 from .config import CompressionConfig
 from .ledger import (
@@ -382,7 +383,10 @@ def run_compression(
     if not prompt.strip():
         return RunReport(status="error", reason="compression_prompt_unavailable")
 
-    payload = json.dumps(events, ensure_ascii=False, default=str)
+    # Staging is a queue, not a trust boundary. Re-walk the loaded values here
+    # so a manually edited or partially written queue entry cannot reach an
+    # external provider merely because capture-time redaction was bypassed.
+    payload = json.dumps(redact_value(events), ensure_ascii=False, default=str)
     payload = _truncate_payload(payload, config.compression.max_payload_bytes)
 
     estimated_cost = _estimate_max_cost(config, payload)
@@ -426,8 +430,11 @@ def run_compression(
 
     real_provider: LlmProvider = provider or AnthropicProvider()
     spec = LlmCallSpec(
-        system=prompt,
-        payload=payload,
+        # Apply the canonical redactor again at the actual provider boundary.
+        # The prompt may be operator-supplied and the payload may have passed
+        # through custom serialization or truncation since the queue walk.
+        system=redact(prompt),
+        payload=redact(payload),
         model=config.compression.model,
         max_tokens=config.compression.max_tokens,
     )
@@ -440,7 +447,10 @@ def run_compression(
         _try_rollback(config.ledger_path, reservation_id)
         return RunReport(status="error", reason=f"provider_unexpected: {exc}")
 
-    if not result.text.strip():
+    # Provider output is external data. Do not trust it to preserve the input
+    # redaction contract before it is persisted in the daily vault log.
+    result_text = redact(result.text)
+    if not result_text.strip():
         # No tokens billed in the empty-output case, but we still
         # release the reservation so the cap headroom recovers.
         _try_rollback(config.ledger_path, reservation_id)
@@ -453,7 +463,7 @@ def run_compression(
 
     daily_path = config.daily_log_dir / f"{_today_iso()}.md"
     existing = _existing_hashes_in(daily_path)
-    new_hashes = _extract_content_hashes(result.text)
+    new_hashes = _extract_content_hashes(result_text)
     if new_hashes and new_hashes.issubset(existing):
         # Duplicate output, no daily-log write. The provider call did
         # happen, so we settle to actual cost rather than rolling back.
@@ -483,7 +493,7 @@ def run_compression(
 
     try:
         _append_to_daily_log(
-            result.text, daily_path, config.daily_log_marker
+            result_text, daily_path, config.daily_log_marker
         )
     except OSError as exc:
         # Daily log write failed after the provider was charged.
