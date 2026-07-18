@@ -21,6 +21,10 @@ the locked baseline numbers used by the regression guards.
 - `head-to-head/`: **Benchmark E** - adapter Protocol for comparing
   mneme to other memory systems on identical data. Ships MnemeAdapter
   (production) and ClaudeMemAdapter (stub).
+- `longmemeval/`: **Benchmark F** - pinned official-schema adapter checks
+  over deterministic synthetic fixtures. It is not an official dataset score.
+- `compaction-recall/`: **Benchmark G** - deterministic CCE checkpoint loss
+  detection and rehydration regression fixture.
 
 ## Running
 
@@ -42,6 +46,8 @@ make bench-latency
 make bench-cost
 make bench-migration
 make bench-head-to-head
+make bench-longmemeval
+make bench-compaction-recall
 ```
 
 Or invoke the scripts directly with their flags:
@@ -52,6 +58,8 @@ python benchmarks/latency/run.py --sessions=100 --queries=1000
 python benchmarks/cost/run.py --turns=20
 python benchmarks/migration/run.py --observations=200
 python benchmarks/head-to-head/run.py --docs-per-topic=30
+python benchmarks/longmemeval/run.py
+python benchmarks/compaction-recall/run.py --output-format=json
 ```
 
 Use `--output path/to/result.json` on any runner to write UTF-8 JSON
@@ -87,6 +95,8 @@ benchmarked packages, benchmark code, or the benchmark workflow.
 | C | Adaptive Context Layer per-primitive savings | Cumulative interaction in real sessions |
 | D | Migration tool structural correctness | Migration of arbitrary user data |
 | E | Adapter contract + head-to-head harness shape | Numbers vs actual claude-mem (Phase J) |
+| F | LongMemEval official-schema adapter plumbing | A score on the official dataset |
+| G | Synthetic CCE compaction-recall recovery | Real-session compaction quality |
 
 Real-world numbers vs operator vault and live claude-mem comparison
 are Phase J dogfood week deliverables.

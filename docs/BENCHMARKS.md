@@ -1,6 +1,6 @@
 # Benchmarks
 
-mneme publishes six reproducible benchmarks. Run them with `make bench-all` or individually as documented below.
+mneme publishes seven reproducible benchmarks. Run them with `make bench-all` or individually as documented below.
 
 ## Reproducibility Contract
 
@@ -13,7 +13,7 @@ make bench-all               # writes to benchmarks/_runs/ (gitignored)
 
 Each run also writes a `hardware.json` capturing CPU model, core count, RAM, OS, Python version, and Node version. This lets results be interpreted in context across operator hardware, CI runners, and contributor machines.
 
-**Re-verified for the 3.0 line (2026-06-12, seed 42, operator hardware):** after the 3.0 feature work (deterministic session distillation, temporal de-gate, policy autonomy, team sync, web console) the locked anchors hold unchanged — Benchmark A nDCG@5 = 0.893, Recall@10 = 1.0; Benchmark B Stop-hook proxy p95 = 2.0 ms, retrieve p95 = 9.8 ms. The new 3.0 surfaces stay off the Stop hot path by design, and the numbers confirm it.
+**Corrected for 3.6.0 (2026-07-18, seed 42):** Benchmark A now guards the shipped production FTS5 path at nDCG@5 0.801, Recall@10 1.0, and MRR 0.734. The former fused 0.893 value was invalid because different FTS5 and BoW identifier domains allowed one relevant document to be counted twice by the old metric. Duplicate-safe nDCG and canonical cross-backend identifiers expose the BoW condition as a degrading lexical-surrogate ablation. It is not a semantic or dense result.
 
 ## Methodology
 
@@ -29,7 +29,7 @@ Conditions compared:
 - `pipeline_fts5_only`, production wrapper with the FTS5 leg only.
 - `baseline_fts5_only`, direct BM25 baseline.
 
-The BoW leg is a benchmark surrogate for fusion regression testing. It is not a shipped LEANN dense adapter.
+The BoW leg is a lexical-surrogate ablation for fusion plumbing. It is not a shipped semantic or dense adapter and is not the quality headline.
 
 ```bash
 make bench-retrieval
@@ -82,7 +82,7 @@ The locked public headline comes from `benchmarks/head-to-head/baseline.json`. R
 
 ## Locked Reference Numbers (operator hardware, seed=42)
 
-Benchmark F numbers are in the [Benchmark F section](#benchmark-f-compaction-recall-1) above.
+Benchmark G numbers are in the [Benchmark G section](#benchmark-g-compaction-recall-1) below.
 
 These numbers are the published baselines for the v1.0 release line. CI regression guards lock the deltas relative to these. Hardware metadata is written next to every run. Reproduce on any machine with `make bench-all`.
 
@@ -93,10 +93,10 @@ These numbers are the published baselines for the v1.0 release line. CI regressi
 | Condition | nDCG@5 | Recall@10 | MRR |
 |---|---|---|---|
 | baseline_fts5_only | 0.801 | 1.00 | 0.734 |
-| pipeline_fts5_only | 0.801 | 1.00 | 0.734 |
-| **pipeline_rrf_fts5_plus_bow** | **0.893** | 1.00 | 0.671 |
+| **pipeline_fts5_only** | **0.801** | **1.00** | **0.734** |
+| pipeline_rrf_fts5_plus_bow, lexical ablation | 0.521 | 0.96 | 0.477 |
 
-Delta: RRF fusion gains **+9.2 nDCG@5 points** over FTS5 alone. Recall@10 saturates at 1.00 for every condition on this title-anchored corpus, so the headline gain is ranking quality (nDCG@5), not recall. MRR dips slightly under RRF because the bag-of-words leg is a synthetic surrogate for the roadmap dense backend, which is expected to recover it. These are the seed-42 figures committed in `benchmarks/retrieval/baseline.json`; `benchmarks/retrieval/regression_guard.py` fails CI on any nDCG@5 drop greater than 0.02.
+The production FTS5 path is the release metric. The BoW fusion ablation lowers nDCG@5 by 0.280 and Recall@10 by 0.04 on this fixture, so 3.6.0 does not present it as a retrieval improvement. These are the seed-42 figures committed in `benchmarks/retrieval/baseline.json`. `benchmarks/retrieval/regression_guard.py` fails CI on a production-path nDCG@5 drop greater than 0.02.
 
 ### Benchmark B: Latency
 
@@ -144,7 +144,18 @@ Synthetic claude-mem fixture, TS CLI invoked via `npx tsx`, four invariants chec
 
 Real-data head-to-head against installed claude-mem is a Phase J dogfood week deliverable.
 
-## Benchmark F: Compaction Recall
+## Benchmark F: LongMemEval Schema Adapter
+
+Validates the FTS5 retrieval adapter against deterministic fixtures that
+conform to the pinned official LongMemEval schema. This is a schema and
+plumbing regression test. It does not download the official dataset and does
+not report a LongMemEval score.
+
+```bash
+make bench-longmemeval
+```
+
+## Benchmark G: Compaction Recall
 
 Measures how much information the CCE self-heal recovers after a host
 compaction drops a deterministic subset of session working-set items.
@@ -190,7 +201,7 @@ CI regression guard: `mneme_selfheal.recall_at_k` drop > 0.05 or
 `headline_recall_gain` drop > 0.05 or `negative_probe.all_passed = false`
 fails the build.
 
-### Benchmark F: Compaction Recall
+### Benchmark G: Compaction Recall
 
 50-fact synthetic working set, 30 facts dropped by seeded compaction, 4000-token
 rehydration budget, greedy highest-salience-first selection.

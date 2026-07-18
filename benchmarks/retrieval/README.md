@@ -61,7 +61,7 @@ Optional flags:
 python benchmarks/retrieval/regression_guard.py result.json
 ```
 
-Compares `conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5` against
+Compares `conditions.pipeline_fts5_only.ndcg_at_5` against
 `baseline.json` and exits non-zero if the metric drops by more than
 0.02. CI calls this after every `run.py` invocation.
 
@@ -71,13 +71,13 @@ Compares `conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5` against
 |---|---|---|---|
 | `baseline_fts5_only` | 0.801 | 1.000 | 0.734 |
 | `pipeline_fts5_only` | 0.801 | 1.000 | 0.734 |
-| `pipeline_rrf_fts5_plus_bow` | **0.893** | 1.000 | 0.671 |
+| `pipeline_rrf_fts5_plus_bow`, lexical ablation | 0.521 | 0.960 | 0.477 |
 
-Headline: **nDCG@5 = 0.893** with RRF fusion, up 9.2 points from the
-single-leg FTS5 baseline. MRR drops because the BoW surrogate pulls
-in cosine-similar same-topic neighbors that displace the target from
-position 1; Recall@10 stays perfect because the target never leaves
-the top-10.
+Headline: production FTS5 **nDCG@5 = 0.801**, Recall@10 = 1.000, and
+MRR = 0.734. The BoW lexical-surrogate ablation degrades all three ranking
+metrics and is retained only to exercise fusion plumbing. The pre-3.6 fused
+0.893 value was invalid because mismatched backend identifiers and a
+duplicate-counting metric scored the same relevant document twice.
 
 ## What this benchmark does not validate
 
