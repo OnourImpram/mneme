@@ -163,6 +163,12 @@ function sanitizeManifestDiagnostic(
 	for (const path of paths) {
 		if (path.length > 0) sanitized = sanitized.split(path).join("[PATH]");
 	}
+	// Canonical source paths can have a different stable lexical alias, such as
+	// macOS /var and /private/var. Redact remaining absolute path tokens without
+	// matching URL path components.
+	sanitized = sanitized
+		.replace(/\b[A-Za-z]:[\\/][^\s"'<>]*/g, "[PATH]")
+		.replace(/(^|[\s"'(])\/(?!\/)[^\s"'<>]*/g, "$1[PATH]");
 	return sanitized.slice(0, 4096);
 }
 

@@ -669,7 +669,7 @@ describe("migrate (full integration)", () => {
 		abortMigrationRollback(
 			vault,
 			handle,
-			`fixture <private>ABORT_SECRET</private> ${dbPath} https://user:pass@example.test/repo`,
+			`fixture <private>ABORT_SECRET</private> ${dbPath} ${join(workDir, "unlisted-secret.txt")} https://user:pass@example.test/repo`,
 		);
 		const manifestRaw = readFileSync(handle.manifestPath, "utf8");
 		const manifest = JSON.parse(manifestRaw) as { abort_reason: string };
@@ -680,6 +680,7 @@ describe("migrate (full integration)", () => {
 		);
 		expect(manifestRaw).not.toContain("ABORT_SECRET");
 		expect(manifest.abort_reason).not.toContain(dbPath);
+		expect(manifest.abort_reason).not.toContain("unlisted-secret.txt");
 		expect(manifestRaw).not.toContain("user:pass");
 		expect(() =>
 			abortMigrationRollback(vault, handle, "repeated abort"),
