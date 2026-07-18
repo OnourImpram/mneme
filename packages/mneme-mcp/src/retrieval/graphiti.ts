@@ -30,9 +30,11 @@
  * FTS5 results.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { wrapUntrusted } from "../injection.js";
 import { redact } from "../privacy.js";
+import { DEFAULT_SCOPE, ScopeSchema } from "../scope.js";
 import type { VaultConfig } from "../vault/config.js";
 
 export interface Neo4jCredentials {
@@ -78,10 +80,78 @@ export interface TimelineFact {
 	invalid_at?: string | null;
 	/** Source episode reference time, useful as a tiebreaker for sort. */
 	reference_time?: string;
+	/** Transaction-time start recorded by Graphiti. */
+	created_at?: string;
+	/** Transaction-time end when this edge was superseded. */
+	expired_at?: string | null;
+	/** Graphiti isolation group that owns the relationship. */
+	group_id?: string;
+}
+
+export interface TimelineQueryOptions {
+	/** Inclusive lower bound for overlap with the valid-time interval. */
+	validFrom?: string;
+	/** Exclusive upper bound for overlap with the valid-time interval. */
+	validToExclusive?: string;
+	/** Transaction-time snapshot. */
+	asOf?: string;
+	/** Concrete vault scope. Only "*" disables scope filtering. */
+	scope?: string;
+}
+
+export interface TimelineQueryResult {
+	facts: TimelineFact[];
+	asOfApplied: boolean;
+	querySucceeded: boolean;
 }
 
 const MAX_GRAPH_HITS = 25;
 const MAX_TIMELINE_FACTS = 50;
+const DEFAULT_GROUP_ID = "mneme-temporal";
+
+function normalizeScope(scope: string | undefined): string {
+	const parsed = ScopeSchema.safeParse(scope ?? DEFAULT_SCOPE);
+	if (!parsed.success) throw new Error("scope is not a valid read selector");
+	return parsed.data;
+}
+
+export function graphitiGroupId(scope: string): string {
+	const normalized = normalizeScope(scope);
+	if (normalized === "*") {
+		throw new Error("'*' is a cross-scope read marker, not a writable scope");
+	}
+	if (normalized === DEFAULT_SCOPE) return DEFAULT_GROUP_ID;
+
+	// Graphiti accepts only ASCII alphanumerics, dashes, and underscores in
+	// group_id. Hashing the UTF-8 scope keeps arbitrary printable vault scopes
+	// deterministic, collision-resistant, and identical across Python and TS.
+	const digest = createHash("sha256").update(normalized, "utf8").digest("hex");
+	return `mneme-${digest}`;
+}
+
+function scopePredicate(
+	alias: string,
+	requestedScope: string | undefined,
+): string {
+	const scope = normalizeScope(requestedScope);
+	if (scope === "*") return "";
+	return scope === DEFAULT_SCOPE
+		? `(${alias}.group_id = $groupId OR ${alias}.group_id IS NULL OR ${alias}.group_id = '')`
+		: `${alias}.group_id = $groupId`;
+}
+
+function scopeParams(
+	requestedScope: string | undefined,
+): Record<string, string> {
+	const scope = normalizeScope(requestedScope);
+	if (scope === "*") return {};
+	return { groupId: graphitiGroupId(scope) };
+}
+
+function redactedOptional(value: unknown): string | undefined {
+	if (value === null || value === undefined) return undefined;
+	return redact(String(value)).text;
+}
 
 /** True when the operator has flipped on the KG leg for this vault. */
 export function isKgActive(vault: VaultConfig): boolean {
@@ -180,24 +250,24 @@ export async function expandTopicNeighborhood(
 	topic: string,
 	scope?: string,
 ): Promise<GraphHit[]> {
-	if (topic.trim().length === 0) return [];
+	const redactedTopic = redact(topic).text;
+	if (redactedTopic.trim().length === 0) return [];
 	const session = driver.session();
 	try {
-		// KG write-side scope stamping is deferred to the Python engine.
-		// OR-NULL keeps legacy un-scoped Entity nodes visible when a scope
-		// is requested; only entities stamped with a different scope are excluded.
-		const scopeClause =
-			scope !== undefined && scope !== "*"
-				? "AND (e.scope = $scope OR e.scope IS NULL)"
-				: "";
-		const params: Record<string, unknown> = { topic, limit: MAX_GRAPH_HITS };
-		if (scope !== undefined && scope !== "*") params.scope = scope;
+		const entityScope = scopePredicate("e", scope);
+		const episodeScope = scopePredicate("ep", scope);
+		const params: Record<string, unknown> = {
+			topic: redactedTopic,
+			limit: MAX_GRAPH_HITS,
+			...scopeParams(scope),
+		};
 		const result = await session.run(
 			`
       MATCH (e:Entity)
       WHERE toLower(e.name) CONTAINS toLower($topic)
-      ${scopeClause}
+			${entityScope.length > 0 ? `AND ${entityScope}` : ""}
       OPTIONAL MATCH (e)-[:MENTIONED_IN]->(ep:Episode)
+			${episodeScope.length > 0 ? `WHERE ${episodeScope}` : ""}
       RETURN e.name AS entity,
              coalesce(e.summary, '') AS summary,
              ep.source_description AS source_doc
@@ -211,7 +281,7 @@ export async function expandTopicNeighborhood(
 				redact(String(r.get("summary") ?? "")).text,
 				"kg-entity",
 			),
-			source_doc: (r.get("source_doc") as string | null) ?? undefined,
+			source_doc: redactedOptional(r.get("source_doc")),
 		}));
 	} catch {
 		return [];
@@ -228,46 +298,41 @@ export async function expandTopicNeighborhood(
  * The shape returned is intentionally flat so the TS timeline tool
  * can merge it with FTS-mtime entries without further reshaping.
  */
-export async function timelineForSubject(
+export async function queryTimelineForSubject(
 	driver: Neo4jDriverLike,
 	subject: string,
-	opts: {
-		validFrom?: string;
-		validTo?: string;
-		asOf?: string;
-		/** KG scope filter. OR-NULL keeps legacy un-scoped nodes visible. */
-		scope?: string;
-	} = {},
-): Promise<TimelineFact[]> {
-	if (subject.trim().length === 0) return [];
+	opts: TimelineQueryOptions = {},
+): Promise<TimelineQueryResult> {
+	const redactedSubject = redact(subject).text;
+	if (redactedSubject.trim().length === 0) {
+		return { facts: [], asOfApplied: false, querySucceeded: false };
+	}
 	const session = driver.session();
 	try {
 		const whereClauses: string[] = [
 			"toLower(s.name) CONTAINS toLower($subject)",
 		];
+		const relationshipScope = scopePredicate("r", opts.scope);
+		if (relationshipScope.length > 0) whereClauses.push(relationshipScope);
 		if (opts.validFrom !== undefined) {
 			whereClauses.push(
-				"(r.valid_at IS NULL OR r.valid_at >= datetime($validFrom))",
+				"(r.invalid_at IS NULL OR r.invalid_at > datetime($validFrom))",
 			);
 		}
-		if (opts.validTo !== undefined) {
+		if (opts.validToExclusive !== undefined) {
 			whereClauses.push(
-				"(r.valid_at IS NULL OR r.valid_at <= datetime($validTo))",
+				"(r.valid_at IS NULL OR r.valid_at < datetime($validToExclusive))",
 			);
 		}
 		if (opts.asOf !== undefined) {
 			whereClauses.push(
-				"(r.valid_at IS NULL OR r.valid_at <= datetime($asOf))",
+				"r.created_at IS NOT NULL AND r.created_at <= datetime($asOf)",
 			);
 			whereClauses.push(
-				"(r.invalid_at IS NULL OR r.invalid_at > datetime($asOf))",
+				"(r.expired_at IS NULL OR r.expired_at > datetime($asOf))",
 			);
-		}
-		if (opts.scope !== undefined && opts.scope !== "*") {
-			// KG write-side scope stamping is deferred to the Python engine.
-			// OR-NULL keeps legacy un-scoped KG nodes visible when a scope is
-			// requested; only nodes stamped with a different scope are excluded.
-			whereClauses.push("(s.scope = $scope OR s.scope IS NULL)");
+		} else {
+			whereClauses.push("r.expired_at IS NULL");
 		}
 		const cypher = `
       MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity)
@@ -277,22 +342,36 @@ export async function timelineForSubject(
              o.name AS object,
              toString(r.valid_at) AS valid_at,
              toString(r.invalid_at) AS invalid_at,
-             toString(r.reference_time) AS reference_time
-      ORDER BY coalesce(r.valid_at, datetime()) ASC
+			 toString(r.reference_time) AS reference_time,
+			 toString(r.created_at) AS created_at,
+			 toString(r.expired_at) AS expired_at,
+			 r.group_id AS group_id
+		ORDER BY coalesce(r.valid_at, r.created_at, datetime({epochMillis: 0})) ASC,
+		         coalesce(r.created_at, datetime({epochMillis: 0})) ASC,
+		         coalesce(r.uuid, '') ASC,
+		         coalesce(s.name, '') ASC,
+		         coalesce(o.name, '') ASC,
+		         coalesce(r.fact, '') ASC
       LIMIT $limit
     `;
-		const result = await session.run(cypher, {
-			subject,
-			validFrom: opts.validFrom,
-			validTo: opts.validTo,
-			asOf: opts.asOf,
-			scope: opts.scope,
+		const params: Record<string, unknown> = {
+			subject: redactedSubject,
 			limit: MAX_TIMELINE_FACTS,
-		});
-		return result.records.map((r) => {
+			...scopeParams(opts.scope),
+		};
+		if (opts.validFrom !== undefined) params.validFrom = opts.validFrom;
+		if (opts.validToExclusive !== undefined) {
+			params.validToExclusive = opts.validToExclusive;
+		}
+		if (opts.asOf !== undefined) params.asOf = opts.asOf;
+		const result = await session.run(cypher, params);
+		const facts = result.records.map((r) => {
 			const validAt = r.get("valid_at");
 			const invalidAt = r.get("invalid_at");
 			const refTime = r.get("reference_time");
+			const createdAt = r.get("created_at");
+			const expiredAt = r.get("expired_at");
+			const groupId = r.get("group_id");
 			return {
 				subject: wrapUntrusted(
 					redact(String(r.get("subject"))).text,
@@ -306,16 +385,32 @@ export async function timelineForSubject(
 					r.get("object") != null
 						? wrapUntrusted(redact(String(r.get("object"))).text, "kg-fact")
 						: undefined,
-				valid_at: validAt ? String(validAt) : undefined,
-				invalid_at: invalidAt ? String(invalidAt) : null,
-				reference_time: refTime ? String(refTime) : undefined,
+				valid_at: redactedOptional(validAt),
+				invalid_at: redactedOptional(invalidAt) ?? null,
+				reference_time: redactedOptional(refTime),
+				created_at: redactedOptional(createdAt),
+				expired_at: redactedOptional(expiredAt) ?? null,
+				group_id: redactedOptional(groupId),
 			};
 		});
+		return {
+			facts,
+			asOfApplied: opts.asOf !== undefined,
+			querySucceeded: true,
+		};
 	} catch {
-		return [];
+		return { facts: [], asOfApplied: false, querySucceeded: false };
 	} finally {
 		await session.close().catch(() => undefined);
 	}
+}
+
+export async function timelineForSubject(
+	driver: Neo4jDriverLike,
+	subject: string,
+	opts: TimelineQueryOptions = {},
+): Promise<TimelineFact[]> {
+	return (await queryTimelineForSubject(driver, subject, opts)).facts;
 }
 
 /** Idempotent close for the dynamically imported driver. */

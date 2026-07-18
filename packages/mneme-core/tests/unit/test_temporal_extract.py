@@ -28,6 +28,23 @@ class _FakeProvider:
         )
 
 
+@dataclass
+class _CapturingProvider:
+    """Records the exact payload sent across the provider boundary."""
+
+    response_text: str
+    seen_payload: str | None = None
+
+    def compress(self, spec: LlmCallSpec) -> CompressionResult:
+        self.seen_payload = spec.payload
+        return CompressionResult(
+            text=self.response_text,
+            tokens_in=10,
+            tokens_out=5,
+            model="fake-model",
+        )
+
+
 class _ErrorProvider:
     """Always raises LlmProviderError."""
 
@@ -104,6 +121,15 @@ class TestRuleBasedCoprula:
         )
         assert len(candidates) >= 1
         assert all(c.claim_key is None for c in candidates)
+
+    def test_scope_is_propagated(self) -> None:
+        candidates = extract_claims_rule_based(
+            "The service is healthy.",
+            source_path="notes/status.md",
+            scope="clinical",
+        )
+        assert candidates
+        assert all(candidate.scope == "clinical" for candidate in candidates)
 
 
 class TestRuleBasedRedaction:
@@ -242,6 +268,19 @@ class TestExtractClaimsNoProvider:
 
 
 class TestExtractClaimsWithFakeProvider:
+    def test_provider_payload_is_redacted_at_dispatch(self) -> None:
+        provider = _CapturingProvider(response_text="[]")
+
+        extract_claims(
+            "The location is <private>provider-canary</private> confirmed.",
+            source_path="notes/p.md",
+            provider=provider,
+        )
+
+        assert provider.seen_payload is not None
+        assert "provider-canary" not in provider.seen_payload
+        assert "[REDACTED]" in provider.seen_payload
+
     def test_parses_json_array_from_provider(self) -> None:
         canned = '[{"statement": "The server is active.", "valid_from": "2026-01-01"}]'
         provider = _FakeProvider(response_text=canned)
@@ -253,6 +292,16 @@ class TestExtractClaimsWithFakeProvider:
         assert candidates[0].source_path == "notes/p.md"
         assert candidates[0].valid_from is not None
         assert candidates[0].valid_from.year == 2026
+
+    def test_provider_candidate_keeps_source_scope(self) -> None:
+        provider = _FakeProvider(response_text='[{"statement": "The server is active."}]')
+        candidates = extract_claims(
+            "anything",
+            source_path="notes/p.md",
+            scope="research",
+            provider=provider,
+        )
+        assert candidates[0].scope == "research"
 
     def test_statements_are_redacted(self) -> None:
         canned = '[{"statement": "Location is <private>secret-city</private> confirmed."}]'

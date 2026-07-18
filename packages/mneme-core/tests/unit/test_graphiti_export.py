@@ -5,12 +5,15 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 
+import pytest
+
 from mneme_core.temporal.claim import Claim, ConfidenceLabel
 from mneme_core.temporal.extract import ClaimCandidate
 from mneme_core.temporal.graphiti_export import (
     episode_from_candidate,
     episode_from_claim,
     episodes_from_candidates,
+    group_id_for_scope,
 )
 
 # ---------------------------------------------------------------------------
@@ -24,6 +27,7 @@ def _candidate(
     valid_from: datetime | None = None,
     valid_to: datetime | None = None,
     observed_at: datetime | None = None,
+    scope: str = "default",
 ) -> ClaimCandidate:
     return ClaimCandidate(
         statement=statement,
@@ -31,6 +35,7 @@ def _candidate(
         valid_from=valid_from,
         valid_to=valid_to,
         observed_at=observed_at,
+        scope=scope,
     )
 
 
@@ -40,6 +45,7 @@ def _claim(
     valid_from: datetime | None = None,
     observed_at: datetime | None = None,
     confidence_label: ConfidenceLabel = ConfidenceLabel.EXTRACTED,
+    scope: str = "default",
 ) -> Claim:
     return Claim(
         claim_id="test-claim-001",
@@ -54,6 +60,7 @@ def _claim(
         confidence_label=confidence_label,
         trust="user",
         content_hash="abc123",
+        scope=scope,
     )
 
 
@@ -83,6 +90,12 @@ class TestEpisodeFromCandidateShape:
     def test_group_id_is_mneme_temporal(self) -> None:
         ep = episode_from_candidate(_candidate())
         assert ep["group_id"] == "mneme-temporal"
+
+    def test_non_default_scope_has_isolated_group_id(self) -> None:
+        ep = episode_from_candidate(_candidate(scope="clinical"))
+        assert ep["group_id"] == (
+            "mneme-98569e7e9080addd9e387d4674b33830a6c516ea67a150b1f2aae304e17f7b06"
+        )
 
     def test_source_description_is_path(self) -> None:
         ep = episode_from_candidate(_candidate(source_path="notes/ops.md"))
@@ -189,6 +202,32 @@ class TestEpisodesFromCandidates:
 # ---------------------------------------------------------------------------
 
 
+class TestGraphitiFinalRedactionBoundary:
+    def test_candidate_payload_and_path_are_redacted(self) -> None:
+        episode = episode_from_candidate(
+            _candidate(
+                statement="Status is <private>candidate-canary</private> stable.",
+                source_path="notes/<private>path-canary</private>.md",
+            )
+        )
+
+        assert "candidate-canary" not in str(episode)
+        assert "path-canary" not in str(episode)
+        assert "[REDACTED]" in str(episode)
+
+    def test_claim_payload_and_path_are_redacted(self) -> None:
+        episode = episode_from_claim(
+            _claim(
+                statement="Status is <private>claim-canary</private> stable.",
+                path="notes/<private>claim-path-canary</private>.md",
+            )
+        )
+
+        assert "claim-canary" not in str(episode)
+        assert "claim-path-canary" not in str(episode)
+        assert "[REDACTED]" in str(episode)
+
+
 class TestEpisodeFromClaim:
     def test_required_keys_present(self) -> None:
         ep = episode_from_claim(_claim())
@@ -210,6 +249,30 @@ class TestEpisodeFromClaim:
     def test_group_id_is_mneme_temporal(self) -> None:
         ep = episode_from_claim(_claim())
         assert ep["group_id"] == "mneme-temporal"
+
+    def test_non_default_scope_has_isolated_group_id(self) -> None:
+        ep = episode_from_claim(_claim(scope="research"))
+        assert ep["group_id"] == (
+            "mneme-66f62d1807d3821a3865f2573b69c74be033f1341240ac861fefc6d430bff5e0"
+        )
+
+
+class TestGroupIdForScope:
+    def test_arbitrary_printable_scope_uses_graphiti_safe_grammar(self) -> None:
+        group_id = group_id_for_scope("Clinical / İstanbul")
+        assert group_id == (
+            "mneme-ef48898e4bef242fbe5c13e4c00230a74c085f094ae2a6e0ed8ef25cc6308a25"
+        )
+        assert group_id.replace("-", "").replace("_", "").isalnum()
+
+    def test_wildcard_is_never_writable(self) -> None:
+        with pytest.raises(ValueError, match="cross-scope read marker"):
+            group_id_for_scope("*")
+
+    @pytest.mark.parametrize("scope", [" clinical ", "clinical*", "\u200bclinical"])
+    def test_malformed_scope_is_never_exported(self, scope: str) -> None:
+        with pytest.raises(ValueError, match="concrete valid identifier"):
+            group_id_for_scope(scope)
 
     def test_source_description_is_path(self) -> None:
         ep = episode_from_claim(_claim(path="notes/facts.md"))

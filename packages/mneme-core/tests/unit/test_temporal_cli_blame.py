@@ -30,6 +30,7 @@ def _insert(conn: sqlite3.Connection, claim_id: str, **kw: object) -> None:
         "confidence_label": "EXTRACTED",
         "trust": "user",
         "content_hash": "0" * 64,
+        "scope": kw.get("scope", "default"),
         "indexed_at": datetime.now(UTC).isoformat(),
     }
     cols = ", ".join(row)
@@ -77,6 +78,7 @@ class TestTemporalBlameCli:
         assert report["target"]["claim_id"] == "c2"
         assert [c["claim_id"] for c in report["ancestors"]] == ["c1"]
         assert [c["claim_id"] for c in report["rivals"]] == ["c3"]
+        assert report["target"]["scope"] == "default"
 
     def test_blame_by_path(self, vault: VaultConfig) -> None:
         runner = CliRunner()
@@ -119,3 +121,91 @@ class TestTemporalContradictionsCli:
         ids = {data["contradictions"][0]["a"]["claim_id"],
                data["contradictions"][0]["b"]["claim_id"]}
         assert ids == {"c2", "c3"}
+
+    def test_wildcard_preserves_equal_pair_identity_per_scope(
+        self, vault: VaultConfig
+    ) -> None:
+        conn = sqlite3.connect(vault.fts5_db)
+        _insert(
+            conn,
+            "c2",
+            scope="clinical",
+            claim_key="user.location",
+            observed_at="2026-02-01T00:00:00+00:00",
+        )
+        _insert(
+            conn,
+            "c3",
+            scope="clinical",
+            claim_key="user.location",
+            observed_at="2026-02-15T00:00:00+00:00",
+        )
+        conn.commit()
+        conn.close()
+
+        result = CliRunner().invoke(
+            cli,
+            [
+                "temporal",
+                "contradictions",
+                "--vault",
+                str(vault.root),
+                "--scope",
+                "*",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["scope"] == "*"
+        assert data["count"] == 2
+        assert {item["scope"] for item in data["contradictions"]} == {
+            "default",
+            "clinical",
+        }
+
+
+class TestTemporalSnapshotScopeCli:
+    def test_as_of_uses_configured_default_scope(self, vault: VaultConfig) -> None:
+        conn = sqlite3.connect(vault.fts5_db)
+        _insert(
+            conn,
+            "clinical-only",
+            scope="clinical",
+            observed_at="2026-01-15T00:00:00+00:00",
+        )
+        conn.commit()
+        conn.close()
+
+        result = CliRunner().invoke(
+            cli,
+            [
+                "temporal",
+                "as-of",
+                "2026-03-01T00:00:00+00:00",
+                "--vault",
+                str(vault.root),
+            ],
+            env={"MNEME_SCOPE": "clinical"},
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["scope"] == "clinical"
+        assert {claim["claim_id"] for claim in data["claims"]} == {
+            "clinical-only"
+        }
+        assert {claim["scope"] for claim in data["claims"]} == {"clinical"}
+
+    def test_invalid_scope_is_rejected(self, vault: VaultConfig) -> None:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "temporal",
+                "current",
+                "--vault",
+                str(vault.root),
+                "--scope",
+                " invalid ",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "scope must be a valid identifier" in result.output

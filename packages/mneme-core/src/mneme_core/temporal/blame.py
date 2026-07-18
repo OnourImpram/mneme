@@ -46,19 +46,26 @@ class BlameReport:
     rivals: list[Claim] = field(default_factory=list)
 
 
-def _claim_by_id(conn: sqlite3.Connection, claim_id: str) -> Claim | None:
+def _claim_by_id(
+    conn: sqlite3.Connection,
+    claim_id: str,
+    scope: str = "default",
+) -> Claim | None:
     row = conn.execute(
-        f"SELECT {_all_columns()} FROM claims WHERE claim_id = ?",  # noqa: S608
-        (claim_id,),
+        f"SELECT {_all_columns()} FROM claims "  # noqa: S608
+        "WHERE claim_id = ? AND scope = ?",
+        (claim_id, scope),
     ).fetchone()
     return _row_to_claim(row) if row is not None else None
 
 
-def _claims_by_path(conn: sqlite3.Connection, path: str) -> list[Claim]:
+def _claims_by_path(conn: sqlite3.Connection, path: str, scope: str) -> list[Claim]:
+    scope_sql = "" if scope == "*" else "AND scope = ?"
+    params = (path,) if scope == "*" else (path, scope)
     rows = conn.execute(
         f"SELECT {_all_columns()} FROM claims WHERE path = ? "  # noqa: S608
-        "ORDER BY observed_at, claim_id",
-        (path,),
+        f"{scope_sql} ORDER BY observed_at, scope, claim_id",
+        params,
     ).fetchall()
     return [_row_to_claim(r) for r in rows]
 
@@ -71,7 +78,7 @@ def _walk_ancestors(conn: sqlite3.Connection, start: Claim) -> list[Claim]:
         if cursor in visited:
             break
         visited.add(cursor)
-        prev = _claim_by_id(conn, cursor)
+        prev = _claim_by_id(conn, cursor, start.scope)
         if prev is None:
             break
         chain.append(prev)
@@ -82,21 +89,24 @@ def _walk_ancestors(conn: sqlite3.Connection, start: Claim) -> list[Claim]:
 def _walk_descendants(conn: sqlite3.Connection, start: Claim) -> list[Claim]:
     chain: list[Claim] = []
     visited = {start.claim_id}
-    cursor = start.claim_id
-    while len(chain) < _MAX_CHAIN:
-        row = conn.execute(
+    queue = [start.claim_id]
+    while queue and len(chain) < _MAX_CHAIN:
+        cursor = queue.pop(0)
+        rows = conn.execute(
             f"SELECT {_all_columns()} FROM claims WHERE supersedes = ? "  # noqa: S608
-            "ORDER BY observed_at, claim_id LIMIT 1",
-            (cursor,),
-        ).fetchone()
-        if row is None:
-            break
-        nxt = _row_to_claim(row)
-        if nxt.claim_id in visited:
-            break
-        visited.add(nxt.claim_id)
-        chain.append(nxt)
-        cursor = nxt.claim_id
+            "AND scope = ? "
+            "ORDER BY observed_at, claim_id",
+            (cursor, start.scope),
+        ).fetchall()
+        for row in rows:
+            if len(chain) >= _MAX_CHAIN:
+                break
+            nxt = _row_to_claim(row)
+            if nxt.claim_id in visited:
+                continue
+            visited.add(nxt.claim_id)
+            chain.append(nxt)
+            queue.append(nxt.claim_id)
     return chain
 
 
@@ -105,13 +115,19 @@ def _rivals(conn: sqlite3.Connection, target: Claim) -> list[Claim]:
         return []
     rows = conn.execute(
         f"SELECT {_all_columns()} FROM claims "  # noqa: S608
-        "WHERE claim_key = ? AND claim_id != ? ORDER BY observed_at, claim_id",
-        (target.claim_key, target.claim_id),
+        "WHERE claim_key = ? AND claim_id != ? AND scope = ? "
+        "ORDER BY observed_at, claim_id",
+        (target.claim_key, target.claim_id, target.scope),
     ).fetchall()
     return [_row_to_claim(r) for r in rows]
 
 
-def blame(conn: sqlite3.Connection, ref: str) -> list[BlameReport]:
+def blame(
+    conn: sqlite3.Connection,
+    ref: str,
+    *,
+    scope: str = "default",
+) -> list[BlameReport]:
     """Resolve *ref* (claim_id or vault-relative path) into blame reports.
 
     Returns an empty list when the claims table is absent or the ref
@@ -119,13 +135,20 @@ def blame(conn: sqlite3.Connection, ref: str) -> list[BlameReport]:
     """
     if not _table_exists(conn):
         return []
-    targets: list[Claim] = []
-    by_id = _claim_by_id(conn, ref)
-    if by_id is not None:
-        targets = [by_id]
+    targets: list[Claim]
+    if scope == "*":
+        rows = conn.execute(
+            f"SELECT {_all_columns()} FROM claims "  # noqa: S608
+            "WHERE claim_id = ? ORDER BY scope",
+            (ref,),
+        ).fetchall()
+        targets = [_row_to_claim(row) for row in rows]
     else:
+        by_id = _claim_by_id(conn, ref, scope)
+        targets = [by_id] if by_id is not None else []
+    if not targets:
         normalized = ref.replace("\\", "/").strip()
-        targets = _claims_by_path(conn, normalized)
+        targets = _claims_by_path(conn, normalized, scope)
     return [
         BlameReport(
             target=t,

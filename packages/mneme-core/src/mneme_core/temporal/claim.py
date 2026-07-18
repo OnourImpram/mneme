@@ -3,8 +3,8 @@
 A ``Claim`` is a single temporal fact extracted verbatim from vault markdown
 frontmatter.  Every claim is EXTRACTED (verbatim) at index time.  INFERRED is
 reserved for a future producer; AMBIGUOUS is a query-time overlay applied only
-when a claim participates in a contradiction set (same ``claim_key``, overlapping
-validity window).
+when a claim participates in a contradiction set (same ``claim_key``, different
+statement, overlapping validity window).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any
 
 from ..privacy import redact
+from ..scope import concrete_scope_or_none
 from ..vault.frontmatter import _parse_dt
 
 
@@ -67,8 +68,8 @@ class Claim:
         ``claim_id`` of the claim this one supersedes, or ``None``.
     claim_key:
         Semantic deduplication key (e.g. ``"user.location"``). Claims sharing
-        the same non-null ``claim_key`` with overlapping windows are
-        contradictions.
+        the same non-null ``claim_key`` with different statements and
+        overlapping windows are contradictions.
     confidence_label:
         ``EXTRACTED`` at index time; ``AMBIGUOUS`` overlaid by query layer for
         contradiction-set members.
@@ -76,6 +77,9 @@ class Claim:
         Provenance trust level (``"user"`` for vault-authored notes).
     content_hash:
         SHA-256 hex digest of the source file content (after redaction).
+    scope:
+        Vault scope that owns the claim. ``default`` is used when neither
+        ``scope`` nor the legacy ``project`` frontmatter field is present.
     """
 
     claim_id: str
@@ -96,6 +100,7 @@ class Claim:
     confidence_label: ConfidenceLabel
     trust: str
     content_hash: str
+    scope: str = "default"
 
 
 def _extract_title(body: str, fm: dict[str, Any]) -> str:
@@ -140,7 +145,9 @@ def claim_from_note(
     Returns ``None`` when the note carries none of ``valid_from``, ``valid_to``,
     ``observed_at`` in frontmatter AND its ``type`` is not ``"claim"``.
 
-    Malformed date fields are silently treated as ``None`` (never raise).
+    Returns ``None`` when supplied temporal metadata is malformed, when no
+    valid observation time is available, or when the validity window is
+    empty or reversed. Invalid metadata never widens a claim's visibility.
 
     Parameters
     ----------
@@ -166,33 +173,42 @@ def claim_from_note(
     if not has_temporal and not is_claim_type:
         return None
 
-    # --- Parse temporal fields gracefully (malformed -> None, never raise) ---
+    # --- Parse temporal fields fail closed. ---
     valid_from: datetime | None = None
     raw_vf = frontmatter.get("valid_from")
     if raw_vf is not None:
-        valid_from = _parse_dt(raw_vf)  # returns None on malformed
+        valid_from = _parse_dt(raw_vf)
+        if valid_from is None:
+            return None
 
     valid_to: datetime | None = None
     raw_vt = frontmatter.get("valid_to")
     if raw_vt is not None:
         valid_to = _parse_dt(raw_vt)
+        if valid_to is None:
+            return None
 
     observed_at: datetime | None = None
     raw_oa = frontmatter.get("observed_at")
     if raw_oa is not None:
         observed_at = _parse_dt(raw_oa)
-
-    # Fall back to frontmatter ``created`` when observed_at absent or malformed
-    if observed_at is None:
+        if observed_at is None:
+            return None
+    else:
         raw_created = frontmatter.get("created")
         if raw_created is not None:
             observed_at = _parse_dt(raw_created)
+            if observed_at is None:
+                return None
+        else:
+            return None
 
-    # If still None, use epoch sentinel (mirrors _mtime_to_dt(None))
-    if observed_at is None:
-        from datetime import UTC
-
-        observed_at = datetime.fromtimestamp(0, tz=UTC)
+    if (
+        valid_from is not None
+        and valid_to is not None
+        and _to_utc_iso(valid_from) >= _to_utc_iso(valid_to)
+    ):
+        return None
 
     # --- Statement extraction + redaction ---
     raw_statement = frontmatter.get("statement")
@@ -211,6 +227,17 @@ def claim_from_note(
 
     claim_key_raw = frontmatter.get("claim_key")
     claim_key: str | None = str(claim_key_raw) if claim_key_raw is not None else None
+
+    if (
+        "scope" in frontmatter
+        and "project" in frontmatter
+        and frontmatter["scope"] != frontmatter["project"]
+    ):
+        return None
+    scope_raw = frontmatter.get("scope", frontmatter.get("project", "default"))
+    scope = concrete_scope_or_none(scope_raw)
+    if scope is None:
+        return None
 
     # Fix B: use the note's stable frontmatter id as claim_id so that
     # `supersedes: <other-note-id>` references resolve correctly.
@@ -234,4 +261,5 @@ def claim_from_note(
         confidence_label=ConfidenceLabel.EXTRACTED,
         trust="user",
         content_hash=content_hash,
+        scope=scope,
     )
