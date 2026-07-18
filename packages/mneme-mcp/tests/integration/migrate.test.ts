@@ -7,6 +7,7 @@
  * Python process is spawned; the TS layer is self-contained.
  */
 
+import { createHmac } from "node:crypto";
 import {
 	existsSync,
 	mkdirSync,
@@ -101,6 +102,28 @@ const SCHEMA_STATEMENTS: string[] = [
      created_at TEXT
    )`,
 ];
+
+function rewriteSignedRollbackManifest(
+	manifestPath: string,
+	vaultRoot: string,
+	mutate: (manifest: Record<string, unknown>) => void,
+): void {
+	const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	mutate(manifest);
+	const body = { ...manifest };
+	delete body.integrity_hmac;
+	const key = readFileSync(
+		join(vaultRoot, ".mneme", "migration-integrity.key"),
+	);
+	manifest.integrity_hmac = createHmac("sha256", key)
+		.update("mneme-migration-rollback-v2\0")
+		.update(JSON.stringify(body))
+		.digest("hex");
+	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
 
 function makeFixtureDb(path: string, rows: FixtureRow[]): void {
 	const db = new Database(path);
@@ -669,7 +692,7 @@ describe("migrate (full integration)", () => {
 		abortMigrationRollback(
 			vault,
 			handle,
-			`fixture <private>ABORT_SECRET</private> ${dbPath} ${join(workDir, "unlisted-secret.txt")} https://user:pass@example.test/repo`,
+			`fixture <private>ABORT_SECRET</private> ${dbPath} ${join(workDir, "unlisted-secret.txt")} source=/Users/alice/private.db [/var/private.db] file:///Users/alice/private.db unc=\\\\server\\alice\\secret.db file://localhost/Users/alice/private.db https://user:pass@example.test/repo`,
 		);
 		const manifestRaw = readFileSync(handle.manifestPath, "utf8");
 		const manifest = JSON.parse(manifestRaw) as { abort_reason: string };
@@ -681,6 +704,11 @@ describe("migrate (full integration)", () => {
 		expect(manifestRaw).not.toContain("ABORT_SECRET");
 		expect(manifest.abort_reason).not.toContain(dbPath);
 		expect(manifest.abort_reason).not.toContain("unlisted-secret.txt");
+		expect(manifest.abort_reason).not.toContain("/Users/alice/private.db");
+		expect(manifest.abort_reason).not.toContain("/var/private.db");
+		expect(manifest.abort_reason).not.toContain("server\\alice");
+		expect(manifest.abort_reason).not.toContain("localhost/Users");
+		expect(manifest.abort_reason).toContain("[[PATH]]");
 		expect(manifestRaw).not.toContain("user:pass");
 		expect(() =>
 			abortMigrationRollback(vault, handle, "repeated abort"),
@@ -822,11 +850,13 @@ describe("migrate (full integration)", () => {
 		expect(existsSync(exportRoot)).toBe(false);
 	});
 
-	it("canonicalizes a stable parent alias before preparing a source move", () => {
+	it("uses a canonical source target through alias move and rollback", () => {
 		const sourceRoot = join(workDir, "canonical-source");
 		const aliasRoot = join(workDir, "source-alias");
+		const exportRoot = join(vault.root, "imported", "claude-mem");
 		mkdirSync(sourceRoot, { recursive: true });
 		const source = join(sourceRoot, "claude-mem.db");
+		const aliasedSource = join(aliasRoot, "claude-mem.db");
 		makeFixtureDb(source, [sampleRow()]);
 		symlinkSync(
 			sourceRoot,
@@ -836,8 +866,8 @@ describe("migrate (full integration)", () => {
 
 		const handle = prepareMigrationRollback(
 			vault,
-			join(vault.root, "imported", "claude-mem"),
-			join(aliasRoot, "claude-mem.db"),
+			exportRoot,
+			aliasedSource,
 			"move",
 		);
 		const manifest = JSON.parse(readFileSync(handle.manifestPath, "utf8")) as {
@@ -845,6 +875,138 @@ describe("migrate (full integration)", () => {
 		};
 
 		expect(manifest.source_db).toBe(realpathSync(source));
+		const stagedArchive = join(handle.stagingRoot, "_archive", "claude-mem.db");
+		mkdirSync(join(handle.stagingRoot, "_archive"), { recursive: true });
+		writeFileSync(stagedArchive, readFileSync(source));
+		finalizeMigrationRollback(vault, handle, {
+			sourceMoved: true,
+			archivePath: join(exportRoot, "_archive", "claude-mem.db"),
+		});
+		expect(existsSync(source)).toBe(false);
+
+		const rollback = rollbackMigration({
+			vault,
+			manifestPath: handle.manifestPath,
+			confirmSourceRestore: true,
+			sourceRestorePath: aliasedSource,
+		});
+		expect(rollback.status).toBe("ok");
+		expect(rollback.sourceRestored).toBe(true);
+		expect(existsSync(source)).toBe(true);
+	});
+
+	it("fails closed for a signed schema v2 lexical source alias", () => {
+		const sourceRoot = join(workDir, "legacy-canonical-source");
+		const aliasRoot = join(workDir, "legacy-source-alias");
+		mkdirSync(sourceRoot, { recursive: true });
+		const source = join(sourceRoot, "claude-mem.db");
+		const aliasedSource = join(aliasRoot, "claude-mem.db");
+		makeFixtureDb(source, [sampleRow()]);
+		symlinkSync(
+			sourceRoot,
+			aliasRoot,
+			process.platform === "win32" ? "junction" : "dir",
+		);
+
+		const stats = migrate({
+			sourceDb: aliasedSource,
+			vault,
+			archive: "move",
+			confirmDelete: true,
+		});
+		expect(stats.status).toBe("ok");
+		const manifestPath = stats.rollbackManifestPath ?? "";
+		rewriteSignedRollbackManifest(manifestPath, vault.root, (manifest) => {
+			const runId = String(manifest.run_id);
+			manifest.source_db = aliasedSource;
+			manifest.source_quarantine_path = join(
+				aliasRoot,
+				`.claude-mem.db.mneme-migration-${runId}`,
+			);
+		});
+
+		const aliasRefused = rollbackMigration({
+			vault,
+			manifestPath,
+			confirmSourceRestore: true,
+			sourceRestorePath: aliasedSource,
+		});
+		expect(aliasRefused.status).toBe("error");
+		expect(aliasRefused.errors.join(" ")).toContain("unbound source alias");
+
+		const canonicalRefused = rollbackMigration({
+			vault,
+			manifestPath,
+			confirmSourceRestore: true,
+			sourceRestorePath: source,
+		});
+		expect(canonicalRefused.status).toBe("error");
+		expect(canonicalRefused.errors.join(" ")).toContain("unbound source alias");
+		expect(existsSync(source)).toBe(false);
+		expect(
+			existsSync(join(stats.exportRoot, "_archive", "claude-mem.db")),
+		).toBe(true);
+	});
+
+	it("refuses a signed schema v2 alias retargeted after migration", () => {
+		const sourceRoot = join(workDir, "retarget-original-source");
+		const redirectedRoot = join(workDir, "retarget-redirected-source");
+		const aliasRoot = join(workDir, "retarget-source-alias");
+		mkdirSync(sourceRoot, { recursive: true });
+		mkdirSync(redirectedRoot, { recursive: true });
+		const source = join(sourceRoot, "claude-mem.db");
+		const redirectedSource = join(redirectedRoot, "claude-mem.db");
+		const aliasedSource = join(aliasRoot, "claude-mem.db");
+		makeFixtureDb(source, [sampleRow()]);
+		symlinkSync(
+			sourceRoot,
+			aliasRoot,
+			process.platform === "win32" ? "junction" : "dir",
+		);
+
+		const stats = migrate({
+			sourceDb: aliasedSource,
+			vault,
+			archive: "move",
+			confirmDelete: true,
+		});
+		expect(stats.status).toBe("ok");
+		const manifestPath = stats.rollbackManifestPath ?? "";
+		rewriteSignedRollbackManifest(manifestPath, vault.root, (manifest) => {
+			const runId = String(manifest.run_id);
+			manifest.source_db = aliasedSource;
+			manifest.source_quarantine_path = join(
+				aliasRoot,
+				`.claude-mem.db.mneme-migration-${runId}`,
+			);
+		});
+		rmSync(aliasRoot, { recursive: true, force: true });
+		symlinkSync(
+			redirectedRoot,
+			aliasRoot,
+			process.platform === "win32" ? "junction" : "dir",
+		);
+
+		const rollback = rollbackMigration({
+			vault,
+			manifestPath,
+			confirmSourceRestore: true,
+			sourceRestorePath: source,
+		});
+		expect(rollback.status).toBe("error");
+		expect(rollback.errors.join(" ")).toContain("unbound source alias");
+		const redirectedCanonicalRefused = rollbackMigration({
+			vault,
+			manifestPath,
+			confirmSourceRestore: true,
+			sourceRestorePath: redirectedSource,
+		});
+		expect(redirectedCanonicalRefused.status).toBe("error");
+		expect(redirectedCanonicalRefused.errors.join(" ")).toContain(
+			"unbound source alias",
+		);
+		expect(existsSync(source)).toBe(false);
+		expect(existsSync(redirectedSource)).toBe(false);
 	});
 
 	it.skipIf(process.platform === "win32")(

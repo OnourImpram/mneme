@@ -94,6 +94,8 @@
 
 - [x] Complete independent release integrity, privacy, retrieval, and OSS maintainer reviews.
 - [x] Resolve all P0 and P1 findings and document remaining P2 risks.
+- [ ] Close the follow-up P1 review findings for canonical migration rollback, signed schema v2 aliases, and diagnostic path redaction.
+- [ ] Close the Python 3.11 Windows proposal-queue lock timeout found by the final CI matrix.
 - [x] Upgrade all 18 version sources to 3.6.0 only after preceding local gates pass.
 - [x] Complete changelog, upgrading guide, ADRs, benchmarks, and engineering report for the precommit candidate.
 - [ ] Run full final matrices and release dry run at the exact final SHA.
@@ -130,4 +132,4 @@
 
 ## Review notes
 
-Local integration and four independent reviews are complete. All identified P0 and P1 findings are closed. Final SHA matrices, release dry run, clean delivery state, and external GitHub checks remain open.
+The first remote candidate passed every job except Python 3.11 on Windows, where 100 concurrent durable queue writes exceeded the one-second lock wait. A follow-up independent review also found three P1 migration compatibility defects: an accepted source-parent alias could not complete rollback, signed schema v2 lexical alias paths could not be matched during restore, and some delimiter-bound absolute paths remained visible in persisted diagnostics. These findings are open until targeted tests, broad regressions, and the final exact-SHA remote gates pass.

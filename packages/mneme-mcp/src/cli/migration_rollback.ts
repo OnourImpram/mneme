@@ -164,11 +164,13 @@ function sanitizeManifestDiagnostic(
 		if (path.length > 0) sanitized = sanitized.split(path).join("[PATH]");
 	}
 	// Canonical source paths can have a different stable lexical alias, such as
-	// macOS /var and /private/var. Redact remaining absolute path tokens without
-	// matching URL path components.
+	// macOS /var and /private/var. Redact remaining absolute path tokens while
+	// retaining closing punctuation that gives the diagnostic useful structure.
 	sanitized = sanitized
-		.replace(/\b[A-Za-z]:[\\/][^\s"'<>]*/g, "[PATH]")
-		.replace(/(^|[\s"'(])\/(?!\/)[^\s"'<>]*/g, "$1[PATH]");
+		.replace(/\bfile:\/\/[^\s"'<>\])};,]*/gi, "file://[PATH]")
+		.replace(/\\\\[^\s"'<>\])};,]*/g, "[PATH]")
+		.replace(/\b[A-Za-z]:[\\/][^\s"'<>\])};,]*/g, "[PATH]")
+		.replace(/(^|[^A-Za-z0-9/])\/(?!\/)[^\s"'<>\])};,]*/g, "$1[PATH]");
 	return sanitized.slice(0, 4096);
 }
 
@@ -441,9 +443,29 @@ function canonicalExternalRegularFile(path: string): string {
 
 function canonicalExternalTarget(path: string): string {
 	const resolved = resolvePath(path);
-	return join(
-		canonicalExternalDirectory(dirname(resolved)),
-		basename(resolved),
+	if (existsSync(resolved) && lstatSync(resolved).isSymbolicLink()) {
+		throw new Error("source restore target must not be a symlink");
+	}
+	const lexicalParent = dirname(resolved);
+	const firstCanonicalParent = realpathSync(lexicalParent);
+	const before = directoryIdentity(firstCanonicalParent);
+	const confirmedCanonicalParent = realpathSync(lexicalParent);
+	const after = directoryIdentity(confirmedCanonicalParent);
+	if (
+		!sameResolvedPath(firstCanonicalParent, confirmedCanonicalParent) ||
+		before.dev !== after.dev ||
+		before.ino !== after.ino ||
+		!sameResolvedPath(before.realpath, after.realpath)
+	) {
+		throw new Error("source restore parent identity changed");
+	}
+	return join(confirmedCanonicalParent, basename(resolved));
+}
+
+function signedSourcePathIsCanonical(manifest: RollbackManifest): boolean {
+	return sameResolvedPath(
+		resolvePath(manifest.source_db),
+		canonicalExternalTarget(manifest.source_db),
 	);
 }
 
@@ -1212,29 +1234,30 @@ function quarantineSourceForMove(manifest: RollbackManifest): void {
 	if (manifest.source_sha256 === null) {
 		throw new Error("move migration lacks source hash evidence");
 	}
-	if (existsSync(manifest.source_quarantine_path)) {
-		if (existsSync(manifest.source_db)) {
+	const sourceDb = canonicalExternalTarget(manifest.source_db);
+	const sourceQuarantinePath = canonicalExternalTarget(
+		manifest.source_quarantine_path,
+	);
+	if (existsSync(sourceQuarantinePath)) {
+		if (existsSync(sourceDb)) {
 			throw new Error("both source and source quarantine exist");
 		}
 		return;
 	}
-	assertSourceHasNoSqliteSidecars(manifest.source_db);
-	const ancestors = externalAncestorIdentities(dirname(manifest.source_db));
-	const sourceHash = hashRegularFile(
-		manifest.source_db,
-		MAX_SNAPSHOT_BYTES,
-	).sha256;
+	assertSourceHasNoSqliteSidecars(sourceDb);
+	const ancestors = externalAncestorIdentities(dirname(sourceDb));
+	const sourceHash = hashRegularFile(sourceDb, MAX_SNAPSHOT_BYTES).sha256;
 	if (sourceHash !== manifest.source_sha256) {
 		throw new Error("source DB changed after migration staging");
 	}
 	assertExternalAncestorIdentities(ancestors);
-	renameSync(manifest.source_db, manifest.source_quarantine_path);
+	renameSync(sourceDb, sourceQuarantinePath);
 	try {
 		assertExternalAncestorIdentities(ancestors);
-		assertSourceHasNoSqliteSidecars(manifest.source_db);
+		assertSourceHasNoSqliteSidecars(sourceDb);
 	} catch (error) {
-		if (!existsSync(manifest.source_db)) {
-			renameSync(manifest.source_quarantine_path, manifest.source_db);
+		if (!existsSync(sourceDb)) {
+			renameSync(sourceQuarantinePath, sourceDb);
 		}
 		throw error;
 	}
@@ -1251,17 +1274,20 @@ function assertSourceHasNoSqliteSidecars(sourceDb: string): void {
 }
 
 function discardSourceQuarantine(manifest: RollbackManifest): void {
-	if (!existsSync(manifest.source_quarantine_path)) return;
+	const sourceQuarantinePath = canonicalExternalTarget(
+		manifest.source_quarantine_path,
+	);
+	if (!existsSync(sourceQuarantinePath)) return;
 	if (manifest.source_sha256 === null) {
 		throw new Error("source quarantine lacks hash evidence");
 	}
 	if (
-		hashRegularFile(manifest.source_quarantine_path, MAX_SNAPSHOT_BYTES)
-			.sha256 !== manifest.source_sha256
+		hashRegularFile(sourceQuarantinePath, MAX_SNAPSHOT_BYTES).sha256 !==
+		manifest.source_sha256
 	) {
 		throw new Error("source quarantine changed before cleanup");
 	}
-	unlinkSync(manifest.source_quarantine_path);
+	unlinkSync(sourceQuarantinePath);
 }
 
 function abortCommitAfterDetectedRace(
@@ -1330,6 +1356,11 @@ export function finalizeMigrationRollback(
 	}
 	if (options.sourceMoved && manifest.archive_mode !== "move") {
 		throw new Error("migration source move intent does not match the manifest");
+	}
+	if (options.sourceMoved && !signedSourcePathIsCanonical(manifest)) {
+		throw new Error(
+			"legacy rollback manifest has an unbound source alias; destructive finalization refused",
+		);
 	}
 	if (
 		options.archivePath !== undefined &&
@@ -1476,24 +1507,28 @@ export function finalizeMigrationRollback(
 }
 
 function restoreQuarantinedSource(manifest: RollbackManifest): boolean {
-	if (!existsSync(manifest.source_quarantine_path)) return false;
+	const sourceDb = canonicalExternalTarget(manifest.source_db);
+	const sourceQuarantinePath = canonicalExternalTarget(
+		manifest.source_quarantine_path,
+	);
+	if (!existsSync(sourceQuarantinePath)) return false;
 	if (
 		manifest.source_sha256 === null ||
-		hashRegularFile(manifest.source_quarantine_path, MAX_SNAPSHOT_BYTES)
-			.sha256 !== manifest.source_sha256
+		hashRegularFile(sourceQuarantinePath, MAX_SNAPSHOT_BYTES).sha256 !==
+			manifest.source_sha256
 	) {
 		throw new Error("source quarantine failed hash verification");
 	}
-	if (existsSync(manifest.source_db)) {
+	if (existsSync(sourceDb)) {
 		throw new Error(
 			"cannot restore quarantined source because its path exists",
 		);
 	}
-	const ancestors = externalAncestorIdentities(dirname(manifest.source_db));
+	const ancestors = externalAncestorIdentities(dirname(sourceDb));
 	assertExternalAncestorIdentities(ancestors);
-	linkSync(manifest.source_quarantine_path, manifest.source_db);
+	linkSync(sourceQuarantinePath, sourceDb);
 	assertExternalAncestorIdentities(ancestors);
-	unlinkSync(manifest.source_quarantine_path);
+	unlinkSync(sourceQuarantinePath);
 	return true;
 }
 
@@ -1507,6 +1542,14 @@ function recoverInterruptedCommit(
 		manifest.status !== "committing"
 	) {
 		return false;
+	}
+	if (
+		manifest.archive_mode === "move" &&
+		!signedSourcePathIsCanonical(manifest)
+	) {
+		throw new Error(
+			"legacy rollback manifest has an unbound source alias; automatic recovery refused",
+		);
 	}
 	const live = fingerprintTree(manifest.export_root, manifest.vault_root);
 	const stage = fingerprintTree(manifest.staging_root, manifest.vault_root);
@@ -1587,22 +1630,25 @@ function restoreMovedSource(
 			"rollback of archive=move requires --confirm-source-restore and --source with the original absolute path",
 		);
 	}
-	if (
-		!sameResolvedPath(
-			canonicalExternalTarget(sourceRestorePath),
-			manifest.source_db,
-		)
-	) {
+	if (!signedSourcePathIsCanonical(manifest)) {
+		throw new Error(
+			"legacy rollback manifest has an unbound source alias; automatic source restore refused",
+		);
+	}
+	const explicitSourceDb = canonicalExternalTarget(sourceRestorePath);
+	const signedCanonicalSourceDb = canonicalExternalTarget(manifest.source_db);
+	if (!sameResolvedPath(explicitSourceDb, signedCanonicalSourceDb)) {
 		throw new Error(
 			"explicit source restore path does not match the signed manifest",
 		);
 	}
+	const sourceDb = explicitSourceDb;
 	if (manifest.source_sha256 === null || manifest.archive_path === null) {
 		throw new Error("rollback manifest lacks source restoration evidence");
 	}
-	if (existsSync(manifest.source_db)) {
+	if (existsSync(sourceDb)) {
 		if (
-			hashRegularFile(manifest.source_db, MAX_SNAPSHOT_BYTES).sha256 !==
+			hashRegularFile(sourceDb, MAX_SNAPSHOT_BYTES).sha256 !==
 			manifest.source_sha256
 		) {
 			throw new Error("source path was recreated with different content");
@@ -1622,11 +1668,11 @@ function restoreMovedSource(
 	}
 	copyToExternalPathNoClobber(
 		manifest.archive_path,
-		manifest.source_db,
+		sourceDb,
 		manifest.source_sha256,
 		manifest.vault_root,
 	);
-	const restored = hashRegularFile(manifest.source_db, MAX_SNAPSHOT_BYTES);
+	const restored = hashRegularFile(sourceDb, MAX_SNAPSHOT_BYTES);
 	if (restored.sha256 !== manifest.source_sha256) {
 		throw new Error("restored source hash verification failed");
 	}

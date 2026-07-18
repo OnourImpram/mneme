@@ -49,8 +49,8 @@ const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
 const MAX_QUEUE_BYTES = 16 * 1024 * 1024;
 const MAX_QUEUE_LINES = 10_000;
 const MAX_QUEUE_RECORD_BYTES = 1024 * 1024;
-const QUEUE_LOCK_TIMEOUT_MS = 1_000;
-const QUEUE_LOCK_STALE_MS = 10_000;
+const QUEUE_LOCK_TIMEOUT_MS = 30_000;
+const QUEUE_LOCK_STALE_MS = 60_000;
 
 function errorCode(error: unknown): string | undefined {
 	return (error as NodeJS.ErrnoException).code;

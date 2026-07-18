@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { proposeTool } from "../src/tools/propose.js";
 import { makeTempVault } from "./helpers/vault_fixture.js";
 
@@ -24,8 +24,13 @@ describe("mneme_propose queue security", () => {
 		const lock = join(vault.stateDir, "proposals", "pending.jsonl.lock");
 		mkdirSync(dirname(lock), { recursive: true });
 		writeFileSync(lock, "active", "utf-8");
+		const clock = vi
+			.spyOn(Date, "now")
+			.mockReturnValueOnce(0)
+			.mockReturnValue(30_001);
 
 		const result = proposeTool(proposal, vault);
+		clock.mockRestore();
 
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
@@ -39,7 +44,7 @@ describe("mneme_propose queue security", () => {
 		const lock = join(vault.stateDir, "proposals", "pending.jsonl.lock");
 		mkdirSync(dirname(lock), { recursive: true });
 		writeFileSync(lock, "crashed", "utf-8");
-		const stale = new Date(Date.now() - 30_000);
+		const stale = new Date(Date.now() - 120_000);
 		utimesSync(lock, stale, stale);
 
 		const result = proposeTool(proposal, vault);

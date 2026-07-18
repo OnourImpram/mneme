@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -47,6 +48,31 @@ def test_concurrent_queue_writers_do_not_lose_records(vault: VaultConfig) -> Non
     records = [json.loads(line) for line in queue.read_text(encoding="utf-8").splitlines()]
     assert len(records) == 100
     assert len({record["proposal_id"] for record in records}) == 100
+
+
+def test_concurrent_queue_writers_wait_for_slow_durable_flush(
+    vault: VaultConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_fsync = os.fsync
+
+    def slow_fsync(fd: int) -> None:
+        time.sleep(0.02)
+        real_fsync(fd)
+
+    monkeypatch.setattr(memory_apply.os, "fsync", slow_fsync)
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        list(
+            pool.map(
+                lambda index: queue_proposal(
+                    vault, _proposal(index), AutoApproveClass.TYPO_FIX
+                ),
+                range(80),
+            )
+        )
+
+    queue = vault.state_dir / "proposals" / "pending.jsonl"
+    records = [json.loads(line) for line in queue.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 80
 
 
 def test_drain_claim_does_not_delete_fresh_queue(
