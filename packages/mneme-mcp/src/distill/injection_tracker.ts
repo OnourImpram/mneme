@@ -148,7 +148,9 @@ export function saveTracker(stateDir: string, tracker: InjectionTracker): void {
 		skips: tracker.skips,
 	};
 
-	atomicWriteText(filePath, `${JSON.stringify(data, null, 2)}\n`);
+	atomicWriteText(filePath, `${JSON.stringify(data, null, 2)}\n`, {
+		vaultRoot: stateDir,
+	});
 }
 
 /**

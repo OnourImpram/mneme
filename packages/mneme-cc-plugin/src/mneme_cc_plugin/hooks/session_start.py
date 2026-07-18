@@ -209,6 +209,7 @@ def _mark_rehydrated(vault: VaultConfig, last_precompact_at: str) -> None:
         atomic_write_text(
             state_path,
             json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+            vault_root=vault.root,
         )
     except OSError:
         pass
@@ -259,7 +260,9 @@ def _block_self_heal(
 
         last_precompact_at = _read_last_precompact_at(vault)
 
-        checkpoint = load_latest_checkpoint(vault.checkpoint_index)
+        checkpoint = load_latest_checkpoint(
+            vault.checkpoint_index, scope=vault.default_scope()
+        )
         if checkpoint is None or not checkpoint.items:
             return "", last_precompact_at
 
@@ -334,7 +337,9 @@ def _build_context(vault: VaultConfig, event: dict[str, Any] | None = None) -> s
     if budget_chars > 0:
         heal_block, last_precompact_at = _block_self_heal(vault, ev, budget_chars)
         if heal_block:
-            full = full + "\n" + heal_block
+            full = full + "\n" + wrap_untrusted(
+                heal_block, source="cce-checkpoint-rehydration"
+            )
             if len(full) > MAX_CHARS:
                 full = full[:MAX_CHARS]
             # Record that this compaction has been rehydrated.

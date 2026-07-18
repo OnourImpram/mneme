@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +48,8 @@ from .lock import file_lock
 
 LOG_DIR_NAME = "sessions"
 STATE_FILENAME = "state.json"
-SESSION_LOG_LOCK_TIMEOUT_S = 5.0
+GIT_STATUS_TIMEOUT_S = 0.25
+SESSION_LOG_LOCK_TIMEOUT_S = 0.5
 
 
 def _is_empty_session(vault_root: Path) -> bool:
@@ -67,9 +68,11 @@ def _is_empty_session(vault_root: Path) -> bool:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=3,
+            timeout=GIT_STATUS_TIMEOUT_S,
         )
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return False
+    if result.returncode != 0:
         return False
     return not bool(result.stdout.strip())
 
@@ -83,7 +86,7 @@ def _append_session_section(
     session_id: str,
     transcript_path: str,
 ) -> None:
-    today_iso = date.today().isoformat()
+    today_iso = _now_utc().astimezone().date().isoformat()
     target = vault.root / LOG_DIR_NAME / f"{today_iso}.md"
     # Deterministic extractive summary (zero-LLM, default ON). Computed
     # OUTSIDE the lock so summary aggregation never extends the critical
@@ -133,7 +136,7 @@ def _append_session_section(
             f"{transcript_line}"
             f"{section_body}"
         )
-        atomic_write_text(target, body)
+        atomic_write_text(target, body, vault_root=vault.root)
 
 
 def _touch_state(vault: VaultConfig) -> None:
@@ -141,6 +144,8 @@ def _touch_state(vault: VaultConfig) -> None:
     try:
         if state_path.exists():
             state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
         else:
             state = {}
     except (OSError, json.JSONDecodeError):
@@ -151,6 +156,7 @@ def _touch_state(vault: VaultConfig) -> None:
     atomic_write_text(
         state_path,
         json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+        vault_root=vault.root,
     )
 
 
@@ -162,7 +168,7 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     if _is_empty_session(vault.root):
         try:
             _touch_state(vault)
-        except OSError as exc:
+        except Exception as exc:
             sys.stderr.write(f"[mneme:Stop] state touch failed: {exc}\n")
         emit(hook_event_name="Stop")
         _request_kg_community_refresh(vault)
@@ -172,9 +178,12 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     transcript_path = str(event.get("transcript_path") or "")
     try:
         _append_session_section(vault, session_id, transcript_path)
+    except Exception as exc:
+        sys.stderr.write(f"[mneme:Stop] session log write failed: {exc}\n")
+    try:
         _touch_state(vault)
-    except OSError as exc:
-        sys.stderr.write(f"[mneme:Stop] write failed: {exc}\n")
+    except Exception as exc:
+        sys.stderr.write(f"[mneme:Stop] state touch failed: {exc}\n")
     emit(hook_event_name="Stop")
     _request_kg_community_refresh(vault)
 

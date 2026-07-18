@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mneme_core.cce.checkpoint import Checkpoint, WorkingSetItem, render_markdown
+from mneme_core.cce.checkpoint import (
+    CURRENT_CHECKPOINT_SCHEMA_VERSION,
+    Checkpoint,
+    WorkingSetItem,
+    render_markdown,
+)
 from mneme_core.cce.loss_detect import detect_dropped, load_latest_checkpoint
 
 # ---------------------------------------------------------------------------
@@ -170,7 +175,13 @@ class TestDetectDropped:
 
 class TestLoadLatestCheckpoint:
     def _write_checkpoint_and_index(
-        self, tmp_path: Path, anchor: str = "abc123def456"
+        self,
+        tmp_path: Path,
+        anchor: str = "abc123def456",
+        *,
+        scope: str = "default",
+        append: bool = False,
+        include_record_scope: bool = True,
     ) -> tuple[Path, Path]:
         """Write a checkpoint markdown + a single-line JSONL index."""
         cp = Checkpoint(
@@ -181,6 +192,8 @@ class TestLoadLatestCheckpoint:
             items=(
                 WorkingSetItem(kind="decision", text="Use atomic writes", salience=0.9),
             ),
+            schema_version=CURRENT_CHECKPOINT_SCHEMA_VERSION,
+            scope=scope,
         )
         checkpoints_dir = tmp_path / "checkpoints"
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -190,7 +203,7 @@ class TestLoadLatestCheckpoint:
         index_dir = tmp_path / ".mneme" / "checkpoints"
         index_dir.mkdir(parents=True, exist_ok=True)
         index_path = index_dir / "index.jsonl"
-        record = {
+        record: dict[str, object] = {
             "anchor": anchor,
             "id": f"checkpoint-{anchor}",
             "created": cp.created,
@@ -199,8 +212,13 @@ class TestLoadLatestCheckpoint:
             "path": str(doc_path),
             "item_count": len(cp.items),
             "top_salience": 0.9,
+            "schema_version": cp.schema_version,
         }
-        index_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        if include_record_scope:
+            record["scope"] = cp.scope
+        mode = "a" if append else "w"
+        with index_path.open(mode, encoding="utf-8") as fp:
+            fp.write(json.dumps(record) + "\n")
         return index_path, doc_path
 
     def test_loads_latest_checkpoint(self, tmp_path: Path) -> None:
@@ -256,6 +274,8 @@ class TestLoadLatestCheckpoint:
             items=(
                 WorkingSetItem(kind="todo", text="Second session task here", salience=0.6),
             ),
+            schema_version=CURRENT_CHECKPOINT_SCHEMA_VERSION,
+            scope="default",
         )
         checkpoints_dir = tmp_path / "checkpoints"
         doc2 = checkpoints_dir / "2026-06-14-secondanchor1.md"
@@ -264,6 +284,8 @@ class TestLoadLatestCheckpoint:
             "anchor": "secondanchor1",
             "path": str(doc2),
             "session_id": "sess-002",
+            "scope": cp2.scope,
+            "schema_version": cp2.schema_version,
         }
         with index_path.open("a", encoding="utf-8") as fp:
             fp.write(json.dumps(record2) + "\n")
@@ -271,3 +293,73 @@ class TestLoadLatestCheckpoint:
         result = load_latest_checkpoint(index_path)
         assert result is not None
         assert result.anchor == "secondanchor1"
+
+    def test_corrupt_trailing_record_does_not_hide_previous_valid(
+        self, tmp_path: Path
+    ) -> None:
+        index_path, _ = self._write_checkpoint_and_index(tmp_path)
+        with index_path.open("a", encoding="utf-8") as fp:
+            fp.write("{broken\n")
+        result = load_latest_checkpoint(index_path)
+        assert result is not None
+        assert result.anchor == "abc123def456"
+
+    def test_scope_selects_latest_visible_checkpoint(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(
+            tmp_path, "clinical0001", scope="clinical"
+        )
+        self._write_checkpoint_and_index(
+            tmp_path, "research0001", scope="research", append=True
+        )
+        clinical = load_latest_checkpoint(index_path, scope="clinical")
+        research = load_latest_checkpoint(index_path, scope="research")
+        assert clinical is not None and clinical.anchor == "clinical0001"
+        assert research is not None and research.anchor == "research0001"
+
+    def test_legacy_unscoped_index_record_is_default_only(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(
+            tmp_path, include_record_scope=False
+        )
+        assert load_latest_checkpoint(index_path, scope="default") is not None
+        assert load_latest_checkpoint(index_path, scope="clinical") is None
+
+    def test_explicit_wildcard_returns_latest_across_scopes(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(
+            tmp_path, "clinical0001", scope="clinical"
+        )
+        self._write_checkpoint_and_index(
+            tmp_path, "research0001", scope="research", append=True
+        )
+        result = load_latest_checkpoint(index_path, scope="*")
+        assert result is not None and result.anchor == "research0001"
+
+    def test_record_and_markdown_scope_must_both_match(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(
+            tmp_path, "mismatch0001", scope="clinical"
+        )
+        record = json.loads(index_path.read_text(encoding="utf-8"))
+        record["scope"] = "research"
+        index_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        assert load_latest_checkpoint(index_path, scope="research") is None
+        assert load_latest_checkpoint(index_path, scope="clinical") is None
+
+    def test_absolute_path_escape_is_rejected(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(tmp_path)
+        outside = tmp_path.parent / f"outside-{tmp_path.name}.md"
+        outside.write_text("---\nschema_version: 1\n---\n", encoding="utf-8")
+        index_path.write_text(
+            json.dumps({"anchor": "outside", "path": str(outside)}) + "\n",
+            encoding="utf-8",
+        )
+        assert load_latest_checkpoint(index_path) is None
+
+    def test_anchor_mismatch_is_rejected(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(tmp_path)
+        record = json.loads(index_path.read_text(encoding="utf-8"))
+        record["anchor"] = "forgedanchor"
+        index_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        assert load_latest_checkpoint(index_path) is None
+
+    def test_invalid_requested_scope_fails_closed(self, tmp_path: Path) -> None:
+        index_path, _ = self._write_checkpoint_and_index(tmp_path)
+        assert load_latest_checkpoint(index_path, scope=" clinical ") is None
