@@ -14,7 +14,7 @@
  *   - No LLM/network I/O. No external dependencies beyond node builtins.
  */
 
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import {
 	appendFileSync,
 	existsSync,
@@ -26,6 +26,19 @@ import { join } from "node:path";
 
 const HMAC_KEY_FILE = "telemetry-hmac.key";
 const HMAC_KEY_BYTES = 32;
+const QUERY_HASH_RE = /^[a-f0-9]{64}$/;
+const TELEMETRY_BACKENDS = ["fts5", "dense", "kg", "graphiti"] as const;
+type TelemetryBackend = (typeof TELEMETRY_BACKENDS)[number];
+
+const ephemeralHmacKeys = new Map<string, Buffer>();
+
+function ephemeralHmacKey(stateDir: string): Buffer {
+	const existing = ephemeralHmacKeys.get(stateDir);
+	if (existing) return existing;
+	const key = randomBytes(HMAC_KEY_BYTES);
+	ephemeralHmacKeys.set(stateDir, key);
+	return key;
+}
 
 function loadOrCreateHmacKey(stateDir: string): Buffer {
 	const keyPath = join(stateDir, HMAC_KEY_FILE);
@@ -37,12 +50,18 @@ function loadOrCreateHmacKey(stateDir: string): Buffer {
 	} catch {
 		// Fall through to generate a new key.
 	}
-	const key = randomBytes(HMAC_KEY_BYTES);
+	const key = ephemeralHmacKey(stateDir);
 	try {
 		mkdirSync(stateDir, { recursive: true });
-		writeFileSync(keyPath, key, { mode: 0o600 });
+		writeFileSync(keyPath, key, { flag: "wx", mode: 0o600 });
+		return key;
 	} catch {
-		// Best-effort persist; return ephemeral key on write failure.
+		try {
+			const persisted = readFileSync(keyPath);
+			if (persisted.length === HMAC_KEY_BYTES) return persisted;
+		} catch {
+			// Keep the process-local per-vault key when persistence is unavailable.
+		}
 	}
 	return key;
 }
@@ -51,7 +70,8 @@ function loadOrCreateHmacKey(stateDir: string): Buffer {
  * Derive a privacy-preserving hash of a normalized query using a per-vault
  * HMAC-SHA256 key. Different vaults produce different hashes for the same
  * query, preventing cross-vault correlation while preserving within-vault
- * deduplication. Falls back to plain SHA-256 if key I/O fails.
+ * deduplication. If key persistence is unavailable, a process-local per-vault
+ * HMAC key is used. The function never falls back to an unkeyed digest.
  */
 export function computeQueryHash(
 	stateDir: string,
@@ -61,8 +81,54 @@ export function computeQueryHash(
 		const key = loadOrCreateHmacKey(stateDir);
 		return createHmac("sha256", key).update(normalizedQuery).digest("hex");
 	} catch {
-		return createHash("sha256").update(normalizedQuery).digest("hex");
+		return "";
 	}
+}
+
+function sanitizeMetric(
+	value: number,
+	{ integer = false }: { integer?: boolean } = {},
+): number {
+	if (!Number.isFinite(value) || value < 0) return 0;
+	const bounded = Math.min(value, Number.MAX_SAFE_INTEGER);
+	return integer ? Math.floor(bounded) : bounded;
+}
+
+function sanitizeMetricMap(
+	values: Record<string, number>,
+	{ integer }: { integer: boolean },
+): Record<string, number> {
+	const sanitized: Partial<Record<TelemetryBackend, number>> = {};
+	for (const backend of TELEMETRY_BACKENDS) {
+		if (!Object.hasOwn(values, backend)) continue;
+		const value = values[backend];
+		if (typeof value === "number") {
+			sanitized[backend] = sanitizeMetric(value, { integer });
+		}
+	}
+	return sanitized;
+}
+
+function sanitizeStatuses(
+	values: Record<string, BackendTelemetryStatus>,
+): Record<string, BackendTelemetryStatus> {
+	const sanitized: Partial<Record<TelemetryBackend, BackendTelemetryStatus>> =
+		{};
+	for (const backend of TELEMETRY_BACKENDS) {
+		if (!Object.hasOwn(values, backend)) continue;
+		const status = values[backend];
+		if (!status || typeof status !== "object") continue;
+		const attempted = status.attempted === true;
+		const failed = attempted && status.failed === true;
+		const succeeded = attempted && !failed && status.succeeded === true;
+		sanitized[backend] = {
+			attempted,
+			succeeded,
+			failed,
+			contributed: succeeded && status.contributed === true,
+		};
+	}
+	return sanitized;
 }
 
 export interface TelemetryRecord {
@@ -73,15 +139,22 @@ export interface TelemetryRecord {
 	backends: string[];
 	per_backend_hits: Record<string, number>;
 	per_backend_latency_ms: Record<string, number>;
+	per_backend_status: Record<string, BackendTelemetryStatus>;
+}
+
+export interface BackendTelemetryStatus {
+	attempted: boolean;
+	succeeded: boolean;
+	failed: boolean;
+	contributed: boolean;
 }
 
 /**
  * Emit one search telemetry record to a date-stamped JSONL file.
  *
  * @param stateDir             Root state directory (vault's `.mneme/` equivalent).
- * @param queryHash            SHA-256 hex digest of the normalised query. The caller
- *                             (searchTool) computes this via
- *                             `createHash('sha256').update(normalizeTr(args.query)).digest('hex')`.
+ * @param queryHash            Lowercase HMAC-SHA256 hex digest returned by
+ *                             `computeQueryHash`.
  * @param hitCount             Number of hits returned by fts5Search after filtering.
  * @param elapsedMs            Wall-clock time from search start to result return (ms).
  * @param backends             Deduplicated list of backend identifiers that contributed hits.
@@ -96,8 +169,10 @@ export function emitSearchTelemetry(
 	backends: string[] = [],
 	perBackendHits: Record<string, number> = {},
 	perBackendLatencyMs: Record<string, number> = {},
+	perBackendStatus: Record<string, BackendTelemetryStatus> = {},
 ): void {
 	try {
+		if (!QUERY_HASH_RE.test(queryHash)) return;
 		const today = new Date().toISOString().slice(0, 10);
 		const telemetryDir = join(stateDir, "telemetry");
 		mkdirSync(telemetryDir, { recursive: true });
@@ -105,11 +180,20 @@ export function emitSearchTelemetry(
 		const record: TelemetryRecord = {
 			ts: new Date().toISOString(),
 			query_hash: queryHash,
-			hit_count: hitCount,
-			elapsed_ms: elapsedMs,
-			backends,
-			per_backend_hits: perBackendHits,
-			per_backend_latency_ms: perBackendLatencyMs,
+			hit_count: sanitizeMetric(hitCount, { integer: true }),
+			elapsed_ms: sanitizeMetric(elapsedMs),
+			backends: [
+				...new Set(
+					backends.filter((backend): backend is TelemetryBackend =>
+						TELEMETRY_BACKENDS.includes(backend as TelemetryBackend),
+					),
+				),
+			],
+			per_backend_hits: sanitizeMetricMap(perBackendHits, { integer: true }),
+			per_backend_latency_ms: sanitizeMetricMap(perBackendLatencyMs, {
+				integer: false,
+			}),
+			per_backend_status: sanitizeStatuses(perBackendStatus),
 		};
 
 		const filePath = join(telemetryDir, `retrieval-${today}.jsonl`);

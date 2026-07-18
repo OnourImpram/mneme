@@ -19,7 +19,6 @@ that consumes ``retrieve``.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import re
 import sqlite3
 import time
@@ -28,8 +27,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from ..scope import DEFAULT_SCOPE, valid_scope
+
 if TYPE_CHECKING:
     from ..vault.config import VaultConfig
+    from .telemetry import BackendTelemetryStatus
 
 DEFAULT_RRF_K: int = 60
 
@@ -54,6 +56,13 @@ class Hit:
     source: str
     rrf_score: float = 0.0
     sources: list[str] = field(default_factory=list)
+    content_hash: str | None = None
+    trust: str | None = None
+    confidence_label: str | None = None
+
+
+class RetrievalIndexStaleError(RuntimeError):
+    """Raised when a derived FTS5 index cannot enforce the query contract."""
 
 
 class RetrievalBackend(Protocol):
@@ -103,6 +112,8 @@ class RetrievalConfig:
             return what they have so far. Currently advisory.
         stopwords: optional set of low-information tokens to drop
             before building the FTS5 MATCH query. Empty by default.
+        scope: concrete FTS5 partition, or exact ``*`` for an intentional
+            cross-scope read. Invalid values are rejected before any backend.
     """
 
     fts5_db: Path
@@ -115,6 +126,7 @@ class RetrievalConfig:
     rrf_k: int = DEFAULT_RRF_K
     total_budget_ms: int = 500
     stopwords: frozenset[str] = field(default_factory=frozenset)
+    scope: str = DEFAULT_SCOPE
 
 
 def build_fts5_query(prompt_norm: str, stopwords: frozenset[str] = frozenset()) -> str:
@@ -151,7 +163,11 @@ _FTS_TABLES: frozenset[str] = frozenset({"documents_fts", "documents_ascii_fts"}
 
 
 def _match_rows(
-    conn: sqlite3.Connection, fts_table: str, fts_query: str, limit: int
+    conn: sqlite3.Connection,
+    fts_table: str,
+    fts_query: str,
+    limit: int,
+    scope: str,
 ) -> list[tuple[Any, ...]]:
     """Run one FTS5 MATCH against ``fts_table`` and return raw rows.
 
@@ -160,16 +176,55 @@ def _match_rows(
     """
     if fts_table not in _FTS_TABLES:
         raise ValueError(f"unknown FTS table: {fts_table!r}")
+    scope_clause = "" if scope == "*" else "AND documents.scope = ?"
+    params: tuple[object, ...] = (
+        (fts_query, limit) if scope == "*" else (fts_query, scope, limit)
+    )
     return conn.execute(  # noqa: S608 - table name validated against allowlist
         f"""SELECT documents.id, documents.path, documents.title,
-                   {fts_table}.rank
+                   documents.content_hash, documents.trust, {fts_table}.rank
             FROM {fts_table}
             JOIN documents ON {fts_table}.rowid = documents.id
             WHERE {fts_table} MATCH ?
+              {scope_clause}
             ORDER BY {fts_table}.rank
             LIMIT ?""",
-        (fts_query, limit),
+        params,
     ).fetchall()
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> frozenset[str]:
+    return frozenset(str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _require_queryable_index(
+    conn: sqlite3.Connection,
+    *,
+    scope: str,
+    ascii_query: str,
+) -> None:
+    columns = _table_columns(conn, "documents")
+    if scope != "*" and "scope" not in columns:
+        raise RetrievalIndexStaleError(
+            "concrete-scope retrieval requires an index rebuild with scope metadata"
+        )
+    if not ascii_query:
+        return
+    table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents_ascii_fts'"
+    ).fetchone()
+    try:
+        profile_row = conn.execute(
+            "SELECT value FROM index_meta WHERE key='ascii_normalization_profile'"
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        raise RetrievalIndexStaleError(
+            "dual-key retrieval requires an index rebuild with ASCII metadata"
+        ) from exc
+    if table_exists is None or profile_row is None or profile_row[0] == "disabled":
+        raise RetrievalIndexStaleError(
+            "dual-key retrieval requires an index rebuild with ASCII metadata"
+        )
 
 
 def fts5_search(
@@ -178,6 +233,9 @@ def fts5_search(
     limit: int = 50,
     stopwords: frozenset[str] = frozenset(),
     prompt_ascii: str | None = None,
+    *,
+    scope: str = DEFAULT_SCOPE,
+    _fail_on_error: bool = False,
 ) -> list[Hit]:
     """Run an FTS5 BM25 search against the mneme indexer schema.
 
@@ -194,7 +252,12 @@ def fts5_search(
     built before dual-key indexing simply lacks the ASCII table, so that leg
     degrades to no extra recall without disturbing the CLDR results.
     """
+    resolved_scope = valid_scope(scope)
+    if resolved_scope is None:
+        raise ValueError("scope must be a valid concrete identifier or exact '*'")
     if not db_path.exists():
+        if _fail_on_error:
+            raise FileNotFoundError(db_path)
         return []
     cldr_query = build_fts5_query(prompt_norm, stopwords)
     ascii_query = build_fts5_query(prompt_ascii, stopwords) if prompt_ascii else ""
@@ -206,23 +269,40 @@ def fts5_search(
             sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         ) as conn:
             conn.execute("PRAGMA query_only = ON")
+            _require_queryable_index(
+                conn,
+                scope=resolved_scope,
+                ascii_query=ascii_query,
+            )
             if cldr_query:
-                rows.extend(_match_rows(conn, "documents_fts", cldr_query, limit))
-            if ascii_query:
-                # The ASCII-fold key is a strictly best-effort recall boost:
-                # the sibling table may be absent on a pre-dual-key database,
-                # and either way its failure must never discard the CLDR rows
-                # already collected above. Swallow any SQLite error from this
-                # leg so it can only ever add recall, never remove it.
-                with contextlib.suppress(sqlite3.Error):
-                    rows.extend(
-                        _match_rows(
-                            conn, "documents_ascii_fts", ascii_query, limit
-                        )
+                rows.extend(
+                    _match_rows(
+                        conn,
+                        "documents_fts",
+                        cldr_query,
+                        limit,
+                        resolved_scope,
                     )
+                )
+            if ascii_query:
+                rows.extend(
+                    _match_rows(
+                        conn,
+                        "documents_ascii_fts",
+                        ascii_query,
+                        limit,
+                        resolved_scope,
+                    )
+                )
+    except RetrievalIndexStaleError:
+        raise
     except sqlite3.OperationalError:
+        if _fail_on_error:
+            raise
         return []
     except Exception:
+        if _fail_on_error:
+            raise
         return []
 
     # Deduplicate by document id, keeping the best (lowest) rank seen across
@@ -230,7 +310,7 @@ def fts5_search(
     best: dict[Any, Hit] = {}
     for r in rows:
         doc_id = r[0]
-        rank = float(r[3])
+        rank = float(r[5])
         current = best.get(doc_id)
         if current is None or rank < current.score:
             best[doc_id] = Hit(
@@ -239,6 +319,8 @@ def fts5_search(
                 title=r[2] or "",
                 score=rank,
                 source="fts5",
+                content_hash=str(r[3]) if r[3] is not None else None,
+                trust=str(r[4]) if r[4] is not None else None,
             )
     return sorted(best.values(), key=lambda h: h.score)[:limit]
 
@@ -258,13 +340,10 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
     scores: dict[int | str, dict[str, Any]] = {}
     for ranking in rankings:
         for rank_idx, hit in enumerate(ranking, start=1):
-            # Key on the backend id when present (the FTS5 rowid is a stable
-            # per-document key for the shipped FTS5-only path), falling back to
-            # path. Cross-backend identity normalization — fusing an integer-id
-            # hit with a None-id hit for the same document — is deferred to the
-            # dense/KG leg, which is roadmap and will carry a backend contract
-            # guaranteeing a consistent dedup key.
-            key = hit.id if hit.id is not None else hit.path
+            # Vault-relative path is the cross-backend document identity.
+            # Backend-local row or claim ids are not comparable domains.
+            canonical_path = hit.path.replace("\\", "/").removeprefix("./")
+            key = f"path:{canonical_path}" if canonical_path else hit.id
             if key not in scores:
                 scores[key] = {
                     "hit": hit,
@@ -276,6 +355,14 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
             source_set = entry["sources"]
             assert isinstance(source_set, set)
             source_set.add(hit.source)
+            for metadata_key in ("content_hash", "trust", "confidence_label"):
+                if entry.get(metadata_key) is None:
+                    entry[metadata_key] = getattr(hit, metadata_key)
+            if (
+                hit.confidence_label is not None
+                and hit.confidence_label.casefold() == "ambiguous"
+            ):
+                entry["confidence_label"] = "AMBIGUOUS"
 
     fused = sorted(scores.values(), key=lambda x: -float(x["score"]))
     result: list[Hit] = []
@@ -292,6 +379,9 @@ def rrf_fuse(rankings: list[list[Hit]], k: int = DEFAULT_RRF_K) -> list[Hit]:
             source=original.source,
             rrf_score=float(entry["score"]),
             sources=sorted(source_set),
+            content_hash=entry.get("content_hash"),
+            trust=entry.get("trust"),
+            confidence_label=entry.get("confidence_label"),
         )
         result.append(new_hit)
     return result
@@ -322,6 +412,8 @@ def retrieve(
        raises. When ``vault`` is None, telemetry is silently skipped so
        existing call sites with no vault arg are unaffected.
     """
+    if valid_scope(config.scope) is None:
+        raise ValueError("scope must be a valid concrete identifier or exact '*'")
     stripped = query.strip()
     tokens = [
         t
@@ -340,13 +432,31 @@ def retrieve(
 
     # --- FTS5 backend (always active) ---
     _t0 = time.perf_counter()
-    fts5_results = fts5_search(
-        q_norm,
-        config.fts5_db,
-        limit=config.top_k_per_backend,
-        stopwords=config.stopwords,
-        prompt_ascii=q_ascii,
-    )
+    _per_status: dict[str, BackendTelemetryStatus] = {}
+    try:
+        fts5_results = fts5_search(
+            q_norm,
+            config.fts5_db,
+            limit=config.top_k_per_backend,
+            stopwords=config.stopwords,
+            prompt_ascii=q_ascii,
+            scope=config.scope,
+            _fail_on_error=True,
+        )
+        _per_status["fts5"] = {
+            "attempted": True,
+            "succeeded": True,
+            "failed": False,
+            "contributed": False,
+        }
+    except Exception:
+        fts5_results = []
+        _per_status["fts5"] = {
+            "attempted": True,
+            "succeeded": False,
+            "failed": True,
+            "contributed": False,
+        }
     _fts5_ms = (time.perf_counter() - _t0) * 1000.0
 
     rankings: list[list[Hit]] = [fts5_results]
@@ -358,8 +468,20 @@ def retrieve(
         _t1 = time.perf_counter()
         try:
             dense_results = dense_backend(q_norm, config.top_k_per_backend)
+            _per_status["dense"] = {
+                "attempted": True,
+                "succeeded": True,
+                "failed": False,
+                "contributed": False,
+            }
         except Exception:
             dense_results = []
+            _per_status["dense"] = {
+                "attempted": True,
+                "succeeded": False,
+                "failed": True,
+                "contributed": False,
+            }
         _dense_ms = (time.perf_counter() - _t1) * 1000.0
         rankings.append(dense_results)
         _backend_names.append("dense")
@@ -370,8 +492,20 @@ def retrieve(
         _t2 = time.perf_counter()
         try:
             kg_results = kg_backend(q_norm, config.top_k_per_backend)
+            _per_status["kg"] = {
+                "attempted": True,
+                "succeeded": True,
+                "failed": False,
+                "contributed": False,
+            }
         except Exception:
             kg_results = []
+            _per_status["kg"] = {
+                "attempted": True,
+                "succeeded": False,
+                "failed": True,
+                "contributed": False,
+            }
         _kg_ms = (time.perf_counter() - _t2) * 1000.0
         rankings.append(kg_results)
         _backend_names.append("kg")
@@ -379,6 +513,13 @@ def retrieve(
         _per_latency["kg"] = _kg_ms
 
     fused = rrf_fuse(rankings, k=config.rrf_k)
+    contributing_backends = {
+        source
+        for hit in fused
+        for source in (hit.sources if hit.sources else [hit.source])
+    }
+    for backend, status in _per_status.items():
+        status["contributed"] = status["succeeded"] and backend in contributing_backends
 
     # --- Emit telemetry (non-fatal, only when vault is provided) ---
     if vault is not None:
@@ -388,10 +529,11 @@ def retrieve(
             from .telemetry import RetrievalEvent, emit_retrieval_event
 
             event = RetrievalEvent(
-                query_hash=hashlib.sha256(q_norm.encode()).hexdigest(),
+                query_hash=q_norm,
                 backends=_backend_names,
                 per_backend_hits=_per_hits,
                 per_backend_latency_ms=_per_latency,
+                per_backend_status=_per_status,
                 fused_count=len(fused),
                 top1_source=fused[0].path if fused else None,
                 timestamp_iso=datetime.now(UTC).isoformat(),

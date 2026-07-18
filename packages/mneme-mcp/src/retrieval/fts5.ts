@@ -13,6 +13,7 @@
  */
 
 import Database from "better-sqlite3";
+import { ERROR_CODES, MnemeToolError } from "../errors.js";
 
 export interface Fts5Hit {
 	path: string;
@@ -28,7 +29,7 @@ export interface Fts5Hit {
 	mtime: number;
 	frontmatterType: string;
 	sessionId: string;
-	/** SHA-256 hex digest of raw file bytes computed before redaction. Empty string when column absent (legacy index). */
+	/** SHA-256 hex digest of redacted UTF-8 content. Empty string when column absent (legacy index). */
 	contentHash: string;
 	/** Origin trust label. 'user' for all vault-origin files. */
 	trust: string;
@@ -37,6 +38,8 @@ export interface Fts5Hit {
 export interface Fts5SearchOptions {
 	dbPath: string;
 	ftsQuery: string;
+	/** Optional Turkish ASCII-i fold query for documents_ascii_fts. */
+	ftsQueryAscii?: string;
 	limit: number;
 	/** Optional inclusive lower bound for `mtime` (unix seconds). */
 	mtimeFrom?: number;
@@ -45,11 +48,10 @@ export interface Fts5SearchOptions {
 	/**
 	 * Optional scope filter. Callers resolve this from args or
 	 * config.defaultScope() before passing it in. Pass `"*"` to disable
-	 * filtering (cross-scope). When the documents table lacks a scope
-	 * column (pre-M1 index), the predicate is silently skipped and a
-	 * one-time warning is emitted to stderr.
+	 * filtering (cross-scope). A concrete read against a pre-scope index
+	 * fails closed and requires a rebuild.
 	 */
-	scope?: string;
+	scope: string;
 }
 
 /**
@@ -103,34 +105,79 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 		throw new Error(
 			'fts5Search: scope must be resolved by the caller — pass vault.defaultScope() for the default, or "*" for cross-scope',
 		);
-	if (opts.ftsQuery.length === 0) return [];
+	if (opts.ftsQuery.length === 0 && !opts.ftsQueryAscii) return [];
 	const db = new Database(opts.dbPath, { readonly: true, fileMustExist: true });
 	try {
 		db.pragma("query_only = ON");
+		// A concrete-scope read must never widen silently on a legacy index.
+		requireScopeColumn(db, opts.dbPath, opts.scope);
 
-		const filters: string[] = ["documents_fts MATCH ?"];
-		const bindings: (string | number)[] = [opts.ftsQuery];
-		if (opts.mtimeFrom !== undefined) {
-			filters.push("d.mtime >= ?");
-			bindings.push(opts.mtimeFrom);
-		}
-		if (opts.mtimeTo !== undefined) {
-			filters.push("d.mtime <= ?");
-			bindings.push(opts.mtimeTo);
-		}
-		// Scope predicate — skipped when scope is "*" (cross-scope) or when
-		// the documents table pre-dates the M1 schema migration (no scope column).
-		if (
-			opts.scope !== undefined &&
-			opts.scope !== "*" &&
-			hasScopeColumn(db, opts.dbPath)
-		) {
-			filters.push("d.scope = ?");
-			bindings.push(opts.scope);
+		const rows = queryFtsTable(db, "documents_fts", opts.ftsQuery, opts);
+		if (opts.ftsQueryAscii) {
+			requireAsciiFoldIndex(db);
+			rows.push(
+				...queryFtsTable(db, "documents_ascii_fts", opts.ftsQueryAscii, opts),
+			);
 		}
 
-		const sql = `
-      SELECT
+		const bestByPath = new Map<string, Fts5Hit>();
+		for (const row of rows) {
+			const hit = rowToHit(row);
+			const existing = bestByPath.get(hit.path);
+			if (!existing || hit.rank < existing.rank) bestByPath.set(hit.path, hit);
+		}
+		return [...bestByPath.values()]
+			.sort(
+				(left, right) =>
+					left.rank - right.rank || left.path.localeCompare(right.path),
+			)
+			.slice(0, opts.limit);
+	} finally {
+		db.close();
+	}
+}
+
+type FtsTable = "documents_fts" | "documents_ascii_fts";
+
+interface FtsRow {
+	path: string;
+	title: string;
+	rank: number;
+	content_raw: string;
+	body_text: string;
+	mtime: number;
+	frontmatter_type: string;
+	session_id: string;
+	content_hash: string;
+	trust: string;
+}
+
+function queryFtsTable(
+	db: Database.Database,
+	table: FtsTable,
+	query: string,
+	opts: Fts5SearchOptions,
+): FtsRow[] {
+	if (query.length === 0) return [];
+	const filters: string[] = [`${table} MATCH ?`];
+	const bindings: (string | number)[] = [query];
+	if (opts.mtimeFrom !== undefined) {
+		filters.push("d.mtime >= ?");
+		bindings.push(opts.mtimeFrom);
+	}
+	if (opts.mtimeTo !== undefined) {
+		filters.push("d.mtime <= ?");
+		bindings.push(opts.mtimeTo);
+	}
+	if (opts.scope !== "*") {
+		filters.push("d.scope = ?");
+		bindings.push(opts.scope);
+	}
+	bindings.push(opts.limit);
+
+	return db
+		.prepare(
+			`SELECT
         d.path AS path,
         COALESCE(d.title, '') AS title,
         fts.rank AS rank,
@@ -141,41 +188,55 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
         COALESCE(d.session_id, '') AS session_id,
         COALESCE(d.content_hash, '') AS content_hash,
         COALESCE(d.trust, 'user') AS trust
-      FROM documents_fts fts
+      FROM ${table} fts
       JOIN documents d ON d.rowid = fts.rowid
       WHERE ${filters.join(" AND ")}
-      ORDER BY fts.rank
-      LIMIT ?
-    `;
-		bindings.push(opts.limit);
+      ORDER BY fts.rank, d.path
+      LIMIT ?`,
+		)
+		.all(...bindings) as FtsRow[];
+}
 
-		const rows = db.prepare(sql).all(...bindings) as Array<{
-			path: string;
-			title: string;
-			rank: number;
-			content_raw: string;
-			body_text: string;
-			mtime: number;
-			frontmatter_type: string;
-			session_id: string;
-			content_hash: string;
-			trust: string;
-		}>;
-		return rows.map((r) => ({
-			path: r.path,
-			title: r.title,
-			rank: r.rank,
-			contentRaw: r.content_raw,
-			bodyText: r.body_text,
-			mtime: r.mtime,
-			frontmatterType: r.frontmatter_type,
-			sessionId: r.session_id,
-			contentHash: r.content_hash,
-			trust: r.trust,
-		}));
-	} finally {
-		db.close();
+function rowToHit(row: FtsRow): Fts5Hit {
+	return {
+		path: row.path,
+		title: row.title,
+		rank: row.rank,
+		contentRaw: row.content_raw,
+		bodyText: row.body_text,
+		mtime: row.mtime,
+		frontmatterType: row.frontmatter_type,
+		sessionId: row.session_id,
+		contentHash: row.content_hash,
+		trust: row.trust,
+	};
+}
+
+function requireAsciiFoldIndex(db: Database.Database): void {
+	const tables = db
+		.prepare(
+			"SELECT name FROM sqlite_master " +
+				"WHERE type='table' AND name IN ('documents_ascii_fts', 'index_meta')",
+		)
+		.all() as Array<{ name: string }>;
+	const tableNames = new Set(tables.map((row) => row.name));
+	let profile: string | undefined;
+	if (tableNames.has("index_meta")) {
+		profile = (
+			db
+				.prepare(
+					"SELECT value FROM index_meta WHERE key='ascii_normalization_profile'",
+				)
+				.get() as { value: string } | undefined
+		)?.value;
 	}
+	if (tableNames.has("documents_ascii_fts") && profile === "tr-ascii-fold")
+		return;
+	throw new MnemeToolError(
+		ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+		"The FTS5 index lacks the Turkish ASCII-fold key required by this query path. " +
+			"Run 'mneme-core index rebuild --locale tr' before retrying.",
+	);
 }
 
 const EMPTY_STOPWORDS: ReadonlySet<string> = new Set();
@@ -218,8 +279,22 @@ export function hasScopeColumn(db: Database.Database, dbPath: string): boolean {
 	} else if (!scopeColumnAbsentWarned.has(dbPath)) {
 		scopeColumnAbsentWarned.add(dbPath);
 		process.stderr.write(
-			"[mneme-mcp] documents.scope column absent — pre-M1 index detected; scope predicate skipped.\n",
+			"[mneme-mcp] documents.scope column absent — pre-scope index detected; concrete-scope reads require an index rebuild.\n",
 		);
 	}
 	return has;
+}
+
+/** Refuse concrete-scope reads when the derived index has no scope labels. */
+export function requireScopeColumn(
+	db: Database.Database,
+	dbPath: string,
+	scope: string,
+): void {
+	if (scope === "*" || hasScopeColumn(db, dbPath)) return;
+	throw new MnemeToolError(
+		ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+		"The FTS5 index predates scope isolation and cannot satisfy a scoped read. " +
+			"Run 'mneme-core index rebuild' before retrying, or pass scope='*' only for an intentional cross-scope read.",
+	);
 }

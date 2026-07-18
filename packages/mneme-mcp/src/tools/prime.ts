@@ -28,15 +28,16 @@ import {
 	markInjected,
 	saveTracker,
 } from "../distill/injection_tracker.js";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
-import { normalizeTr } from "../locale/tr.js";
+import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
 import { redact } from "../privacy.js";
 import {
 	buildFts5Query,
 	fts5Search,
-	hasScopeColumn,
+	requireScopeColumn,
 } from "../retrieval/fts5.js";
+import { ScopeSchema } from "../scope.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import { DEFAULT_STOPWORDS, type ToolResult } from "./common.js";
@@ -77,15 +78,11 @@ export const PrimeInputSchema = z.object({
 		.optional(),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
-	 * cross-scope. Skipped when the index lacks the scope column.
+	 * cross-scope. Concrete scopes require a scope-aware index.
 	 */
-	scope: z
-		.string()
-		.max(256)
-		.describe(
-			"Scope to prime. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
-		)
-		.optional(),
+	scope: ScopeSchema.describe(
+		"Scope to prime. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+	).optional(),
 });
 
 export type PrimeInput = z.infer<typeof PrimeInputSchema>;
@@ -132,16 +129,7 @@ export function primeTool(
 			scope,
 		);
 	} catch (err) {
-		// Match the structured error contract every other tool returns: a
-		// failed SQLite read becomes an IO_ERROR envelope rather than an
-		// unhandled exception that breaks the MCP tool-call response.
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+		return { ok: false, error: toMnemeError(err) };
 	}
 
 	// Load the per-session injection tracker. When no session_id is provided
@@ -284,11 +272,9 @@ function listRecentSessions(
 	});
 	try {
 		db.pragma("query_only = ON");
-		// Defensive: scope column may be absent on pre-M1 indexes. Check once
-		// with the live connection so the result is cached for subsequent calls.
-		const scopeOk = hasScopeColumn(db, vault.fts5Db);
-		const scopePred = scopeOk && scope !== "*" ? "AND scope = ?" : "";
-		const scopeArgs: string[] = scopeOk && scope !== "*" ? [scope] : [];
+		requireScopeColumn(db, vault.fts5Db, scope);
+		const scopePred = scope !== "*" ? "AND scope = ?" : "";
+		const scopeArgs: string[] = scope !== "*" ? [scope] : [];
 
 		// key_points is added by the indexer migration; older DBs may not have it.
 		// Try the full query first, fall back to a no-keypoints query if the column
@@ -343,10 +329,16 @@ function topicMatches(
 		stopwords: DEFAULT_STOPWORDS,
 		normalize: normalizeTr,
 	});
-	if (ftsQuery.length === 0) return [];
+	const ftsQueryAscii = buildFts5Query(description, {
+		minTokenLength: 2,
+		stopwords: DEFAULT_STOPWORDS,
+		normalize: normalizeTrAsciiFold,
+	});
+	if (ftsQuery.length === 0 && ftsQueryAscii.length === 0) return [];
 	const hits = fts5Search({
 		dbPath: vault.fts5Db,
 		ftsQuery,
+		ftsQueryAscii,
 		limit,
 		scope,
 	});

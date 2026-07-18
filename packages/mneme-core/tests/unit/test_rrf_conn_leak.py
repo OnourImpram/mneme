@@ -64,7 +64,11 @@ class TestFts5SearchConnectionLeak:
         with patch("mneme_core.retrieval.rrf.sqlite3.connect", _make_patched_connect(wrappers)):
             from mneme_core.retrieval.rrf import fts5_search
 
-            result = fts5_search("this query has enough tokens to pass filtering", db_path)
+            result = fts5_search(
+                "this query has enough tokens to pass filtering",
+                db_path,
+                scope="*",
+            )
 
         assert result == [], "fts5_search must return [] on OperationalError"
         assert len(wrappers) == 1, "exactly one connection should have been opened"
@@ -78,9 +82,14 @@ class TestFts5SearchConnectionLeak:
             "CREATE VIRTUAL TABLE documents_fts USING fts5(title, content, tokenize='unicode61')"
         )
         conn.execute(
-            "CREATE TABLE documents (id INTEGER PRIMARY KEY, path TEXT, title TEXT)"
+            "CREATE TABLE documents ("
+            "id INTEGER PRIMARY KEY, path TEXT, title TEXT, "
+            "content_hash TEXT, trust TEXT, scope TEXT)"
         )
-        conn.execute("INSERT INTO documents VALUES (1, 'a/b.md', 'Hello world')")
+        conn.execute(
+            "INSERT INTO documents VALUES "
+            "(1, 'a/b.md', 'Hello world', 'hash', 'user', 'default')"
+        )
         conn.execute(
             "INSERT INTO documents_fts(rowid, title, content) "
             "VALUES (1, 'Hello world', 'some content')"

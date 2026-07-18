@@ -10,10 +10,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
 import { redact } from "../privacy.js";
-import { hasScopeColumn } from "../retrieval/fts5.js";
+import { requireScopeColumn } from "../retrieval/fts5.js";
+import { ScopeSchema } from "../scope.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
@@ -55,13 +56,9 @@ export const RecallInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope() (fail-safe: never
 	 * silently spans scopes). Pass "*" for cross-scope (no predicate).
 	 */
-	scope: z
-		.string()
-		.max(256)
-		.describe(
-			"Scope to recall. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
-		)
-		.optional(),
+	scope: ScopeSchema.describe(
+		"Scope to recall. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+	).optional(),
 });
 
 export type RecallInput = z.infer<typeof RecallInputSchema>;
@@ -128,8 +125,8 @@ export function recallTool(
 			conditions.push("mtime <= ?");
 			bindings.push(isoDateToUnixEndOfDay(args.date_to));
 		}
-		// Scope predicate — guarded against pre-M1 indexes that lack the column.
-		if (scope !== "*" && hasScopeColumn(db, vault.fts5Db)) {
+		requireScopeColumn(db, vault.fts5Db, scope);
+		if (scope !== "*") {
 			conditions.push("scope = ?");
 			bindings.push(scope);
 		}
@@ -148,13 +145,7 @@ export function recallTool(
 		bindings.push(args.top_n);
 		rows = db.prepare(sql).all(...bindings) as typeof rows;
 	} catch (err) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+		return { ok: false, error: toMnemeError(err) };
 	} finally {
 		db.close();
 	}

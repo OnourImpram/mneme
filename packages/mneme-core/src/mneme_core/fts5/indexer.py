@@ -34,6 +34,7 @@ import yaml
 
 from ..privacy import redact
 from ..retrieval.rrf import build_fts5_query
+from ..scope import DocumentScopeError, classify_markdown_scope
 from ..vault.frontmatter import load_yaml_block
 
 DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
@@ -449,6 +450,12 @@ def index_vault(
             continue
 
         rel_path = str(md_path.relative_to(config.vault_root)).replace("\\", "/")
+        if redact(rel_path) != rel_path:
+            # ``path`` is the document identity and cannot be replaced with a
+            # lossy redaction token without collision risk. Skip explicitly
+            # private filenames instead of persisting the secret.
+            stats.skipped_excluded += 1
+            continue
 
         try:
             mtime = md_path.stat().st_mtime
@@ -459,9 +466,14 @@ def index_vault(
                 live_paths.add(rel_path)
                 continue
             raw_bytes = md_path.read_bytes()
-            content = redact(raw_bytes.decode("utf-8", errors="replace"))
+            raw_content = raw_bytes.decode("utf-8", errors="replace")
+            scope_info = classify_markdown_scope(raw_content)
+            if redact(scope_info.scope) != scope_info.scope:
+                stats.skipped_error += 1
+                continue
+            content = redact(raw_content)
             content_hash_val = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        except OSError:
+        except (OSError, DocumentScopeError):
             stats.skipped_error += 1
             continue
 
@@ -478,11 +490,28 @@ def index_vault(
         tags_normalized = config.normalize(tags)
         fm_type = str(fm.get("type") or "")
         fm_session_id = str(fm.get("session_id") or "")
-        fm_scope = str(fm.get("scope") or fm.get("project") or "") or "default"
+        fm_scope = scope_info.scope
         wikilinks = _extract_wikilinks(body)
         wikilinks_normalized = config.normalize(wikilinks)
         now_iso = datetime.now(UTC).isoformat()
         keypoints = _extract_keypoints(body)
+
+        # Normalizers and extractors are injectable extension points. Treat
+        # their output as untrusted and reapply the canonical redactor to every
+        # user-derived value immediately before the SQLite sinks.
+        title = redact(title)
+        title_normalized = redact(title_normalized)
+        content = redact(content)
+        body = redact(body)
+        content_normalized = redact(content_normalized)
+        tags = redact(tags)
+        tags_normalized = redact(tags_normalized)
+        fm_type = redact(fm_type)
+        fm_session_id = redact(fm_session_id)
+        wikilinks = redact(wikilinks)
+        wikilinks_normalized = redact(wikilinks_normalized)
+        keypoints = [redact(point) for point in keypoints]
+        content_hash_val = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         conn.execute(
             """INSERT INTO documents
@@ -558,10 +587,10 @@ def index_vault(
                 "VALUES (?, ?, ?, ?, ?)",
                 (
                     doc_id,
-                    config.normalize_ascii(title),
-                    config.normalize_ascii_for_fts(body),
-                    config.normalize_ascii(tags),
-                    config.normalize_ascii(wikilinks),
+                    redact(config.normalize_ascii(title)),
+                    redact(config.normalize_ascii_for_fts(body)),
+                    redact(config.normalize_ascii(tags)),
+                    redact(config.normalize_ascii(wikilinks)),
                 ),
             )
 
@@ -610,6 +639,16 @@ def index_vault(
         "INSERT INTO index_meta(key, value) VALUES(?, ?)"
         " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         ("normalization_profile", profile),
+    )
+    ascii_profile = (
+        _profile_for_normalizer(config.normalize_ascii)
+        if config.normalize_ascii is not None
+        else "disabled"
+    )
+    conn.execute(
+        "INSERT INTO index_meta(key, value) VALUES(?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        ("ascii_normalization_profile", ascii_profile),
     )
 
     conn.commit()

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from mneme_core.fts5 import indexer as indexer_mod
 from mneme_core.fts5.indexer import (
     DEFAULT_EXCLUDE_PATTERNS,
     SCHEMA_VERSION,
@@ -947,6 +948,80 @@ class TestIndexerRedaction:
         assert "more public." in row[0]
         conn.close()
 
+    def test_reredacts_injected_normalizer_and_extractor_output_at_sql_sink(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text(
+            "---\ntags: [safe]\n---\n# Public title\n\nPublic body.\n",
+            encoding="utf-8",
+        )
+
+        def tainted_normalizer(value: str) -> str:
+            return value + " <private>NORMALIZER_SECRET</private>"
+
+        monkeypatch.setattr(
+            indexer_mod,
+            "_extract_keypoints",
+            lambda _body: ["<private>KEYPOINT_SECRET</private>"],
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(
+            conn,
+            IndexerConfig(
+                vault_root=vault,
+                db_path=tmp_path / "fts.db",
+                normalize=tainted_normalizer,
+                normalize_for_fts=tainted_normalizer,
+                normalize_ascii=tainted_normalizer,
+                normalize_ascii_for_fts=tainted_normalizer,
+            ),
+        )
+
+        document = conn.execute(
+            "SELECT title, title_normalized, content_raw, body_text, tags, "
+            "linked_notes, key_points FROM documents"
+        ).fetchone()
+        primary_fts = conn.execute(
+            "SELECT title, content, tags, linked_notes FROM documents_fts"
+        ).fetchone()
+        ascii_fts = conn.execute(
+            "SELECT title, content, tags, linked_notes FROM documents_ascii_fts"
+        ).fetchone()
+        persisted = repr((document, primary_fts, ascii_fts))
+        conn.close()
+
+        assert "NORMALIZER_SECRET" not in persisted
+        assert "KEYPOINT_SECRET" not in persisted
+        assert "[REDACTED]" in persisted
+
+    def test_private_filename_is_not_persisted_as_document_identity(
+        self, tmp_path: Path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        private_path = vault / "<private>FILENAME_SECRET</private>.md"
+        try:
+            private_path.write_text("# Public\nbody\n", encoding="utf-8")
+        except OSError:
+            pytest.skip("platform does not permit private-tag filename syntax")
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+
+        stats = index_vault(
+            conn,
+            IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db"),
+        )
+
+        assert stats.indexed == 0
+        assert stats.skipped_excluded == 1
+        assert conn.execute("SELECT path FROM documents").fetchall() == []
+        conn.close()
+
 
 class TestVaultEscapeContainment:
     """A symlink inside the vault pointing outside it must not be indexed.
@@ -1065,6 +1140,33 @@ class TestScopeColumn:
         ).fetchone()
         assert row is not None
         assert row[0] == "default"
+        conn.close()
+
+    @pytest.mark.parametrize(
+        "scope_lines",
+        [
+            "scope: '*'\n",
+            "scope: ' clinical '\n",
+            "scope: clinical\nproject: research\n",
+            "scope: '<private>clinical</private>'\n",
+        ],
+    )
+    def test_invalid_or_lossy_scope_metadata_fails_closed(
+        self, tmp_path: Path, scope_lines: str
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "unsafe.md").write_text(
+            f"---\nid: unsafe\ntype: topic\n{scope_lines}---\n# Unsafe\nbody\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        stats = index_vault(
+            conn, IndexerConfig(vault_root=vault, db_path=tmp_path / "fts.db")
+        )
+        assert stats.indexed == 0
+        assert conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0
         conn.close()
 
     def test_schema_version_bump_detected_on_old_db(self, tmp_path: Path) -> None:

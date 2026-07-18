@@ -13,9 +13,9 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { neutralize } from "../injection.js";
-import { normalizeTr } from "../locale/tr.js";
+import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import {
 	closeDriver,
@@ -24,6 +24,7 @@ import {
 	type GraphHit,
 	isKgActive,
 } from "../retrieval/graphiti.js";
+import { ScopeSchema } from "../scope.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
 	DEFAULT_STOPWORDS,
@@ -33,11 +34,7 @@ import {
 } from "./common.js";
 
 export const SummarizeInputSchema = z.object({
-	topic: z
-		.string()
-		.min(1)
-		.max(2048)
-		.describe("Topic query to summarize."),
+	topic: z.string().min(1).max(2048).describe("Topic query to summarize."),
 	date_range: z
 		.tuple([
 			z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -55,15 +52,11 @@ export const SummarizeInputSchema = z.object({
 		.describe("Maximum number of FTS5 documents to group."),
 	/**
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
-	 * cross-scope. Skipped when the index lacks the scope column.
+	 * cross-scope. Concrete reads require a scope-aware index.
 	 */
-	scope: z
-		.string()
-		.max(256)
-		.describe(
-			"Scope to summarize. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
-		)
-		.optional(),
+	scope: ScopeSchema.describe(
+		"Scope to summarize. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+	).optional(),
 });
 
 export type SummarizeInput = z.infer<typeof SummarizeInputSchema>;
@@ -97,28 +90,28 @@ export async function summarizeTool(
 		stopwords: DEFAULT_STOPWORDS,
 		normalize: normalizeTr,
 	});
+	const ftsQueryAscii = buildFts5Query(args.topic, {
+		minTokenLength: 2,
+		stopwords: DEFAULT_STOPWORDS,
+		normalize: normalizeTrAsciiFold,
+	});
 
 	const [from, to] = args.date_range ?? [undefined, undefined];
 
 	let hits: ReturnType<typeof fts5Search> = [];
-	if (ftsQuery.length > 0) {
+	if (ftsQuery.length > 0 || ftsQueryAscii.length > 0) {
 		try {
 			hits = fts5Search({
 				dbPath: vault.fts5Db,
 				ftsQuery,
+				ftsQueryAscii,
 				limit: args.top_k,
 				mtimeFrom: from ? isoDateToUnix(from) : undefined,
 				mtimeTo: to ? isoDateToUnixEndOfDay(to) : undefined,
 				scope,
 			});
 		} catch (err) {
-			return {
-				ok: false,
-				error: {
-					code: ERROR_CODES.IO_ERROR,
-					message: err instanceof Error ? err.message : String(err),
-				},
-			};
+			return { ok: false, error: toMnemeError(err) };
 		}
 	}
 
