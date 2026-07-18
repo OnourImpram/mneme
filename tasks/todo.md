@@ -98,38 +98,38 @@
 - [x] Close the Python 3.11 Windows proposal-queue lock timeout found by the final CI matrix. The 30-second wait and 60-second stale contract passed the Python 3.11 Windows core suite.
 - [x] Upgrade all 18 version sources to 3.6.0 only after preceding local gates pass.
 - [x] Complete changelog, upgrading guide, ADRs, benchmarks, and engineering report for the precommit candidate.
-- [ ] Run full final matrices and release dry run at the exact final SHA.
+- [x] Run full final matrices and release dry run at candidate evidence SHA `17d5651`. The report closeout head must pass the same gates before merge.
 - [x] Commit the verified Loop 10 change set with a Conventional Commit.
 
 ## Delivery and governance
 
 - [x] Push the branch and open `Release: complete Mneme 3.6.0 ten-loop engineering hardening` as PR 36.
-- [ ] Record unique diffs and close PRs 29, 31, 32, 33, and 34 as superseded.
-- [ ] Close PR 35 with verified tree-sitter 0.26 crash evidence.
-- [ ] Leave PR 28 open as a separate dependency change.
+- [x] Record unique diffs and close PRs 29, 31, 32, 33, and 34 as superseded.
+- [x] Close PR 35 with verified tree-sitter 0.26 crash evidence.
+- [x] Leave PR 28 open as a separate dependency change.
 - [x] Enable Dependabot vulnerability alerts.
 - [x] Remove administrator bypass from required checks.
 - [x] Record repository settings before and after.
-- [ ] Produce a technical `GO` or `NO GO` decision.
-- [ ] Leave human approval, merge, tag, and publish as external gates.
+- [x] Produce a technical `GO` decision with zero open P0 or P1 findings and disclosed P2 risks.
+- [x] Leave human approval, merge, tag, and publish as external gates.
 
 ## Final verification commands
 
-- [ ] `make install-dev`. GNU Make is unavailable on the local Windows host. The five underlying Makefile commands passed manually, including frozen pnpm installation.
-- [ ] `make test`. GNU Make is unavailable locally. The exact Python and Node test surfaces passed manually and must still run through CI on the final SHA.
-- [ ] `make lint`. GNU Make is unavailable locally. Ruff, strict mypy, Biome, and TypeScript build passed manually and must still run through CI on the final SHA.
+- [x] `make install-dev`. Passed with GNU Make 4.3 in a fresh native WSL clone using Python 3.12.3, checksum-verified Node 24.14.0, and pnpm 9.15.9.
+- [x] `make test`. Passed in the same exact-SHA clean clone. The Linux Node surface ran 625 tests.
+- [x] `make lint`. Ruff, strict mypy, and Biome passed in the same exact-SHA clean clone.
 - [x] `python tools/version_bump.py --check 3.6.0`
 - [x] `python tools/spec_verify.py`
 - [x] `python tools/repo_integrity.py`
 - [x] All plugin validators
-- [ ] Python 3.11 through 3.14 matrix
-- [ ] Node 22 and 24 matrix
-- [ ] Linux, macOS, and Windows matrix
+- [x] Python 3.11 through 3.14 matrix
+- [x] Node 22 and 24 matrix
+- [x] Linux, macOS, and Windows matrix
 - [x] Coverage at or above 80 percent for all four Python packages and Node business logic on local Python 3.14 and Node 24
 - [x] Seven benchmark surfaces and official-schema adapter fixtures
-- [ ] `release.yml` dry run with `target_version=3.6.0` at the exact PR SHA
-- [x] Clean git status and secret scan after commit partitioning. Generated evidence remained ignored.
+- [x] `release.yml` dry run with `target_version=3.6.0` at candidate evidence SHA `17d5651`. All publish jobs were skipped.
+- [x] Clean git status, `git fsck`, and secret scan in fresh exact-SHA clones. Generated evidence remained ignored.
 
 ## Review notes
 
-The first remote candidate passed every job except Python 3.11 on Windows, where concurrent durable queue writes exceeded the one-second lock wait. The queue contract now uses a 30-second wait and a 60-second stale threshold, and the Python 3.11 Windows suite passes. A follow-up independent review found three P1 migration compatibility defects. Stable aliases are now canonicalized, diagnostics redact lexical and canonical path forms, and signed legacy aliases without a signed canonical target fail closed while preserving the archive for manual hash-verified recovery. The independent re-review found zero P0 or P1. Terminal punctuation loss in conservative path redaction remains a disclosed cosmetic P2. Final-head matrices, governance, and clean-clone evidence remain open.
+The first remote candidate passed every job except Python 3.11 on Windows, where concurrent durable queue writes exceeded the one-second lock wait. The queue contract now uses a 30-second wait and a 60-second stale threshold, and the Python 3.11 Windows suite passes. A follow-up independent review found three P1 migration compatibility defects. Stable aliases are now canonicalized, diagnostics redact lexical and canonical path forms, and signed legacy aliases without a signed canonical target fail closed while preserving the archive for manual hash-verified recovery. The independent re-review found zero P0 or P1. Terminal punctuation loss in conservative path redaction remains a disclosed cosmetic P2. Candidate evidence SHA `17d5651` passed CI, CodeQL, benchmarks, release dry run, governance, Make targets, and clean-clone proof. The report closeout head must pass the same hosted checks before merge.

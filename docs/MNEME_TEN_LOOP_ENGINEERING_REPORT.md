@@ -1,8 +1,8 @@
 # Mneme 3.6.0 Ten Loop Engineering Report
 
-**Status:** Release-candidate finalization in progress.
+**Status:** Complete.
 
-**Technical decision:** `NO GO` until the final documentation SHA passes the complete GitHub matrix and `release.yml` dry run. The preceding code SHA passes CodeQL, benchmarks, package dry run, and all completed CI jobs. The final immutable PR head remains the decision boundary.
+**Technical decision:** `GO` for human review and merge consideration. Candidate evidence SHA `17d5651c8405989072287c00f7390de461936551` passed the complete CI matrix, CodeQL, benchmarks, and `release.yml` dry run. The report closeout commit must pass the same exact-head gates before merge.
 
 ## Execution identity
 
@@ -13,7 +13,7 @@
 | Starting SHA | `02641d9c59c354c53733cc065c081fdd9d25836b` |
 | Upgrade branch | `sol-ultra/mneme-ten-loop-upgrade-20260717-r3` |
 | Release-candidate PR | [#36](https://github.com/OnourImpram/mneme/pull/36) |
-| Pre-final code SHA | `c23724775177699a16a587833e04cee4213714d9` |
+| Verified evidence SHA | `17d5651c8405989072287c00f7390de461936551` |
 | Started | 2026-07-18, Europe/Istanbul |
 | Latest published release at start | `v3.5.0` |
 | Target | One unmerged 3.6.0 release candidate PR |
@@ -98,7 +98,7 @@ The primary GitHub CI run was red across the declared Python and Node matrix. Th
 | MNEME-R3-014 | P2 | 7 | Local Docker daemon unavailable for live Neo4j proof | Closed by the Neo4j service-container integration on pre-final code SHA `c237247` |
 | MNEME-R3-015 | P2 | 8 | Clean artifact and migration rollback proof was incomplete | Closed. Final 3.6.0 verifier passed 21 required checks across 12 artifacts |
 | MNEME-R3-016 | P2 | 9 | Competitive and semantic capability claims require official-source correction | Closed. Official-source classes, immutable repository links, evidence types, and terminology pass OSS maintainer re-review |
-| MNEME-R3-017 | P1 | 7 | Expanding the tree-sitter upper bound to 0.26 admits a native ABI access violation during full graph extraction | Windows exit `0xC0000005` reproduced with the runtime guard intentionally bypassed. The `<0.26` metadata bound and pre-parse guard remain enforced. PR 35 closure pending |
+| MNEME-R3-017 | P1 | 7 | Expanding the tree-sitter upper bound to 0.26 admits a native ABI access violation during full graph extraction | Windows exit `0xC0000005` reproduced with the runtime guard intentionally bypassed. The `<0.26` metadata bound and pre-parse guard remain enforced. PR 35 was closed with the evidence |
 | MNEME-R3-018 | P1 | 10 | A manual release workflow dispatch could reach publish jobs without a tag-push event | Resolve and all seven publish jobs now require a tag push. Independent release review found no remaining P0 or P1 |
 | MNEME-R3-019 | P1 | 4 | Python retrieval could widen concrete legacy reads, use an unkeyed query digest, and lose structured RRF fields | Concrete scopes fail closed, per-vault HMAC is used, and canonical dedup preserves hash, trust, confidence, and provenance |
 | MNEME-R3-020 | P1 | 4 | Node prime did not enforce the same legacy scope and Turkish normalization rules as search | Concrete legacy reads now fail closed and prime queries both CLDR and ASCII Turkish forms |
@@ -120,16 +120,16 @@ The primary GitHub CI run was red across the declared Python and Node matrix. Th
 
 | Loop | Status | Evidence summary |
 |---:|---|---|
-| 1 | Code candidate complete | Repository recovery, actionlint 1.7.7, version, license, Node, tool, and manifest gates pass locally and on pre-final code SHA `c237247` |
-| 2 | Locally complete | Shared scope contracts and nine-tool schema/runtime parity pass |
-| 3 | Locally complete | Atomic writes, cross-language audit, rollback, queue, and sink redaction pass adversarial fixtures |
-| 4 | Locally complete | Scoped retrieval, Turkish behavior, canonical RRF, telemetry states, and benchmark gate pass |
+| 1 | Complete | Repository recovery, actionlint 1.7.7, version, license, Node, tool, and manifest gates pass locally and remotely |
+| 2 | Complete | Shared scope contracts and nine-tool schema/runtime parity pass |
+| 3 | Complete | Atomic writes, cross-language audit, rollback, queue, and sink redaction pass adversarial fixtures |
+| 4 | Complete | Scoped retrieval, Turkish behavior, canonical RRF, telemetry states, and benchmark gate pass |
 | 5 | Complete | Deterministic temporal isolation passes locally and the real Neo4j service integration proves `group_id` isolation in CI |
-| 6 | Locally complete | Scope-aware CCE, poisoned and stale input handling, and no-network Stop behavior pass |
-| 7 | Locally complete | Performance and fault matrix pass. Tree-sitter 0.26 crash boundary is reproduced and guarded |
-| 8 | Locally complete | Final 3.6.0 package verifier passes 21 required checks and verifies 12 artifacts |
-| 9 | Locally complete | Official-source capability classes and honest lexical-surrogate language pass independent review |
-| 10 | Finalizing | Four independent reviews, version bump, pre-final CodeQL, benchmarks, and package dry run pass. Final-head checks and PR governance remain |
+| 6 | Complete | Scope-aware CCE, poisoned and stale input handling, and no-network Stop behavior pass |
+| 7 | Complete | Performance and fault matrix pass. Tree-sitter 0.26 crash boundary is reproduced and guarded |
+| 8 | Complete | Final 3.6.0 package verifier passes 21 required checks and verifies 12 artifacts |
+| 9 | Complete | Official-source capability classes and honest lexical-surrogate language pass independent review |
+| 10 | Complete | Four independent reviews, version bump, exact-head matrices, CodeQL, benchmarks, package dry run, clean-clone proof, and PR governance pass |
 
 ## Verified targeted results
 
@@ -148,7 +148,8 @@ The primary GitHub CI run was red across the declared Python and Node matrix. Th
 13. Four independent reviews covered release integrity, privacy boundaries, retrieval and temporal correctness, and open-source maintainability. All reported P0 and P1 findings were fixed and re-fixtured. The final migration re-review reported zero P0 or P1 and one disclosed P2 for privacy-conservative terminal punctuation loss.
 14. Ruff and strict mypy passed all four Python source packages. A wider Ruff pass also covered tools, benchmarks, and parity tests. The console refusal test file passed five consecutive runs after its Windows body-consumption fix.
 15. Migration integration passed 54 tests with 1 platform skip. New canonical manifests retain automatic move and rollback. Signed legacy lexical-alias manifests fail closed before quarantine or restoration and preserve the archive for manual hash-verified recovery.
-16. Pre-final code SHA `c237247` passed CodeQL, the independent benchmark workflow, the real Neo4j integration job, and `release.yml` with `dry_run=true` and `target_version=3.6.0`. Every publish job was skipped.
+16. Candidate evidence SHA `17d5651` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29649759486), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29649759485), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29649759470), and [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29649763427) with `dry_run=true` and `target_version=3.6.0`. Every publish job was skipped.
+17. GNU Make 4.3 ran the declared `make install-dev`, `make test`, and `make lint` targets in a fresh native WSL clone using Python 3.12.3, Node 24.14.0, and pnpm 9.15.9. The official Node archive checksum passed. The clean Linux Node surface ran 625 tests and remained above all 80 percent coverage gates.
 
 These results were reproduced after the ten commits were partitioned. The immutable candidate identity is deliberately recorded by the PR head and GitHub check suite rather than embedded in its own commit content.
 
@@ -162,13 +163,13 @@ The exact candidate 3.6.0 package verifier passed all 21 required checks and rec
 
 ## Governance record
 
-At start, Dependabot vulnerability alerts were disabled and `main` branch protection allowed administrator bypass. The GitHub API was used to enable vulnerability alerts and set `enforce_admins` to true. A second API read verified HTTP 204 for the alerts endpoint and `enforce_admins: true`. Release-candidate PR [#36](https://github.com/OnourImpram/mneme/pull/36) is open with the required title. PR 28 remains a separate dependency lane. Unique-diff inventory and supersession actions for PRs 29, 31, 32, 33, 34, and 35 remain the last governance step after the final PR head stabilizes.
+At start, Dependabot vulnerability alerts were disabled and `main` branch protection allowed administrator bypass. The GitHub API was used to enable vulnerability alerts and set `enforce_admins` to true. A second API read verified HTTP 204 for the alerts endpoint and `enforce_admins: true`. Release-candidate PR [#36](https://github.com/OnourImpram/mneme/pull/36) is open with the required title. PR 28 remains open as a separate dependency lane. PRs 29, 31, 32, 33, and 34 were commented with unique-diff inventories and closed as superseded. PR 35 was commented with the reproduced tree-sitter 0.26 native crash and closed. None was merged.
 
-GNU Make is unavailable on the local Windows host. This is a local tool limitation, not a repository failure. The five `make install-dev` constituent commands, including frozen pnpm installation, passed manually. The underlying test and lint commands likewise passed manually. Editable imports for all four Python packages resolve to this worktree at 3.6.0. The global Python installation emits a stale invalid distribution warning for `~neme-cc-plugin`; isolated package installation passed and the warning is classified as a local environment P2.
+GNU Make is unavailable in the Windows host shell, so GNU Make 4.3 was run in a fresh native WSL clone. `make install-dev`, `make test`, and `make lint` passed with Python 3.12.3, the checksum-verified official Node 24.14.0 Linux binary, and pnpm 9.15.9. Editable imports for all four Python packages resolved to that exact clone at 3.6.0. The global Windows Python installation emits a stale invalid distribution warning for `~neme-cc-plugin`; isolated package installation passed and the warning is classified as a local environment P2.
 
 ## Residual risks
 
-1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on pre-final code SHA `c237247`.
+1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on evidence SHA `17d5651`.
 2. Existing SQLite test helpers emit some `ResourceWarning` messages. Connection lifecycle cleanup remains a nonblocking P2.
 3. The local rollback manifest retains exact source and vault paths because rollback must identify the original local resources. The public migration manifest and emitted diagnostics are redacted. The local manifest is a documented P2 privacy boundary and must remain local-only.
 4. Signed schema v2 manifests that recorded only a lexical source alias do not contain a signed canonical restore target. Automatic source finalization and restoration fail closed. The signed archive is preserved for manual hash-verified recovery.
@@ -177,8 +178,8 @@ GNU Make is unavailable on the local Windows host. This is a local tool limitati
 7. Some prerelease tag patterns can start the release workflow before preflight rejects a non-final target version. Publish jobs still require a tag push and verified preflight artifacts.
 8. The local global Python site-packages contains a stale invalid distribution warning. Isolated package verification is clean.
 9. The official `mcp-publisher` binary was unavailable locally. Repository metadata validation passed, and publisher validation remains an optional external gate.
-10. Local policy prevented a final local Git commit. Remote commits were created through the GitHub Git Data API without force. Delivery requires a fresh clean clone of the final branch to prove exact-SHA status and a secrets-free tree.
+10. Local policy prevented a final local Git commit. Remote commits were created through the GitHub Git Data API without force. Two fresh clones of evidence SHA `17d5651` had empty tracked status, passed `git fsck`, and produced zero high-confidence secret-pattern hits. The report closeout head must retain the same clean-state proof before merge.
 
 ## Final decision
 
-**NO GO pending final-head gates.** All known P0 and P1 findings are closed. The complete local candidate gate set and the pre-final code SHA checks pass, including the release dry run with every publish job skipped. This decision becomes `GO` only after the documentation commit, complete matrix, CodeQL, benchmarks, dry run, governance actions, and clean exact-SHA clone all pass at one immutable PR head. Human approval, merge, tag, and publication remain separate external gates.
+**GO for human review and merge consideration.** There are zero open P0 or P1 findings. Candidate evidence SHA `17d5651` passed the complete Python 3.11 through 3.14, Node 22 and 24, Linux, macOS, and Windows matrix, plus CodeQL, seven benchmark surfaces, real Neo4j integration, package verification, and the exact-head release dry run. Governance and clean-clone checks are complete. Disclosed P2 risks remain listed above. The report closeout commit must remain green at its own exact PR head. Human approval, merge, tag, and publication remain separate external gates and were not performed.
