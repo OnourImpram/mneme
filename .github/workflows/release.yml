@@ -4,19 +4,15 @@ on:
   push:
     tags:
       - 'v*.*.*'
-      - 'v*.*.*-*'
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry-run mode (build + verify, skip publish steps)'
+        description: 'Manual dispatch is verification-only. Publishing requires a vMAJOR.MINOR.PATCH tag.'
         required: false
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+        default: true
+        type: boolean
       target_version:
-        description: 'SemVer target for the publish (e.g. 1.0.0 or 1.0.0-rc.1). Required when dispatched without a tag.'
+        description: 'Strict MAJOR.MINOR.PATCH target for a manual dry run.'
         required: false
         default: ''
         type: string
@@ -33,16 +29,32 @@ jobs:
 
       - name: Resolve target version
         id: resolve
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_TARGET_VERSION: ${{ inputs.target_version }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF_NAME: ${{ github.ref_name }}
+          EVENT_REF_TYPE: ${{ github.ref_type }}
         run: |
-          if [ -n "${{ inputs.target_version }}" ]; then
-            target="${{ inputs.target_version }}"
-            dry="${{ inputs.dry_run }}"
-          elif [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_type }}" == "tag" ]]; then
-            tag="${{ github.ref_name }}"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" && "$EVENT_REF_TYPE" == "tag" ]]; then
+            tag="$EVENT_REF_NAME"
             target="${tag#v}"
             dry="false"
           else
-            echo "::error::Could not resolve target version (no tag and no input)"
+            target="$INPUT_TARGET_VERSION"
+            dry="${INPUT_DRY_RUN:-true}"
+            if [[ "$dry" != "true" ]]; then
+              echo "::error::Manual dispatch cannot publish. Push a verified release tag instead."
+              exit 1
+            fi
+          fi
+          if [[ ! "$target" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Target version must be strict MAJOR.MINOR.PATCH SemVer."
+            exit 1
+          fi
+          if [[ "$EVENT_NAME" == "push" && "$EVENT_REF_TYPE" == "tag" && "$EVENT_REF_NAME" != "v$target" ]]; then
+            echo "::error::Release tag must equal v$target."
             exit 1
           fi
           echo "version=$target" >> "$GITHUB_OUTPUT"
@@ -55,6 +67,9 @@ jobs:
 
       - name: Critical-path hook verifier (C3 enforcement)
         run: python3 tools/spec_verify.py
+
+      - name: Claude plugin manifest verifier
+        run: python3 tools/validate_claude_plugin.py packages/mneme-cc-plugin
 
       - name: Codex plugin manifest verifier
         run: python3 tools/validate_codex_plugin.py packages/mneme-codex-plugin
@@ -80,33 +95,70 @@ jobs:
 
       - name: mneme-core pytest
         working-directory: packages/mneme-core
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-core
         run: |
           pip install -e '.[dev]'
-          pytest -q
+          pytest -q --cov-config=pyproject.toml
 
       - name: mneme-mcp vitest
         working-directory: packages/mneme-mcp
-        run: pnpm vitest run
+        run: pnpm test:coverage
 
       - name: mneme-cc-plugin pytest
         working-directory: packages/mneme-cc-plugin
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-cc-plugin
         run: |
           pip install -e '.[dev]'
           ruff check .
           mypy --strict src/
-          pytest -q
+          pytest -q --cov-config=pyproject.toml
 
       - name: mneme-graph pytest
         working-directory: packages/mneme-graph
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-graph
         run: |
           pip install -e '.[dev]'
-          pytest -q
+          pytest -q --cov-config=pyproject.toml
 
       - name: mneme-code pytest
         working-directory: packages/mneme-code
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-code
         run: |
           pip install -e '.[dev]'
-          pytest -q
+          pytest -q --cov-config=pyproject.toml
+
+      - name: Seven-surface release benchmark gate
+        run: >-
+          python -m mneme_core.bench.gate all
+          --output "${{ runner.temp }}/mneme-3.6-benchmark-gate.json"
+
+      - name: Build and verify every release-candidate package locally
+        run: |
+          pip install build hatchling
+          python tools/package_rc_verify.py \
+            --expected-version "${{ steps.resolve.outputs.version }}" \
+            --python "$(command -v python)" \
+            --artifact-dir "${{ runner.temp }}/mneme-rc-artifacts" \
+            --report-json "${{ runner.temp }}/mneme-package-rc-report.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mneme-release-candidate-artifacts
+          path: ${{ runner.temp }}/mneme-rc-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mneme-release-preflight-evidence
+          path: |
+            ${{ runner.temp }}/mneme-3.6-benchmark-gate.json
+            ${{ runner.temp }}/mneme-package-rc-report.json
+            ${{ runner.temp }}/mneme-rc-artifacts/SHA256SUMS
 
       - name: tools/parity pytest
         run: |
@@ -116,31 +168,34 @@ jobs:
   publish-pypi:
     name: Publish mneme-core to PyPI
     runs-on: ubuntu-latest
-    needs: [preflight, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: preflight
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v8
         with:
-          python-version: '3.12'
-      - name: Build wheel and sdist
-        working-directory: packages/mneme-core
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify and select preflight artifacts
         run: |
-          pip install build
-          python -m build
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          mkdir -p release/publish
+          cp release/artifacts/python/mneme_core-${{ needs.preflight.outputs.target_version }}.tar.gz release/publish/
+          cp release/artifacts/python/mneme_core-${{ needs.preflight.outputs.target_version }}-*.whl release/publish/
+          test "$(find release/publish -maxdepth 1 -type f | wc -l)" -eq 2
       - name: Publish to PyPI via trusted publisher
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/mneme-core/dist/
+          packages-dir: release/publish/
 
   publish-pypi-plugin:
     name: Publish mneme-cc-plugin to PyPI
     runs-on: ubuntu-latest
-    needs: [preflight, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: preflight
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     # RESOLVED 2026-06-01: the mneme-cc-plugin pending-publisher is registered
     # under the `pypi2` Environment. PyPI rejected sharing one `pypi`
     # environment across both projects, and re-registering cc-plugin under
@@ -151,25 +206,28 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v8
         with:
-          python-version: '3.12'
-      - name: Build wheel and sdist
-        working-directory: packages/mneme-cc-plugin
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify and select preflight artifacts
         run: |
-          pip install build
-          python -m build
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          mkdir -p release/publish
+          cp release/artifacts/python/mneme_cc_plugin-${{ needs.preflight.outputs.target_version }}.tar.gz release/publish/
+          cp release/artifacts/python/mneme_cc_plugin-${{ needs.preflight.outputs.target_version }}-*.whl release/publish/
+          test "$(find release/publish -maxdepth 1 -type f | wc -l)" -eq 2
       - name: Publish to PyPI via trusted publisher
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/mneme-cc-plugin/dist/
+          packages-dir: release/publish/
 
   publish-pypi-graph:
     name: Publish mneme-graph to PyPI
     runs-on: ubuntu-latest
-    needs: [preflight, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: preflight
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     # First published in 3.1.0. PyPI does not share one trusted-publisher
     # environment name across projects (the pypi/pypi2 precedent), so the
     # pending publisher for mneme-graph is registered under `pypi3` with a
@@ -178,106 +236,117 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v8
         with:
-          python-version: '3.12'
-      - name: Build wheel and sdist
-        working-directory: packages/mneme-graph
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify and select preflight artifacts
         run: |
-          pip install build
-          python -m build
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          mkdir -p release/publish
+          cp release/artifacts/python/mneme_graph-${{ needs.preflight.outputs.target_version }}.tar.gz release/publish/
+          cp release/artifacts/python/mneme_graph-${{ needs.preflight.outputs.target_version }}-*.whl release/publish/
+          test "$(find release/publish -maxdepth 1 -type f | wc -l)" -eq 2
       - name: Publish to PyPI via trusted publisher
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/mneme-graph/dist/
+          packages-dir: release/publish/
 
   publish-pypi-code:
     name: Publish mneme-code to PyPI
     runs-on: ubuntu-latest
-    needs: [preflight, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: preflight
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     # First published in 3.1.0; pending publisher registered under `pypi4`
     # (see the pypi3 note above).
     environment: pypi4
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v8
         with:
-          python-version: '3.12'
-      - name: Build wheel and sdist
-        working-directory: packages/mneme-code
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify and select preflight artifacts
         run: |
-          pip install build
-          python -m build
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          mkdir -p release/publish
+          cp release/artifacts/python/mneme_code-${{ needs.preflight.outputs.target_version }}.tar.gz release/publish/
+          cp release/artifacts/python/mneme_code-${{ needs.preflight.outputs.target_version }}-*.whl release/publish/
+          test "$(find release/publish -maxdepth 1 -type f | wc -l)" -eq 2
       - name: Publish to PyPI via trusted publisher
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/mneme-code/dist/
+          packages-dir: release/publish/
 
   publish-npm:
     name: Publish mneme-mcp to npm
     runs-on: ubuntu-latest
-    needs: [preflight, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: preflight
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     environment: npm
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-      - name: Install and build
-        run: pnpm install --frozen-lockfile && pnpm -r build
+      - name: Verify preflight artifacts
+        run: |
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          test -f "release/artifacts/npm/mneme-mcp-server-${{ needs.preflight.outputs.target_version }}.tgz"
       - name: Publish to npm with provenance
-        working-directory: packages/mneme-mcp
-        run: npm publish --access=public --provenance
+        run: >-
+          npm publish
+          "release/artifacts/npm/mneme-mcp-server-${{ needs.preflight.outputs.target_version }}.tgz"
+          --access=public
+          --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Codex Pass 1 + Pass 2 review fix: pack and verify the plugin artifact
-  # before any publish job runs. Three guarantees:
-  #
-  #   1. The tarball includes ``src/`` so `pip install` against the
-  #      unpacked tarball can actually import the package. The previous
-  #      pack omitted src/, shipping pyproject.toml without the code it
-  #      declared.
-  #
-  #   2. After packing, the workflow unpacks the tarball in a clean tmp
-  #      directory, runs `pip install -e .`, imports every hook module,
-  #      and invokes `mneme --version`. This catches packaging drift
-  #      before the artifact is uploaded.
-  #
-  #   3. The pack-verify job is itself a `needs:` of `preflight`, so a
-  #      failure here aborts both publish-pypi and publish-npm via the
-  #      `publish-gate` step below. This delivers the staged-publish
-  #      semantics Codex Pass 2 asked for.
   publish-mcp-registry:
     name: Publish server.json to the MCP Registry
     runs-on: ubuntu-latest
     needs: [preflight, publish-npm]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify preflight artifacts
+        run: |
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          test -f release/artifacts/registry/server.json
       - name: Install mcp-publisher
-        run: >
-          curl -fsSL
-          https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz
-          | tar xz mcp-publisher
+        env:
+          MCP_PUBLISHER_SHA256: 1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf
+          MCP_PUBLISHER_VERSION: v1.8.0
+        run: |
+          set -euo pipefail
+          curl -fsSLo mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
       - name: Login via GitHub OIDC
         run: ./mcp-publisher login github-oidc
       - name: Publish (retries for npm metadata propagation)
+        working-directory: release/artifacts/registry
         run: |
           for attempt in 1 2 3 4 5; do
-            if ./mcp-publisher publish server.json; then
+            if ../../../mcp-publisher publish server.json; then
               exit 0
             fi
             echo "attempt ${attempt} failed; npm metadata may still be propagating"
@@ -286,79 +355,59 @@ jobs:
           exit 1
 
   pack-plugin:
-    name: Pack and verify CC plugin tarball
+    name: Select verified CC plugin tarball
     runs-on: ubuntu-latest
     needs: preflight
     outputs:
       tarball_sha256: ${{ steps.hash.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v8
         with:
-          python-version: '3.12'
-      - name: Pack plugin tarball (includes src/)
-        working-directory: packages/mneme-cc-plugin
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify preflight artifacts
         run: |
-          tar czf "mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz" \
-            plugin.json pyproject.toml src/ hooks/ commands/ skills/ README.md
-          ls -la "mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz"
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          test -f "release/artifacts/claude/mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz"
       - name: Compute SHA256 sidecar
         id: hash
-        working-directory: packages/mneme-cc-plugin
+        working-directory: release/artifacts/claude
         run: |
           sha256sum "mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz" \
             > "mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz.sha256"
           sum=$(awk '{print $1}' < "mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz.sha256")
           echo "sha256=$sum" >> "$GITHUB_OUTPUT"
-      - name: Verify tarball installs cleanly
-        run: |
-          set -euo pipefail
-          tmpdir="$(mktemp -d)"
-          tar xzf "packages/mneme-cc-plugin/mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz" -C "$tmpdir"
-          # Confirm the Python source actually shipped.
-          test -f "$tmpdir/src/mneme_cc_plugin/__init__.py"
-          test -d "$tmpdir/src/mneme_cc_plugin/hooks"
-          test -d "$tmpdir/src/mneme_cc_plugin/install"
-          python -m venv "$tmpdir/.venv"
-          # shellcheck disable=SC1091
-          source "$tmpdir/.venv/bin/activate"
-          # mneme-core comes from the just-built sdist when present, else PyPI
-          # at the same target version (the publish-pypi job below uploads
-          # before this one in the real flow). For the verify step we accept
-          # either the local checkout (if pip can resolve it) or skip the
-          # plugin install when core is not yet on the index.
-          pip install --upgrade pip
-          pip install ./packages/mneme-core
-          pip install "$tmpdir"
-          python -c "import mneme_cc_plugin; import mneme_cc_plugin.hooks.post_tool_use, mneme_cc_plugin.hooks.session_start, mneme_cc_plugin.hooks.stop, mneme_cc_plugin.hooks.pre_compact, mneme_cc_plugin.hooks.session_end; print('hook import OK')"
-          mneme --version
-      - uses: actions/upload-artifact@v7
-        with:
-          name: cc-plugin-tarball
-          path: |
-            packages/mneme-cc-plugin/mneme-cc-plugin-*.tar.gz
-            packages/mneme-cc-plugin/mneme-cc-plugin-*.tar.gz.sha256
-
   publish-plugin:
     name: Publish CC plugin manifest to marketplace
     runs-on: ubuntu-latest
-    needs: [preflight, publish-pypi, publish-pypi-plugin, publish-pypi-graph, publish-pypi-code, publish-npm, pack-plugin]
-    if: needs.preflight.outputs.is_dry_run != 'true'
+    needs: [preflight, publish-pypi, publish-pypi-plugin, publish-pypi-graph, publish-pypi-code, publish-npm, publish-mcp-registry, pack-plugin]
+    if: needs.preflight.outputs.is_dry_run != 'true' && github.event_name == 'push' && github.ref_type == 'tag'
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: cc-plugin-tarball
-          path: packages/mneme-cc-plugin/
+          name: mneme-release-candidate-artifacts
+          path: release/artifacts
+      - name: Verify exact Claude release artifact
+        env:
+          TARGET_VERSION: ${{ needs.preflight.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          (cd release/artifacts && sha256sum -c SHA256SUMS)
+          tarball_name="mneme-cc-plugin-${TARGET_VERSION}.tar.gz"
+          test -f "release/artifacts/claude/${tarball_name}"
+          (cd release/artifacts/claude && sha256sum "$tarball_name" > "${tarball_name}.sha256")
       - uses: softprops/action-gh-release@v3
         with:
           files: |
-            packages/mneme-cc-plugin/mneme-cc-plugin-*.tar.gz
-            packages/mneme-cc-plugin/mneme-cc-plugin-*.tar.gz.sha256
+            release/artifacts/claude/mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz
+            release/artifacts/claude/mneme-cc-plugin-${{ needs.preflight.outputs.target_version }}.tar.gz.sha256
           fail_on_unmatched_files: true
           generate_release_notes: true
+          tag_name: v${{ needs.preflight.outputs.target_version }}
 
   dry-run-summary:
     name: Dry-run summary (no publish)
@@ -371,6 +420,4 @@ jobs:
           echo "Dry-run complete. All pre-flight gates passed."
           echo "Target version: ${{ needs.preflight.outputs.target_version }}"
           echo "Plugin tarball SHA256: ${{ needs.pack-plugin.outputs.tarball_sha256 }}"
-          echo "Publish steps skipped. To execute the real publish:"
-          echo "  - Push a v${{ needs.preflight.outputs.target_version }} tag, or"
-          echo "  - Re-dispatch this workflow with dry_run=false."
+          echo "Publish steps skipped. A real publish requires a verified v${{ needs.preflight.outputs.target_version }} tag."

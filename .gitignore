@@ -50,6 +50,7 @@ yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
 *.tsbuildinfo
+/packages/mneme-mcp/coverage/
 
 # TypeScript
 *.js.map

@@ -8,14 +8,12 @@ representative JSON shapes.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from adapters import AdapterHit, AdapterStatus, ClaudeMemAdapter
+from adapters import AdapterHit, ClaudeMemAdapter
 
 
 class TestStatusResolution:
