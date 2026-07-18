@@ -167,6 +167,14 @@ At start, Dependabot vulnerability alerts were disabled and `main` branch protec
 
 GNU Make is unavailable in the Windows host shell, so GNU Make 4.3 was run in a fresh native WSL clone. `make install-dev`, `make test`, and `make lint` passed with Python 3.12.3, the checksum-verified official Node 24.14.0 Linux binary, and pnpm 9.15.9. Editable imports for all four Python packages resolved to that exact clone at 3.6.0. The global Windows Python installation emits a stale invalid distribution warning for `~neme-cc-plugin`; isolated package installation passed and the warning is classified as a local environment P2.
 
+## Website record
+
+The existing self-contained GitHub Pages site was updated on its dedicated `gh-pages` branch without changing the application or package trees. Pages commit [`45b6890`](https://github.com/OnourImpram/mneme/commit/45b6890a000617a5a54467caea85079b8b97c8ab) keeps 3.5.0 as the published stable version and presents 3.6.0 explicitly as a release candidate that has not been merged, tagged, or published. The site now records scope isolation, deterministic temporal planning, legacy index rebuild compatibility, the 19-check candidate matrix, and the exact synthetic benchmark metrics. Feature hashing is described only as an experimental lexical-vector ablation, never as semantic or dense retrieval. The former cross-product comparison table was replaced with Mneme's evidenced default, opt-in, experimental, and not-shipped boundaries.
+
+HTML parsing found one H1, no duplicate IDs, no missing local anchors, valid JSON-LD with `softwareVersion` 3.5.0, alt text on every image, and `noopener` on all 18 new-tab links. Desktop at 1440 by 1000 and mobile at 390 by 844 passed Playwright visual inspection, interactive menu, FAQ, copy-state, console, overlap, and overflow checks. The mobile document width remained exactly 390 pixels. Lighthouse on the local preview scored 83 performance, 100 accessibility, 82 best practices, and 100 SEO. The remaining best-practices deduction was the expected localhost HTTP result. GitHub, pinned candidate documents, PR 36, PyPI, Pages, and MCP Registry links returned HTTP 200. The npm website returned an automated Cloudflare challenge, while `npm view mneme-mcp-server version` independently confirmed published stable version 3.5.0.
+
+GitHub Pages reported status `built` at exact commit `45b6890a000617a5a54467caea85079b8b97c8ab`. A no-cache live fetch and a second Playwright pass confirmed the release-candidate heading, not-published label, stable 3.5.0 JSON-LD value, responsive mobile boundary layout, zero page overflow, and zero browser console warnings at [the live site](https://onourimpram.github.io/mneme/).
+
 ## Residual risks
 
 1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on evidence SHA `17d5651`.

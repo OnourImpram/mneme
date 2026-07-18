@@ -133,3 +133,14 @@
 ## Review notes
 
 The first remote candidate passed every job except Python 3.11 on Windows, where concurrent durable queue writes exceeded the one-second lock wait. The queue contract now uses a 30-second wait and a 60-second stale threshold, and the Python 3.11 Windows suite passes. A follow-up independent review found three P1 migration compatibility defects. Stable aliases are now canonicalized, diagnostics redact lexical and canonical path forms, and signed legacy aliases without a signed canonical target fail closed while preserving the archive for manual hash-verified recovery. The independent re-review found zero P0 or P1. Terminal punctuation loss in conservative path redaction remains a disclosed cosmetic P2. Candidate evidence SHA `17d5651` passed CI, CodeQL, benchmarks, release dry run, governance, Make targets, and clean-clone proof. The report closeout head must pass the same hosted checks before merge.
+
+## Website update
+
+- [x] Preserve `v3.5.0` as the latest published release while presenting 3.6.0 only as a release candidate.
+- [x] Update the `gh-pages` content with verified 3.6.0 compatibility, isolation, retrieval, lifecycle, and benchmark evidence.
+- [x] Remove dense or semantic claims for the lexical feature-hashing fallback.
+- [x] Keep the existing self-contained, no-build, self-hosted-font site architecture.
+- [x] Validate semantic structure, links, copy controls, responsive layout, overflow, and browser console output.
+- [x] Capture desktop and mobile localhost screenshots before publishing the site branch.
+- [x] Publish only the verified `gh-pages` tree and confirm the live Pages deployment uses the expected commit.
+- [ ] Re-run PR 36 required checks and release dry run on the documentation closeout SHA.
