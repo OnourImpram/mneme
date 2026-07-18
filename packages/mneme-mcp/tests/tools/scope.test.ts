@@ -13,19 +13,22 @@
  * and the M3 write/propose scope-stamping contract.
  */
 
-import Database from "better-sqlite3";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { proposeTool, ProposeInputSchema } from "../../src/tools/propose.js";
-import { primeTool, PrimeInputSchema } from "../../src/tools/prime.js";
-import { recallTool, RecallInputSchema } from "../../src/tools/recall.js";
-import { searchTool, SearchInputSchema } from "../../src/tools/search.js";
-import { summarizeTool, SummarizeInputSchema } from "../../src/tools/summarize.js";
-import { timelineTool, TimelineInputSchema } from "../../src/tools/timeline.js";
-import { writeTool, WriteInputSchema } from "../../src/tools/write.js";
-import { makeTempVault } from "../helpers/vault_fixture.js";
+import { PrimeInputSchema, primeTool } from "../../src/tools/prime.js";
+import { ProposeInputSchema, proposeTool } from "../../src/tools/propose.js";
+import { RecallInputSchema, recallTool } from "../../src/tools/recall.js";
+import { SearchInputSchema, searchTool } from "../../src/tools/search.js";
+import {
+	SummarizeInputSchema,
+	summarizeTool,
+} from "../../src/tools/summarize.js";
+import { TimelineInputSchema, timelineTool } from "../../src/tools/timeline.js";
+import { WriteInputSchema, writeTool } from "../../src/tools/write.js";
 import type { TestDoc } from "../helpers/fts5_fixture.js";
+import { makeTempVault } from "../helpers/vault_fixture.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -224,7 +227,11 @@ describe("searchTool scope isolation", () => {
 		const { vault } = makeTempVault("scope-search-star", scopeDocs());
 		setIndexProfile(vault.fts5Db, "tr-cldr");
 		const res = searchTool(
-			SearchInputSchema.parse({ query: "alpha content", scope: "*", top_k: 10 }),
+			SearchInputSchema.parse({
+				query: "alpha content",
+				scope: "*",
+				top_k: 10,
+			}),
 			vault,
 		);
 		expect(res.ok).toBe(true);
@@ -354,7 +361,10 @@ describe("timelineTool scope isolation", () => {
 	it("scope arg restricts FTS timeline entries to matching scope", async () => {
 		const { vault } = makeTempVault("scope-tl-explicit", scopeDocs());
 		const res = await timelineTool(
-			TimelineInputSchema.parse({ subject: "alpha content", scope: "clinical" }),
+			TimelineInputSchema.parse({
+				subject: "alpha content",
+				scope: "clinical",
+			}),
 			vault,
 		);
 		expect(res.ok).toBe(true);
@@ -391,30 +401,37 @@ describe("timelineTool scope isolation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Backward compatibility — pre-M1 index without scope column
+// Pre-scope index migration safety
 // ---------------------------------------------------------------------------
 
-describe("backward compatibility — pre-M1 index (no scope column)", () => {
-	it("recallTool degrades to unfiltered results and emits one-time stderr warning", () => {
+describe("pre-scope index (no scope column)", () => {
+	it("fails closed for concrete scope and permits explicit cross-scope access", () => {
 		const { vault } = makeTempVault("scope-compat", []);
-		// Overwrite the absent db with a legacy schema that has no scope column.
 		buildLegacyDbNoScope(vault.fts5Db);
 		const spy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
 		try {
-			const res = recallTool(
+			const scoped = recallTool(
 				RecallInputSchema.parse({ include_body: false }),
 				vault,
 			);
-			expect(res.ok).toBe(true);
-			if (res.ok) {
-				// Scope predicate is skipped → the sole legacy doc is returned.
-				expect(res.data.entries.length).toBe(1);
-				expect(res.data.entries[0]?.path).toBe("legacy/doc.md");
+			expect(scoped.ok).toBe(false);
+			if (!scoped.ok) {
+				expect(scoped.error.code).toBe("INDEX_STALE_OR_LOCALE_MISMATCH");
+				expect(scoped.error.message).toContain("index rebuild");
 			}
-			// hasScopeColumn emitted exactly one warning.
-			expect(spy).toHaveBeenCalled();
+
+			const crossScope = recallTool(
+				RecallInputSchema.parse({ scope: "*", include_body: false }),
+				vault,
+			);
+			expect(crossScope.ok).toBe(true);
+			if (crossScope.ok) {
+				expect(crossScope.data.entries).toHaveLength(1);
+				expect(crossScope.data.entries[0]?.path).toBe("legacy/doc.md");
+			}
+			expect(spy).toHaveBeenCalledTimes(1);
 		} finally {
 			spy.mockRestore();
 		}

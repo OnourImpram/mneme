@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from mneme_core.cce.checkpoint import (
+    CURRENT_CHECKPOINT_SCHEMA_VERSION,
     Checkpoint,
     WorkingSetItem,
     append_index,
@@ -26,7 +29,8 @@ def _checkpoint(
     session_id: str = "sess-001",
     prev_anchor: str | None = None,
     items: tuple[WorkingSetItem, ...] = (),
-    schema_version: int = 1,
+    schema_version: int = CURRENT_CHECKPOINT_SCHEMA_VERSION,
+    scope: str | None = "default",
 ) -> Checkpoint:
     return Checkpoint(
         anchor=anchor,
@@ -35,6 +39,7 @@ def _checkpoint(
         prev_anchor=prev_anchor,
         items=items,
         schema_version=schema_version,
+        scope=scope,
     )
 
 
@@ -69,6 +74,7 @@ class TestRenderParse:
         assert parsed.prev_anchor == cp.prev_anchor
         assert parsed.items == ()
         assert parsed.schema_version == cp.schema_version
+        assert parsed.scope == cp.scope
 
     def test_round_trip_with_items(self) -> None:
         items = (
@@ -102,7 +108,57 @@ class TestRenderParse:
         assert f"anchor: {cp.anchor}" in rendered
         assert f"session_id: {cp.session_id}" in rendered
         assert f"created: {cp.created}" in rendered
-        assert "schema_version: 1" in rendered
+        assert 'scope: "default"' in rendered
+        assert f"schema_version: {CURRENT_CHECKPOINT_SCHEMA_VERSION}" in rendered
+
+    def test_round_trip_preserves_explicit_scope(self) -> None:
+        cp = _checkpoint(scope="clinical research")
+
+        parsed = parse_markdown(render_markdown(cp))
+
+        assert parsed.scope == "clinical research"
+        assert parsed.schema_version == CURRENT_CHECKPOINT_SCHEMA_VERSION
+
+    def test_legacy_schema_one_remains_unscoped_and_cannot_be_rendered(self) -> None:
+        legacy = """---
+id: checkpoint-abc123def456
+type: checkpoint
+created: 2026-06-14T10:00:00+00:00
+session_id: sess-001
+anchor: abc123def456
+prev_anchor: null
+schema_version: 1
+---
+
+# Checkpoint abc123def456
+"""
+
+        parsed = parse_markdown(legacy)
+
+        assert parsed.schema_version == 1
+        assert parsed.scope is None
+        with pytest.raises(ValueError, match="schema version 2"):
+            render_markdown(parsed)
+
+    def test_schema_two_without_scope_is_rejected(self) -> None:
+        malformed = """---
+anchor: abc123def456
+created: 2026-06-14T10:00:00+00:00
+session_id: sess-001
+schema_version: 2
+---
+"""
+
+        with pytest.raises(ValueError, match="scope"):
+            parse_markdown(malformed)
+
+    @pytest.mark.parametrize(
+        "scope",
+        ["*", "clinical*research", " clinical", "clinical ", "x\nresearch", "x" * 257],
+    )
+    def test_invalid_concrete_scope_is_rejected(self, scope: str) -> None:
+        with pytest.raises(ValueError, match="scope"):
+            _checkpoint(scope=scope)
 
     def test_items_render_as_bullets_with_salience(self) -> None:
         items = (_item("recent_edit", "src/bar.py", 0.75),)
@@ -192,6 +248,8 @@ class TestAppendIndex:
         assert record["path"] == str(doc_path)
         assert record["item_count"] == 0
         assert record["top_salience"] == 0.0
+        assert record["scope"] == "default"
+        assert record["schema_version"] == CURRENT_CHECKPOINT_SCHEMA_VERSION
 
     def test_append_index_records_item_count_and_top_salience(self, tmp_path: Path) -> None:
         items = (
@@ -225,3 +283,28 @@ class TestAppendIndex:
         cp = _checkpoint()
         append_index(index_path, cp, tmp_path / "cp.md")
         assert index_path.is_file()
+
+    def test_append_index_rejects_legacy_unscoped_checkpoint(self, tmp_path: Path) -> None:
+        index_path = tmp_path / "index.jsonl"
+        legacy = _checkpoint(schema_version=1, scope=None)
+
+        with pytest.raises(ValueError, match="schema version 2"):
+            append_index(index_path, legacy, tmp_path / "legacy.md")
+
+        assert not index_path.exists()
+
+    def test_append_does_not_backfill_unscoped_legacy_rows(self, tmp_path: Path) -> None:
+        index_path = tmp_path / "index.jsonl"
+        legacy_record = {
+            "anchor": "legacy-anchor",
+            "path": str(tmp_path / "legacy.md"),
+        }
+        legacy_line = json.dumps(legacy_record)
+        index_path.write_text(legacy_line + "\n", encoding="utf-8")
+
+        append_index(index_path, _checkpoint(), tmp_path / "current.md")
+
+        lines = index_path.read_text(encoding="utf-8").splitlines()
+        assert lines[0] == legacy_line
+        assert "scope" not in json.loads(lines[0])
+        assert json.loads(lines[1])["scope"] == "default"

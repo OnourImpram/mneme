@@ -19,6 +19,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { concreteScopeOrNull, DEFAULT_SCOPE } from "../scope.js";
 
 export const MARKER_DIR = ".mneme";
 export const CONFIG_FILENAME = "config.toml";
@@ -34,6 +35,7 @@ export class VaultNotFoundError extends Error {
 export interface ResolveOptions {
 	explicit?: string;
 	cwd?: string;
+	home?: string;
 	env?: NodeJS.ProcessEnv;
 }
 
@@ -103,13 +105,17 @@ export class VaultConfig {
 	 * Pass a custom `env` in tests to control the env without mutating
 	 * process.env.
 	 */
-	defaultScope(env?: NodeJS.ProcessEnv): string {
+	defaultScope(env?: NodeJS.ProcessEnv, home: string = homedir()): string {
 		const e = env ?? process.env;
 		const envScope = e.MNEME_SCOPE;
-		if (envScope && envScope.length > 0) return envScope;
-		const tomlScope = readDefaultScopeFromTomlConfig();
-		if (tomlScope !== null) return tomlScope;
-		return "default";
+		if (envScope && envScope.length > 0) {
+			return concreteScopeOrNull(envScope) ?? DEFAULT_SCOPE;
+		}
+		const tomlScope = readDefaultScopeFromTomlConfig(home);
+		if (tomlScope !== null) {
+			return concreteScopeOrNull(tomlScope) ?? DEFAULT_SCOPE;
+		}
+		return DEFAULT_SCOPE;
 	}
 
 	static fromPath(path: string): VaultConfig {
@@ -119,8 +125,9 @@ export class VaultConfig {
 	static resolve(opts: ResolveOptions = {}): VaultConfig {
 		const env = opts.env ?? process.env;
 		const cwd = opts.cwd ?? process.cwd();
+		const home = opts.home ?? homedir();
 
-		const candidate = resolveCandidate(opts.explicit, env, cwd);
+		const candidate = resolveCandidate(opts.explicit, env, cwd, home);
 		if (candidate === null) {
 			throw new VaultNotFoundError(
 				`Could not locate an mneme vault. Set MNEME_VAULT, pass explicit path, add a vault key to ~/.mneme/${CONFIG_FILENAME}, place a ${MARKER_DIR}/ marker in or above the current directory, or create ~/${DEFAULT_VAULT_NAME}.`,
@@ -141,6 +148,7 @@ function resolveCandidate(
 	explicit: string | undefined,
 	env: NodeJS.ProcessEnv,
 	cwd: string,
+	home: string,
 ): string | null {
 	const envVault = env.MNEME_VAULT;
 	if (envVault && envVault.length > 0) {
@@ -151,17 +159,17 @@ function resolveCandidate(
 		return expandHome(explicit);
 	}
 
-	const tomlVault = readVaultFromTomlConfig();
+	const tomlVault = readVaultFromTomlConfig(home);
 	if (tomlVault !== null) {
 		return expandHome(tomlVault);
 	}
 
-	const markerHit = findMarkerAncestor(cwd);
+	const markerHit = findMarkerAncestor(cwd, home);
 	if (markerHit !== null) {
 		return markerHit;
 	}
 
-	const defaultVault = join(homedir(), DEFAULT_VAULT_NAME);
+	const defaultVault = join(home, DEFAULT_VAULT_NAME);
 	if (existsSync(defaultVault)) {
 		return defaultVault;
 	}
@@ -169,8 +177,8 @@ function resolveCandidate(
 	return null;
 }
 
-function readVaultFromTomlConfig(): string | null {
-	const configPath = join(homedir(), MARKER_DIR, CONFIG_FILENAME);
+function readVaultFromTomlConfig(home: string = homedir()): string | null {
+	const configPath = join(home, MARKER_DIR, CONFIG_FILENAME);
 	if (!existsSync(configPath)) return null;
 	try {
 		const raw = readFileSync(configPath, "utf8");
@@ -189,8 +197,10 @@ function readVaultFromTomlConfig(): string | null {
  * Returns null when the file is absent, the key is missing, or any I/O
  * error occurs.
  */
-function readDefaultScopeFromTomlConfig(): string | null {
-	const configPath = join(homedir(), MARKER_DIR, CONFIG_FILENAME);
+function readDefaultScopeFromTomlConfig(
+	home: string = homedir(),
+): string | null {
+	const configPath = join(home, MARKER_DIR, CONFIG_FILENAME);
 	if (!existsSync(configPath)) return null;
 	try {
 		const raw = readFileSync(configPath, "utf8");
@@ -206,9 +216,13 @@ function readDefaultScopeFromTomlConfig(): string | null {
 	return null;
 }
 
-function findMarkerAncestor(cwd: string): string | null {
+function findMarkerAncestor(cwd: string, home: string): string | null {
 	let current = isAbsolute(cwd) ? cwd : resolvePath(cwd);
+	const homeBoundary = resolvePath(home);
 	while (true) {
+		// ~/.mneme is the global configuration directory, not an implicit
+		// marker that turns the entire home directory into a vault.
+		if (current === homeBoundary) return null;
 		const candidate = join(current, MARKER_DIR);
 		if (existsSync(candidate) && statSync(candidate).isDirectory()) {
 			return current;

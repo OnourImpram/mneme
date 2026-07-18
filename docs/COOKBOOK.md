@@ -67,6 +67,21 @@ Inspect the audit trail:
 cat ~/mneme-vault/imported/claude-mem/_manifest.json | jq .stats
 ```
 
+Each non-dry run also reports a rollback manifest at
+`~/mneme-vault/.mneme/migrations/<run-id>/rollback.json`. Use that exact manifest
+to restore the imported tree:
+
+```bash
+mneme-migrate rollback \
+  --vault ~/mneme-vault \
+  --manifest ~/mneme-vault/.mneme/migrations/<run-id>/rollback.json
+```
+
+Rollback is refused if the imported tree changed after migration. For an
+`--archive move` run, restoring the removed source database requires both the
+manifest, the explicit `--confirm-source-restore` flag, and `--source` set to the
+original absolute database path. Repeating a successful rollback is idempotent.
+
 ---
 
 ## 3. Temporal Query Across Decisions (full)

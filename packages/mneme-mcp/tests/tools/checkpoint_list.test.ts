@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CheckpointListInputSchema,
 	checkpointListTool,
@@ -21,7 +21,7 @@ function writeIndex(rootDir: string, lines: object[]): void {
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(
 		join(dir, "index.jsonl"),
-		lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+		`${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
 		"utf8",
 	);
 }
@@ -49,6 +49,7 @@ const SAMPLE_INDEX_LINE = {
 	path: `checkpoints/2026-06-14-${SAMPLE_ANCHOR}.md`,
 	item_count: 3,
 	top_salience: 0.92,
+	scope: "default",
 };
 
 const SAMPLE_MD = `---
@@ -56,6 +57,7 @@ type: checkpoint
 anchor: ${SAMPLE_ANCHOR}
 session_id: s-2026-06-14
 created: 2026-06-14T10:00:00Z
+scope: default
 ---
 
 ## Core Decisions
@@ -88,6 +90,35 @@ describe("CheckpointListInputSchema", () => {
 	it("rejects non-integer limit", () => {
 		expect(() => CheckpointListInputSchema.parse({ limit: 1.5 })).toThrow();
 	});
+
+	it("accepts concrete and explicit wildcard scopes", () => {
+		expect(CheckpointListInputSchema.parse({ scope: "clinical" }).scope).toBe(
+			"clinical",
+		);
+		expect(CheckpointListInputSchema.parse({ scope: "*" }).scope).toBe("*");
+	});
+
+	it("rejects ambiguous or unbounded scope values", () => {
+		expect(() => CheckpointListInputSchema.parse({ scope: "" })).toThrow();
+		expect(() =>
+			CheckpointListInputSchema.parse({ scope: " clinical " }),
+		).toThrow();
+		expect(() =>
+			CheckpointListInputSchema.parse({ scope: "clinical*research" }),
+		).toThrow();
+		expect(() =>
+			CheckpointListInputSchema.parse({ scope: "x".repeat(257) }),
+		).toThrow();
+	});
+
+	it("accepts and strips unknown input fields for backward compatibility", () => {
+		const parsed = CheckpointListInputSchema.parse({
+			limit: 5,
+			scope: "clinical",
+			future_option: true,
+		});
+		expect(parsed).toEqual({ limit: 5, scope: "clinical" });
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -97,10 +128,7 @@ describe("CheckpointListInputSchema", () => {
 describe("checkpointListTool runtime", () => {
 	it("returns empty list when index does not exist", () => {
 		const { vault } = makeTempVault("chkl-noindex");
-		const res = checkpointListTool(
-			CheckpointListInputSchema.parse({}),
-			vault,
-		);
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
 			expect(res.data.entries).toHaveLength(0);
@@ -112,10 +140,7 @@ describe("checkpointListTool runtime", () => {
 		const { vault, rootDir } = makeTempVault("chkl-one");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
 
-		const res = checkpointListTool(
-			CheckpointListInputSchema.parse({}),
-			vault,
-		);
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
 			expect(res.data.entries).toHaveLength(1);
@@ -143,10 +168,7 @@ describe("checkpointListTool runtime", () => {
 		};
 		writeIndex(rootDir, [line1, line2]);
 
-		const res = checkpointListTool(
-			CheckpointListInputSchema.parse({}),
-			vault,
-		);
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
 			// newest-first: line2 (def456) should be first
@@ -189,16 +211,87 @@ describe("checkpointListTool runtime", () => {
 			"utf8",
 		);
 
-		const res = checkpointListTool(
-			CheckpointListInputSchema.parse({}),
-			vault,
-		);
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
 			// Only the valid line with anchor should be returned.
 			expect(res.data.entries).toHaveLength(1);
 			expect(res.data.entries[0]?.anchor).toBe(SAMPLE_ANCHOR);
 		}
+	});
+
+	it("uses the configured default scope when scope is omitted", () => {
+		const { vault, rootDir } = makeTempVault("chkl-default-scope");
+		vi.spyOn(vault, "defaultScope").mockReturnValue("clinical");
+		writeIndex(rootDir, [
+			{ ...SAMPLE_INDEX_LINE, anchor: "default-entry" },
+			{ ...SAMPLE_INDEX_LINE, anchor: "clinical-entry", scope: "clinical" },
+		]);
+
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
+
+		expect(res.ok).toBe(true);
+		if (res.ok) {
+			expect(res.data.entries.map((entry) => entry.anchor)).toEqual([
+				"clinical-entry",
+			]);
+			expect(res.data.total_in_index).toBe(1);
+		}
+	});
+
+	it("requires an explicit wildcard for cross-scope discovery", () => {
+		const { vault, rootDir } = makeTempVault("chkl-wildcard");
+		writeIndex(rootDir, [
+			{ ...SAMPLE_INDEX_LINE, anchor: "default-entry" },
+			{ ...SAMPLE_INDEX_LINE, anchor: "clinical-entry", scope: "clinical" },
+			{ ...SAMPLE_INDEX_LINE, anchor: "research-entry", scope: "research" },
+		]);
+
+		const defaults = checkpointListTool(
+			CheckpointListInputSchema.parse({}),
+			vault,
+		);
+		const all = checkpointListTool(
+			CheckpointListInputSchema.parse({ scope: "*" }),
+			vault,
+		);
+
+		expect(
+			defaults.ok && defaults.data.entries.map((entry) => entry.anchor),
+		).toEqual(["default-entry"]);
+		expect(all.ok && all.data.entries.map((entry) => entry.anchor)).toEqual([
+			"research-entry",
+			"clinical-entry",
+			"default-entry",
+		]);
+	});
+
+	it("fails closed for legacy index records without scope", () => {
+		const { vault, rootDir } = makeTempVault("chkl-legacy-scope");
+		const { scope: _scope, ...legacy } = SAMPLE_INDEX_LINE;
+		writeIndex(rootDir, [legacy, { ...SAMPLE_INDEX_LINE, anchor: "scoped" }]);
+
+		for (const scope of ["default", "*"]) {
+			const res = checkpointListTool(
+				CheckpointListInputSchema.parse({ scope }),
+				vault,
+			);
+			expect(res.ok && res.data.entries.map((entry) => entry.anchor)).toEqual([
+				"scoped",
+			]);
+		}
+	});
+
+	it("rejects an oversized checkpoint index before parsing", () => {
+		const { vault, rootDir } = makeTempVault("chkl-oversized-index");
+		const dir = join(rootDir, ".mneme", "checkpoints");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "index.jsonl"), Buffer.alloc(16 * 1024 * 1024 + 1));
+
+		const res = checkpointListTool(CheckpointListInputSchema.parse({}), vault);
+
+		expect(res.ok).toBe(false);
+		if (!res.ok) expect(res.error.code).toBe("IO_ERROR");
 	});
 });
 
@@ -225,9 +318,30 @@ describe("WorkingSetLoadInputSchema", () => {
 		expect(parsed.top_k).toBe(5);
 	});
 
+	it("accepts a scope and strips unknown input fields", () => {
+		const parsed = WorkingSetLoadInputSchema.parse({
+			anchor: "abc123",
+			scope: "clinical",
+			future_option: "ignored",
+		});
+		expect(parsed).toEqual({ anchor: "abc123", scope: "clinical" });
+	});
+
 	it("rejects top_k above 500", () => {
 		expect(() =>
 			WorkingSetLoadInputSchema.parse({ anchor: "x", top_k: 501 }),
+		).toThrow();
+	});
+
+	it("rejects unsafe anchors and ambiguous scopes", () => {
+		expect(() =>
+			WorkingSetLoadInputSchema.parse({ anchor: "../escape" }),
+		).toThrow();
+		expect(() =>
+			WorkingSetLoadInputSchema.parse({
+				anchor: SAMPLE_ANCHOR,
+				scope: "clinical*research",
+			}),
 		).toThrow();
 	});
 });
@@ -247,18 +361,15 @@ describe("workingSetLoadTool runtime", () => {
 		if (res.ok) {
 			const data = res.data as { found: false; reason: string };
 			expect(data.found).toBe(false);
-			expect(data.reason).toContain("nope");
+			expect(data.reason).not.toContain("nope");
+			expect(data.reason).toContain("requested scope");
 		}
 	});
 
 	it("loads checkpoint via index lookup", () => {
 		const { vault, rootDir } = makeTempVault("wsl-index");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
@@ -286,11 +397,7 @@ describe("workingSetLoadTool runtime", () => {
 	it("falls back to glob when anchor not in index", () => {
 		const { vault, rootDir } = makeTempVault("wsl-glob");
 		// No index written — pure glob fallback.
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
@@ -307,11 +414,7 @@ describe("workingSetLoadTool runtime", () => {
 	it("respects top_k and sets truncated flag", () => {
 		const { vault, rootDir } = makeTempVault("wsl-topk");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR, top_k: 2 }),
@@ -333,11 +436,7 @@ describe("workingSetLoadTool runtime", () => {
 	it("returns all items when top_k equals item count (not truncated)", () => {
 		const { vault, rootDir } = makeTempVault("wsl-topk-exact");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR, top_k: 3 }),
@@ -354,11 +453,7 @@ describe("workingSetLoadTool runtime", () => {
 	it("parses frontmatter correctly", () => {
 		const { vault, rootDir } = makeTempVault("wsl-frontmatter");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
@@ -369,20 +464,16 @@ describe("workingSetLoadTool runtime", () => {
 			const data = res.data as {
 				frontmatter: Record<string, string>;
 			};
-			expect(data.frontmatter["type"]).toBe("checkpoint");
-			expect(data.frontmatter["anchor"]).toBe(SAMPLE_ANCHOR);
-			expect(data.frontmatter["session_id"]).toBe("s-2026-06-14");
+			expect(data.frontmatter.type).toBe("checkpoint");
+			expect(data.frontmatter.anchor).toBe(SAMPLE_ANCHOR);
+			expect(data.frontmatter.session_id).toBe("s-2026-06-14");
 		}
 	});
 
 	it("assigns section names to items correctly", () => {
 		const { vault, rootDir } = makeTempVault("wsl-sections");
 		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
-		writeCheckpointMd(
-			rootDir,
-			`2026-06-14-${SAMPLE_ANCHOR}.md`,
-			SAMPLE_MD,
-		);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
 
 		const res = workingSetLoadTool(
 			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
@@ -418,5 +509,130 @@ describe("workingSetLoadTool runtime", () => {
 			const data = res.data as { found: false; reason: string };
 			expect(data.found).toBe(false);
 		}
+	});
+
+	it("uses the configured default scope when scope is omitted", () => {
+		const { vault, rootDir } = makeTempVault("wsl-default-scope");
+		vi.spyOn(vault, "defaultScope").mockReturnValue("clinical");
+		writeIndex(rootDir, [{ ...SAMPLE_INDEX_LINE, scope: "clinical" }]);
+		writeCheckpointMd(
+			rootDir,
+			`2026-06-14-${SAMPLE_ANCHOR}.md`,
+			SAMPLE_MD.replace("scope: default", "scope: clinical"),
+		);
+
+		const res = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
+			vault,
+		);
+
+		expect(res.ok && (res.data as { scope?: string }).scope).toBe("clinical");
+	});
+
+	it("loads cross-scope data only for an explicit wildcard", () => {
+		const { vault, rootDir } = makeTempVault("wsl-wildcard");
+		writeIndex(rootDir, [{ ...SAMPLE_INDEX_LINE, scope: "clinical" }]);
+		writeCheckpointMd(
+			rootDir,
+			`2026-06-14-${SAMPLE_ANCHOR}.md`,
+			SAMPLE_MD.replace("scope: default", "scope: clinical"),
+		);
+
+		const hidden = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({
+				anchor: SAMPLE_ANCHOR,
+				scope: "research",
+			}),
+			vault,
+		);
+		const visible = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR, scope: "*" }),
+			vault,
+		);
+
+		expect(hidden.ok && (hidden.data as { found?: boolean }).found).toBe(false);
+		expect(visible.ok && (visible.data as { scope?: string }).scope).toBe(
+			"clinical",
+		);
+	});
+
+	it("uses the same neutral not-found reason for unknown and hidden anchors", () => {
+		const { vault, rootDir } = makeTempVault("wsl-neutral-not-found");
+		writeIndex(rootDir, [{ ...SAMPLE_INDEX_LINE, scope: "clinical" }]);
+		writeCheckpointMd(
+			rootDir,
+			`2026-06-14-${SAMPLE_ANCHOR}.md`,
+			SAMPLE_MD.replace("scope: default", "scope: clinical"),
+		);
+
+		const hidden = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({
+				anchor: SAMPLE_ANCHOR,
+				scope: "research",
+			}),
+			vault,
+		);
+		const unknown = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({
+				anchor: "unknown",
+				scope: "research",
+			}),
+			vault,
+		);
+
+		expect(hidden.ok && (hidden.data as { reason?: string }).reason).toBe(
+			unknown.ok && (unknown.data as { reason?: string }).reason,
+		);
+	});
+
+	it("fails closed for legacy index records even with wildcard scope", () => {
+		const { vault, rootDir } = makeTempVault("wsl-legacy-index");
+		const { scope: _scope, ...legacy } = SAMPLE_INDEX_LINE;
+		writeIndex(rootDir, [legacy]);
+		writeCheckpointMd(rootDir, `2026-06-14-${SAMPLE_ANCHOR}.md`, SAMPLE_MD);
+
+		const res = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR, scope: "*" }),
+			vault,
+		);
+
+		expect(res.ok && (res.data as { found?: boolean }).found).toBe(false);
+	});
+
+	it("fails closed when index and Markdown scopes disagree", () => {
+		const { vault, rootDir } = makeTempVault("wsl-scope-mismatch");
+		writeIndex(rootDir, [{ ...SAMPLE_INDEX_LINE, scope: "clinical" }]);
+		writeCheckpointMd(
+			rootDir,
+			`2026-06-14-${SAMPLE_ANCHOR}.md`,
+			SAMPLE_MD.replace("scope: default", "scope: research"),
+		);
+
+		for (const scope of ["research", "*"]) {
+			const res = workingSetLoadTool(
+				WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR, scope }),
+				vault,
+			);
+			expect(res.ok && (res.data as { found?: boolean }).found).toBe(false);
+		}
+	});
+
+	it("rejects an oversized checkpoint file before parsing", () => {
+		const { vault, rootDir } = makeTempVault("wsl-oversized-checkpoint");
+		writeIndex(rootDir, [SAMPLE_INDEX_LINE]);
+		const checkpointsDir = join(rootDir, "checkpoints");
+		mkdirSync(checkpointsDir, { recursive: true });
+		writeFileSync(
+			join(checkpointsDir, `2026-06-14-${SAMPLE_ANCHOR}.md`),
+			Buffer.alloc(4 * 1024 * 1024 + 1),
+		);
+
+		const res = workingSetLoadTool(
+			WorkingSetLoadInputSchema.parse({ anchor: SAMPLE_ANCHOR }),
+			vault,
+		);
+
+		expect(res.ok).toBe(false);
+		if (!res.ok) expect(res.error.code).toBe("IO_ERROR");
 	});
 });

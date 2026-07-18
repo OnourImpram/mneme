@@ -278,6 +278,23 @@ Subcommands and exit codes:
 
 - `migrate-from-claude-mem`: full migration, exit 0 on success, 1 on partial failure, 2 on invalid arguments.
 - `--archive {preserve|copy|move}`: tri-state archive behavior. `move` additionally requires `--confirm-delete`.
+- `rollback --manifest PATH`: restore the exact pre-migration imported tree from the per-run manifest under `.mneme/migrations/<run-id>/rollback.json`.
+- `--confirm-source-restore`: required only when rollback must restore a source database removed by `--archive move`. The same command must pass the original absolute database path through `--source PATH`.
 - `--dry-run`: parse and report what would happen without writing to the vault.
+
+Rollback refuses to run when the imported tree no longer matches the manifest's
+post-migration hashes. A successful rollback is idempotent, so a repeated command
+reports that the run was already rolled back. The rollback manifest and snapshot are
+constrained to the selected vault. A source restored after `archive=move` returns to
+its recorded original path only after explicit consent, an exact `--source` path
+match against the signed manifest, and hash verification.
+`--confirm-delete` applies to the migration-time source removal and does not grant
+rollback-time source restore.
+
+```bash
+mneme-migrate rollback \
+  --vault ~/mneme-vault \
+  --manifest ~/mneme-vault/.mneme/migrations/<run-id>/rollback.json
+```
 
 See `docs/MIGRATION-FROM-CLAUDE-MEM.md` for the full walkthrough.
