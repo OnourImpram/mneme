@@ -180,6 +180,8 @@ Website documentation head `6e8520f` passed [CI](https://github.com/OnourImpram/
 
 The subsequent checklist-only head exposed MNEME-R3-034 in two Windows jobs while every Linux and macOS Python job passed. The focused fail-soft, p95, and eight-writer tests passed locally after the correction. The eight-writer test then passed 12 additional consecutive Windows stress runs. The complete plugin suite passed 237 tests at 81.58 percent branch coverage, and Ruff, strict mypy, version agreement, specification verification, and repository integrity passed before the corrected head was created.
 
+Corrected code head `72b8986` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29653117797), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29653117799), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29653117806), and the exact-head [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29653125419). All 21 CI jobs passed. The Windows Python 3.11 and 3.13 jobs that reproduced MNEME-R3-034 both passed on the corrected code.
+
 ## Residual risks
 
 1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on evidence SHA `17d5651`.

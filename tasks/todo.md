@@ -145,4 +145,4 @@ The first remote candidate passed every job except Python 3.11 on Windows, where
 - [x] Publish only the verified `gh-pages` tree and confirm the live Pages deployment uses the expected commit.
 - [x] Re-run PR 36 required checks and release dry run on the documentation closeout SHA.
 - [x] Restore the documented five-second Stop session-log lock budget after the final Windows matrix reproduced lost updates at 0.5 seconds.
-- [ ] Re-run focused contention, full plugin, lint, exact-head CI, CodeQL, benchmarks, and release dry run after the lock correction.
+- [x] Re-run focused contention, full plugin, lint, exact-head CI, CodeQL, benchmarks, and release dry run after the lock correction.
