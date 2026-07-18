@@ -2,9 +2,9 @@
 
 Checks three things against the locked baseline in ``baseline.json``:
 
-1. ``conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5`` must not drop
+1. ``conditions.pipeline_fts5_only.ndcg_at_5`` must not drop
    by more than ``--threshold`` (default 0.02).
-2. ``conditions.pipeline_rrf_fts5_plus_bow.recall_at_10`` must not drop
+2. ``conditions.pipeline_fts5_only.recall_at_10`` must not drop
    by more than ``--recall-threshold`` (default 0.05).
 3. ``negative_probe.all_passed`` in the fresh result must be ``true``.
 
@@ -68,7 +68,7 @@ def main() -> int:
     parser.add_argument(
         "--metric-path",
         type=str,
-        default="conditions.pipeline_rrf_fts5_plus_bow.ndcg_at_5",
+        default="conditions.pipeline_fts5_only.ndcg_at_5",
     )
     parser.add_argument(
         "--threshold",
@@ -79,7 +79,7 @@ def main() -> int:
     parser.add_argument(
         "--recall-metric-path",
         type=str,
-        default="conditions.pipeline_rrf_fts5_plus_bow.recall_at_10",
+        default="conditions.pipeline_fts5_only.recall_at_10",
     )
     parser.add_argument(
         "--recall-threshold",

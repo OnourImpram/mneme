@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -245,7 +245,7 @@ def _run_with_synthetic_fixture(write_baseline: bool) -> dict[str, Any]:
         conn = connect(db_path)
         try:
             ensure_schema(conn)
-            stats = index_vault(
+            index_vault(
                 conn,
                 IndexerConfig(vault_root=vault_root, db_path=db_path),
             )
@@ -308,7 +308,7 @@ def _run_with_real_dataset(dataset_path: Path) -> dict[str, Any]:
         conn = connect(db_path)
         try:
             ensure_schema(conn)
-            stats = index_vault(
+            index_vault(
                 conn,
                 IndexerConfig(vault_root=vault_root, db_path=db_path),
             )

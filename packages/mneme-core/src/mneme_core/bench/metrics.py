@@ -15,6 +15,10 @@ The contracts deliberately stay narrow:
 * ``recall_at_k`` returns the fraction of relevant docs that appear in
   the top-k of the ranked list.
 
+* ``precision_at_k`` returns the number of distinct relevant docs in the
+  top-k divided by ``k``. Short result lists are padded with misses, matching
+  the standard fixed-cutoff definition.
+
 * ``mean_reciprocal_rank`` returns the mean of ``1/rank`` of the first
   relevant doc across a query set; queries with no relevant hit in the
   cutoff contribute zero.
@@ -47,9 +51,11 @@ def ndcg_at_k(
     if not relevant:
         return 0.0
     dcg = 0.0
+    seen: set[object] = set()
     for i, doc_id in enumerate(ranked_doc_ids[:k], start=1):
-        if doc_id in relevant:
+        if doc_id in relevant and doc_id not in seen:
             dcg += 1.0 / math.log2(i + 1)
+            seen.add(doc_id)
     ideal_hits = min(len(relevant), k)
     idcg = sum(1.0 / math.log2(i + 1) for i in range(1, ideal_hits + 1))
     return dcg / idcg if idcg > 0 else 0.0
@@ -68,6 +74,25 @@ def recall_at_k(
         return 0.0
     top_k = set(ranked_doc_ids[:k])
     return len(relevant & top_k) / len(relevant)
+
+
+def precision_at_k(
+    ranked_doc_ids: Sequence[object],
+    relevant_doc_ids: Iterable[object],
+    k: int,
+) -> float:
+    """Precision at cutoff ``k`` using the fixed ``k`` denominator.
+
+    Duplicate relevant identifiers count once. A result list shorter than
+    ``k`` is treated as if its missing positions were non-relevant results.
+    """
+    if k < 1:
+        raise ValueError("k must be >= 1")
+    relevant = set(relevant_doc_ids)
+    if not relevant:
+        return 0.0
+    distinct_hits = relevant & set(ranked_doc_ids[:k])
+    return len(distinct_hits) / k
 
 
 def mean_reciprocal_rank(
@@ -128,8 +153,7 @@ def percentiles(samples: Iterable[float], quantiles: Iterable[float]) -> dict[st
         else:
             frac = pos - lower
             out[_quantile_key(q)] = float(
-                sorted_samples[lower] * (1.0 - frac)
-                + sorted_samples[upper] * frac
+                sorted_samples[lower] * (1.0 - frac) + sorted_samples[upper] * frac
             )
     return out
 

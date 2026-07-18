@@ -10,6 +10,7 @@ from mneme_core.bench.metrics import (
     mean_reciprocal_rank,
     ndcg_at_k,
     percentiles,
+    precision_at_k,
     recall_at_k,
 )
 
@@ -41,12 +42,14 @@ class TestNdcgAtK:
         with pytest.raises(ValueError):
             ndcg_at_k(["a"], {"a"}, k=0)
 
+    def test_duplicate_relevant_id_cannot_inflate_score(self) -> None:
+        score = ndcg_at_k(["a", "a"], {"a", "b"}, k=2)
+        assert 0.0 < score < 1.0
+
 
 class TestRecallAtK:
     def test_full_recall(self) -> None:
-        assert (
-            recall_at_k(["a", "b", "c"], {"a", "b"}, k=3) == pytest.approx(1.0)
-        )
+        assert recall_at_k(["a", "b", "c"], {"a", "b"}, k=3) == pytest.approx(1.0)
 
     def test_partial_recall(self) -> None:
         # One of two relevant hits in top-2.
@@ -60,6 +63,24 @@ class TestRecallAtK:
             recall_at_k(["a"], {"a"}, k=-1)
 
 
+class TestPrecisionAtK:
+    def test_perfect_fixed_cutoff_scores_one(self) -> None:
+        assert precision_at_k(["a", "b"], {"a", "b"}, k=2) == 1.0
+
+    def test_short_result_list_uses_fixed_k_denominator(self) -> None:
+        assert precision_at_k(["a"], {"a"}, k=5) == pytest.approx(0.2)
+
+    def test_duplicate_relevant_id_counts_once(self) -> None:
+        assert precision_at_k(["a", "a"], {"a"}, k=2) == pytest.approx(0.5)
+
+    def test_no_relevant_returns_zero(self) -> None:
+        assert precision_at_k(["a"], set(), k=1) == 0.0
+
+    def test_invalid_k_raises(self) -> None:
+        with pytest.raises(ValueError):
+            precision_at_k(["a"], {"a"}, k=0)
+
+
 class TestMeanReciprocalRank:
     def test_first_relevant_gives_one(self) -> None:
         per_query = [(["a", "b", "c"], {"a"})]
@@ -71,7 +92,7 @@ class TestMeanReciprocalRank:
 
     def test_average_across_queries(self) -> None:
         per_query = [
-            (["a"], {"a"}),     # 1.0
+            (["a"], {"a"}),  # 1.0
             (["b", "a"], {"a"}),  # 0.5
         ]
         assert mean_reciprocal_rank(per_query) == pytest.approx(0.75)

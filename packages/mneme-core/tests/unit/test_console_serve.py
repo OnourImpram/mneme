@@ -116,6 +116,17 @@ class TestSecurityPosture:
             urllib.request.urlopen(req, timeout=5)  # noqa: S310
         assert err.value.code == 405
 
+    def test_post_with_body_is_reliably_refused(self, server_url: str) -> None:
+        for _ in range(20):
+            req = urllib.request.Request(
+                f"{server_url}/api/audit",
+                data=b'{"payload":"value"}',
+                method="POST",
+            )
+            with pytest.raises(urllib.error.HTTPError) as err:
+                urllib.request.urlopen(req, timeout=5)  # noqa: S310
+            assert err.value.code == 405
+
     def test_non_loopback_bind_refused(self, vault: VaultConfig) -> None:
         with pytest.raises(ValueError, match="loopback"):
             make_server(vault, "0.0.0.0", 0)  # noqa: S104 - asserting refusal

@@ -11,10 +11,9 @@ A second condition exercises RRF fusion over two backends:
 * a pure-Python BoW cosine surrogate that stands in for the dense
   embedding backend the standard profile will ship post-v1.0
 
-The BoW backend is intentionally synthetic. The point is to exercise
-the production RRF fusion code path under known-relevant data so the
-metric for the fused condition is comparable to the FTS5-only baseline
-and the regression guard can catch fusion regressions.
+The BoW backend is intentionally synthetic. It exercises the production RRF
+fusion code path as an ablation. The production FTS5-only path remains the
+quality headline because the surrogate is not a shipped semantic backend.
 
 Negative probe
 --------------
@@ -43,6 +42,7 @@ import math
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 
 # Allow running from the repo root without installing the package.
@@ -106,13 +106,20 @@ class BowBackend:
     fusion code under controlled inputs.
     """
 
-    def __init__(self, corpus: SyntheticCorpus) -> None:
-        self._doc_vectors: list[tuple[str, Counter[str], float]] = []
+    def __init__(
+        self,
+        corpus: SyntheticCorpus,
+        canonical_ids: Mapping[str, int],
+    ) -> None:
+        self._doc_vectors: list[tuple[int, str, Counter[str], float]] = []
         for doc in corpus.docs:
+            canonical_id = canonical_ids.get(doc.id)
+            if canonical_id is None:
+                raise ValueError(f"missing FTS5 identity for synthetic document {doc.id}")
             tokens = (doc.title + " " + doc.body).lower().split()
             tf = Counter(tokens)
             norm = math.sqrt(sum(v * v for v in tf.values()))
-            self._doc_vectors.append((doc.id, tf, norm))
+            self._doc_vectors.append((canonical_id, doc.id, tf, norm))
 
     def __call__(self, query: str, limit: int) -> list[Hit]:
         q_tokens = query.lower().split()
@@ -120,19 +127,25 @@ class BowBackend:
         q_norm = math.sqrt(sum(v * v for v in q_tf.values()))
         if q_norm == 0:
             return []
-        scored: list[tuple[float, str]] = []
-        for doc_id, tf, norm in self._doc_vectors:
+        scored: list[tuple[float, int, str]] = []
+        for canonical_id, doc_id, tf, norm in self._doc_vectors:
             if norm == 0:
                 continue
             dot = sum(q_tf[t] * tf.get(t, 0) for t in q_tf)
             if dot == 0:
                 continue
             cosine = dot / (q_norm * norm)
-            scored.append((cosine, doc_id))
+            scored.append((cosine, canonical_id, doc_id))
         scored.sort(reverse=True)
         return [
-            Hit(id=doc_id, path=f"{doc_id}.md", title="", score=score, source="bow")
-            for score, doc_id in scored[:limit]
+            Hit(
+                id=canonical_id,
+                path=f"{doc_id}.md",
+                title="",
+                score=score,
+                source="bow",
+            )
+            for score, canonical_id, doc_id in scored[:limit]
         ]
 
 
@@ -322,6 +335,10 @@ def main() -> int:
                 conn,
                 IndexerConfig(vault_root=vault_root, db_path=db_path),
             )
+            canonical_ids = {
+                Path(str(path)).stem: int(doc_id)
+                for doc_id, path in conn.execute("SELECT id, path FROM documents")
+            }
         finally:
             conn.close()
 
@@ -336,7 +353,7 @@ def main() -> int:
         baseline_fts5 = evaluate_single_leg_fts5(corpus, db_path)
         pipeline_fts5_only = evaluate_condition(corpus, retrieval_config)
 
-        bow_backend = BowBackend(corpus)
+        bow_backend = BowBackend(corpus, canonical_ids)
         fused = evaluate_condition(
             corpus,
             retrieval_config,
@@ -364,8 +381,18 @@ def main() -> int:
             "pipeline_fts5_only": pipeline_fts5_only,
             "pipeline_rrf_fts5_plus_bow": fused,
         },
-        "headline_ndcg_at_5": fused["ndcg_at_5"],
-        "headline_recall_at_10": fused["recall_at_10"],
+        "headline_condition": "pipeline_fts5_only",
+        "headline_ndcg_at_5": pipeline_fts5_only["ndcg_at_5"],
+        "headline_recall_at_10": pipeline_fts5_only["recall_at_10"],
+        "rrf_bow_ablation": {
+            "classification": "lexical-surrogate-not-semantic-model",
+            "ndcg_at_5_delta_vs_production": (
+                fused["ndcg_at_5"] - pipeline_fts5_only["ndcg_at_5"]
+            ),
+            "recall_at_10_delta_vs_production": (
+                fused["recall_at_10"] - pipeline_fts5_only["recall_at_10"]
+            ),
+        },
         "negative_probe": negative_probe,
     }
 
