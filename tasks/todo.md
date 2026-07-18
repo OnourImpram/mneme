@@ -52,7 +52,7 @@
 - [x] Isolate claims by composite scope and claim identity.
 - [x] Keep contradiction and supersession visibility within scope.
 - [x] Bind live KG ingestion to deterministic Graphiti `group_id` values.
-- [ ] Run the real Neo4j integration service test.
+- [x] Run the real Neo4j integration service test. The service-container job passed on pre-final code SHA `c237247`.
 - [x] Commit the verified Loop 5 change set with a Conventional Commit.
 
 ## Loop 6. Lifecycle and CCE
@@ -94,8 +94,8 @@
 
 - [x] Complete independent release integrity, privacy, retrieval, and OSS maintainer reviews.
 - [x] Resolve all P0 and P1 findings and document remaining P2 risks.
-- [ ] Close the follow-up P1 review findings for canonical migration rollback, signed schema v2 aliases, and diagnostic path redaction.
-- [ ] Close the Python 3.11 Windows proposal-queue lock timeout found by the final CI matrix.
+- [x] Close the follow-up P1 review findings for canonical migration rollback, signed schema v2 aliases, and diagnostic path redaction. Independent re-review found zero P0 or P1 and one documented cosmetic P2.
+- [x] Close the Python 3.11 Windows proposal-queue lock timeout found by the final CI matrix. The 30-second wait and 60-second stale contract passed the Python 3.11 Windows core suite.
 - [x] Upgrade all 18 version sources to 3.6.0 only after preceding local gates pass.
 - [x] Complete changelog, upgrading guide, ADRs, benchmarks, and engineering report for the precommit candidate.
 - [ ] Run full final matrices and release dry run at the exact final SHA.
@@ -103,7 +103,7 @@
 
 ## Delivery and governance
 
-- [ ] Push the branch and open `Release: complete Mneme 3.6.0 ten-loop engineering hardening`.
+- [x] Push the branch and open `Release: complete Mneme 3.6.0 ten-loop engineering hardening` as PR 36.
 - [ ] Record unique diffs and close PRs 29, 31, 32, 33, and 34 as superseded.
 - [ ] Close PR 35 with verified tree-sitter 0.26 crash evidence.
 - [ ] Leave PR 28 open as a separate dependency change.
@@ -132,4 +132,4 @@
 
 ## Review notes
 
-The first remote candidate passed every job except Python 3.11 on Windows, where 100 concurrent durable queue writes exceeded the one-second lock wait. A follow-up independent review also found three P1 migration compatibility defects: an accepted source-parent alias could not complete rollback, signed schema v2 lexical alias paths could not be matched during restore, and some delimiter-bound absolute paths remained visible in persisted diagnostics. These findings are open until targeted tests, broad regressions, and the final exact-SHA remote gates pass.
+The first remote candidate passed every job except Python 3.11 on Windows, where concurrent durable queue writes exceeded the one-second lock wait. The queue contract now uses a 30-second wait and a 60-second stale threshold, and the Python 3.11 Windows suite passes. A follow-up independent review found three P1 migration compatibility defects. Stable aliases are now canonicalized, diagnostics redact lexical and canonical path forms, and signed legacy aliases without a signed canonical target fail closed while preserving the archive for manual hash-verified recovery. The independent re-review found zero P0 or P1. Terminal punctuation loss in conservative path redaction remains a disclosed cosmetic P2. Final-head matrices, governance, and clean-clone evidence remain open.

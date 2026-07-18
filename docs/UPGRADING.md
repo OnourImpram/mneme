@@ -31,6 +31,13 @@ No semantic model is downloaded or added to the base package. The default
 retrieval path remains local FTS5 BM25. Graphiti and provider-backed
 compression remain explicit opt-in surfaces.
 
+New 3.6.0 `--archive move` migrations bind the canonical source path into the
+signed rollback manifest. A legacy signed schema v2 manifest that recorded only
+a lexical alias, for example macOS `/var` instead of `/private/var`, has no
+signed canonical restore target. Mneme therefore refuses automatic source
+finalization and restoration for that legacy manifest. It preserves the signed
+archive for manual, hash-verified recovery instead of guessing a destination.
+
 ## 2.x to 3.x
 
 ```bash

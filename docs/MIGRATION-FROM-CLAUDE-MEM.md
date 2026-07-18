@@ -211,3 +211,10 @@ result without changing the vault again. Manifests and snapshot paths must stay
 inside the selected vault. Unsafe paths, missing snapshot evidence, symlinked or
 unstable source parents, and hash mismatches fail closed. A prepared or incomplete
 migration is not treated as rollbackable.
+
+Mneme 3.6.0 stores the canonical source path in new signed rollback manifests.
+Older signed schema v2 manifests may contain only a lexical path alias, such as
+macOS `/var` for `/private/var`. Because that manifest does not bind a canonical
+restore target, automatic move finalization, interrupted recovery, and source
+restoration fail closed. The signed archive remains available for manual
+hash-verified recovery. Mneme does not infer or write to an unsigned destination.
