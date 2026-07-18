@@ -115,6 +115,7 @@ The primary GitHub CI run was red across the declared Python and Node matrix. Th
 | MNEME-R3-031 | P1 | 10 | Python 3.11 Windows could exceed the one-second proposal queue lock budget during concurrent durable flushes | The shared queue contract now waits up to 30 seconds and treats a lock as stale after 60 seconds. The 80-write latency regression and the Python 3.11 Windows matrix pass |
 | MNEME-R3-032 | P1 | 8 | A signed schema v2 manifest with a lexical source alias did not bind a signed canonical restore target | Automatic move finalization, interrupted recovery, and source restoration fail closed for an unbound alias. The signed archive is preserved for manual hash-verified recovery |
 | MNEME-R3-033 | P2 | 8 | Generic path redaction can consume terminal `.`, `!`, `?`, or `:` punctuation | Accepted as a privacy-conservative cosmetic limitation. Paths remain redacted and closing brackets, parentheses, commas, and semicolons are preserved |
+| MNEME-R3-034 | P1 | 10 | The final Windows Python 3.11 and 3.13 matrix reproduced lost session blocks because Stop used a 0.5-second lock budget despite the documented five-second contract | Production now uses five seconds. A test-only 0.2-second deadline preserves the fail-soft latency fixture, and the eight-writer regression passed 12 consecutive Windows stress runs |
 
 ## Loop scorecard
 
@@ -176,6 +177,8 @@ HTML parsing found one H1, no duplicate IDs, no missing local anchors, valid JSO
 GitHub Pages reported status `built` at exact commit `45b6890a000617a5a54467caea85079b8b97c8ab`. A no-cache live fetch and a second Playwright pass confirmed the release-candidate heading, not-published label, stable 3.5.0 JSON-LD value, responsive mobile boundary layout, zero page overflow, and zero browser console warnings at [the live site](https://onourimpram.github.io/mneme/).
 
 Website documentation head `6e8520f` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29651790795), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29651790813), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29651790796), and the exact-head [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29651794839). All 30 reported PR checks succeeded. The dry-run summary passed and every package, registry, and marketplace publication job was skipped.
+
+The subsequent checklist-only head exposed MNEME-R3-034 in two Windows jobs while every Linux and macOS Python job passed. The focused fail-soft, p95, and eight-writer tests passed locally after the correction. The eight-writer test then passed 12 additional consecutive Windows stress runs. The complete plugin suite passed 237 tests at 81.58 percent branch coverage, and Ruff, strict mypy, version agreement, specification verification, and repository integrity passed before the corrected head was created.
 
 ## Residual risks
 

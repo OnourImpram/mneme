@@ -49,7 +49,7 @@ from .lock import file_lock
 LOG_DIR_NAME = "sessions"
 STATE_FILENAME = "state.json"
 GIT_STATUS_TIMEOUT_S = 0.25
-SESSION_LOG_LOCK_TIMEOUT_S = 0.5
+SESSION_LOG_LOCK_TIMEOUT_S = 5.0
 
 
 def _is_empty_session(vault_root: Path) -> bool:

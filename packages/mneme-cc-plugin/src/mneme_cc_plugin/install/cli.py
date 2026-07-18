@@ -70,7 +70,7 @@ PROFILE_EXTRAS: dict[str, list[str]] = {
 # then read as 1000-2000 SECONDS and could hang the editor on a wedged
 # hook. The values are safety ceilings above each hook's internal
 # deadlines, not p95 targets: Stop can legitimately wait on the
-# session-log lock (5s) plus a git status (3s), so its ceiling is 10s.
+# session-log lock (5s) plus a bounded git status (0.25s), so its ceiling is 10s.
 # These must stay in sync with the native plugin manifest hooks/hooks.json
 # (enforced by tests/unit/test_hook_timeouts_consistent.py).
 HOOK_TIMEOUTS_S: dict[str, int] = {

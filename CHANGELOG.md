@@ -32,6 +32,7 @@ No unreleased changes yet.
 
 ### Fixed
 
+- Concurrent Stop writers on slower Windows filesystems now use the documented five-second session-log lock budget instead of timing out after 0.5 seconds and dropping session blocks. The fail-soft contention test injects a short test-only deadline so the normal Stop latency gate remains independent of the production burst budget.
 - Redaction is reapplied before FTS5, telemetry, compression, connectors, sync, KG, Graphiti, migration, and export sinks. Private mapping keys and migration metadata are redacted before hashing, indexing, frontmatter, tags, or audit field paths are produced.
 - Python and TypeScript audit writers share a lock, sequence, chained record format, and keyed daily head seal. Cross-language appends advance the same seal, tail truncation is detectable, and partial seal writes restore both snapshots. Rollback refuses to overwrite content whose current hash no longer matches the journaled state.
 - Vault and proposal writes fail closed on symlink, reparse point, parent replacement, partial rename, stale lock, and process interruption boundaries.

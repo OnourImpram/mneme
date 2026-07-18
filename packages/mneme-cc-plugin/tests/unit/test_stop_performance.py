@@ -22,6 +22,7 @@ from mneme_core.vault.config import VaultConfig
 from mneme_core.vault.file_lock import file_lock
 
 from mneme_cc_plugin.hooks import stop
+from mneme_cc_plugin.install.cli import HOOK_TIMEOUTS_S
 
 _P95_SAMPLE_COUNT = 100
 _P95_WARMUP_COUNT = 5
@@ -39,6 +40,11 @@ def _capture(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
     output = io.StringIO()
     monkeypatch.setattr(sys, "stdout", output)
     return output
+
+
+def test_stop_session_lock_budget_matches_install_contract() -> None:
+    assert stop.SESSION_LOG_LOCK_TIMEOUT_S == 5.0
+    assert stop.SESSION_LOG_LOCK_TIMEOUT_S < HOOK_TIMEOUTS_S["Stop"]
 
 
 def _activate_full_profile(vault: VaultConfig) -> None:
@@ -142,6 +148,7 @@ def test_stop_lock_contention_fails_soft_within_budget(
 ) -> None:
     fixed = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
     monkeypatch.setattr(stop, "_now_utc", lambda: fixed)
+    monkeypatch.setattr(stop, "SESSION_LOG_LOCK_TIMEOUT_S", 0.2)
     lock_path = vault.state_dir / "locks" / "sessions-2026-07-18.lock"
     ready = threading.Event()
     release = threading.Event()
