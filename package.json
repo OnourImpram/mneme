@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "private": true,
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "repository": {
@@ -16,6 +16,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "test:coverage": "pnpm --filter mneme-mcp-server test:coverage",
     "lint": "pnpm -r lint",
     "format": "pnpm -r format",
     "bench": "make bench-all",

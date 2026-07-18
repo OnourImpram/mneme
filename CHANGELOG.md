@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.6.0] - 2026-07-18
+
+### Added
+
+- `mneme doctor --verify-isolation` runs scope and redaction checks against an isolated temporary fixture without reading or changing the operator vault.
+- `mneme_checkpoint_list` and `mneme_working_set_load` accept an optional scope and use the configured default when it is omitted.
+- A deterministic release candidate benchmark gate reports retrieval quality, latency, index build time, index size, memory, backend contribution, and ablation results. LongMemEval and LoCoMo adapters validate pinned official schemas.
+- Claude, Codex, and Antigravity plugin validators now run with repository integrity and package candidate checks.
+
+### Changed
+
+- All nine MCP schemas are derived from the authoritative Zod contracts and checked against runtime acceptance behavior. Unknown fields remain accepted and discarded for compatibility.
+- Concrete scope reads fail closed against legacy unscoped FTS5 indexes and request a rebuild. Exact `scope: "*"` remains the only cross-scope read opt-in. Durable writes reject `*`.
+- Turkish FTS5 retrieval preserves distinct `I`, `i`, `U+0130`, and `U+0131` normalization behavior through dual indexed forms.
+- Temporal queries apply valid time and transaction time through a deterministic planner. Supersession, contradiction, CCE checkpoints, KG staging, and Graphiti group identifiers are scope isolated.
+- Temporal indexing rejects invalid or reversed windows, prunes stale derived claims, takes one deterministic current snapshot, and exposes ambiguity consistently across retrieval paths.
+- Retrieval telemetry records attempted, succeeded, failed, and contributed backend states separately. Python and TypeScript query identifiers use separate per-vault keyed HMAC values and backend names are allowlisted.
+- RRF deduplicates canonical document paths, retains provenance and confidence fields, and gives the canonical `AMBIGUOUS` label precedence when any contributing backend reports ambiguity.
+- The release workflow publishes only from a tag push and consumes the exact wheel, sdist, npm, Claude plugin, and MCP Registry bytes produced by one verified preflight job.
+- `tree-sitter>=0.25,<0.26` remains the supported range. Mneme rejects 0.26 before native parsing because the full graph suite reproduces a Windows native access violation with that runtime.
+
+### Fixed
+
+- Redaction is reapplied before FTS5, telemetry, compression, connectors, sync, KG, Graphiti, migration, and export sinks. Private mapping keys and migration metadata are redacted before hashing, indexing, frontmatter, tags, or audit field paths are produced.
+- Python and TypeScript audit writers share a lock, sequence, chained record format, and keyed daily head seal. Cross-language appends advance the same seal, tail truncation is detectable, and partial seal writes restore both snapshots. Rollback refuses to overwrite content whose current hash no longer matches the journaled state.
+- Vault and proposal writes fail closed on symlink, reparse point, parent replacement, partial rename, stale lock, and process interruption boundaries.
+- Capture and audit failures are visible. Stop uses one UTC timestamp source and performs no network or LLM call.
+- The console consumes a bounded refused request body before returning `405`, avoiding intermittent Windows connection resets without accepting the request.
+
+### Benchmarks
+
+- The synthetic release candidate gate uses production FTS5 as the regression headline. At seed 42 it reports Recall@10 1.0, Precision@10 0.1, MRR 0.7337, nDCG@10 0.8006, and retrieval p95 3.62 ms on the local Windows host.
+- Feature hashing remains explicitly labeled a lexical vector surrogate. Its RRF ablation underperformed production FTS5 and is not presented as semantic or dense retrieval.
+
+### Compatibility
+
+- Markdown remains durable ground truth and is not migrated or rewritten.
+- Existing 3.5 vaults remain valid. Run `mneme index rebuild` before concrete scope reads if the existing FTS5 index has no scope metadata.
+- Node 22 remains the minimum supported Node version. Python 3.11 through 3.14 remain supported.
+
 ## [3.5.0] - 2026-06-29
 
 ### Added

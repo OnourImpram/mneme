@@ -36,6 +36,8 @@ Public API
     from mneme_code.trajectory import FixTrajectory, fix_from_failure, fix_to_markdown
 """
 
+from importlib.metadata import version as _distribution_version
+
 from mneme_code.agents import ProceduralMemory, parse_agents_md, procedural_to_markdown
 from mneme_code.failure import FailureMemory, failure_from_traceback, failure_to_markdown
 from mneme_code.resolve import resolve_frames
@@ -48,7 +50,7 @@ from mneme_code.testrun import (
 )
 from mneme_code.trajectory import FixTrajectory, fix_from_failure, fix_to_markdown
 
-__version__ = "0.2.0"
+__version__ = _distribution_version("mneme-code")
 __all__ = [
     "__version__",
     "Frame",

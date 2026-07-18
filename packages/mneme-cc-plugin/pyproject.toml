@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-cc-plugin"
-version = "3.5.0"
+version = "3.6.0"
 description = "Claude Code plugin for mneme: hooks, slash commands, skills, and the install CLI."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -64,3 +64,8 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+data_file = ".coverage.mneme-cc-plugin"
+source = ["mneme_cc_plugin"]
