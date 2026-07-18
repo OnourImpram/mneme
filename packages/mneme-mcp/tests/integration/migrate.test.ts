@@ -12,6 +12,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	symlinkSync,
@@ -819,6 +820,48 @@ describe("migrate (full integration)", () => {
 		expect(existsSync(dbPath)).toBe(true);
 		expect(existsSync(exportRoot)).toBe(false);
 	});
+
+	it("canonicalizes a stable parent alias before preparing a source move", () => {
+		const sourceRoot = join(workDir, "canonical-source");
+		const aliasRoot = join(workDir, "source-alias");
+		mkdirSync(sourceRoot, { recursive: true });
+		const source = join(sourceRoot, "claude-mem.db");
+		makeFixtureDb(source, [sampleRow()]);
+		symlinkSync(
+			sourceRoot,
+			aliasRoot,
+			process.platform === "win32" ? "junction" : "dir",
+		);
+
+		const handle = prepareMigrationRollback(
+			vault,
+			join(vault.root, "imported", "claude-mem"),
+			join(aliasRoot, "claude-mem.db"),
+			"move",
+		);
+		const manifest = JSON.parse(readFileSync(handle.manifestPath, "utf8")) as {
+			source_db: string;
+		};
+
+		expect(manifest.source_db).toBe(realpathSync(source));
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"rejects a source DB that is itself a symlink",
+		() => {
+			const sourceLink = join(workDir, "source-link.db");
+			symlinkSync(dbPath, sourceLink, "file");
+
+			expect(() =>
+				prepareMigrationRollback(
+					vault,
+					join(vault.root, "imported", "claude-mem"),
+					sourceLink,
+					"move",
+				),
+			).toThrow("non-symlink regular file");
+		},
+	);
 
 	it("refuses move when the staged archive does not match the source", () => {
 		const exportRoot = join(vault.root, "imported", "claude-mem");

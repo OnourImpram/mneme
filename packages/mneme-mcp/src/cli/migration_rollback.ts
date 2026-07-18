@@ -391,11 +391,65 @@ function assertDirectoryIdentity(
 	}
 }
 
+function canonicalExternalDirectory(path: string): string {
+	const resolved = resolvePath(path);
+	const before = lstatSync(resolved);
+	if (!before.isDirectory() || before.isSymbolicLink()) {
+		throw new Error(
+			`source path ancestor is not a stable directory: ${resolved}`,
+		);
+	}
+	const canonical = realpathSync(resolved);
+	const after = lstatSync(canonical);
+	if (
+		!after.isDirectory() ||
+		after.isSymbolicLink() ||
+		after.dev !== before.dev ||
+		after.ino !== before.ino
+	) {
+		throw new Error(`source path ancestor identity changed: ${resolved}`);
+	}
+	return canonical;
+}
+
+function canonicalExternalRegularFile(path: string): string {
+	const resolved = resolvePath(path);
+	const before = lstatSync(resolved);
+	if (!before.isFile() || before.isSymbolicLink()) {
+		throw new Error("migration source must be a non-symlink regular file");
+	}
+	const canonical = realpathSync(resolved);
+	const after = lstatSync(canonical);
+	if (
+		!after.isFile() ||
+		after.isSymbolicLink() ||
+		after.dev !== before.dev ||
+		after.ino !== before.ino
+	) {
+		throw new Error(
+			"migration source identity changed during canonicalization",
+		);
+	}
+	return canonical;
+}
+
+function canonicalExternalTarget(path: string): string {
+	const resolved = resolvePath(path);
+	return join(
+		canonicalExternalDirectory(dirname(resolved)),
+		basename(resolved),
+	);
+}
+
 function externalAncestorIdentities(
 	path: string,
 ): Map<string, DirectoryIdentity> {
 	const identities = new Map<string, DirectoryIdentity>();
-	let current = resolvePath(path);
+	// Operate through the canonical parent chain after validating the caller's
+	// final directory inode. macOS exposes /var as a stable system alias for
+	// /private/var, including for os.tmpdir(); retaining the lexical alias would
+	// make every destructive migration move fail before its guarded rename.
+	let current = canonicalExternalDirectory(path);
 	for (let index = 0; index < 512; index += 1) {
 		const stat = lstatSync(current);
 		if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -1059,7 +1113,7 @@ export function prepareMigrationRollback(
 		throw new Error("migration journal path already exists");
 	}
 	mkdirSync(runRoot, { recursive: true });
-	const resolvedSource = resolvePath(sourceDb);
+	const resolvedSource = canonicalExternalRegularFile(sourceDb);
 	const sourceHash =
 		archiveMode === "move"
 			? hashRegularFile(resolvedSource, MAX_SNAPSHOT_BYTES).sha256
@@ -1527,7 +1581,12 @@ function restoreMovedSource(
 			"rollback of archive=move requires --confirm-source-restore and --source with the original absolute path",
 		);
 	}
-	if (!sameResolvedPath(sourceRestorePath, manifest.source_db)) {
+	if (
+		!sameResolvedPath(
+			canonicalExternalTarget(sourceRestorePath),
+			manifest.source_db,
+		)
+	) {
 		throw new Error(
 			"explicit source restore path does not match the signed manifest",
 		);
