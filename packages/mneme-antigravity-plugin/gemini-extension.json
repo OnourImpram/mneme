@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "3.6.0",
+  "version": "3.6.1",
   "description": "Vault-native memory for Antigravity. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop.",
   "license": "Apache-2.0",
   "contextFileName": "GEMINI.md",

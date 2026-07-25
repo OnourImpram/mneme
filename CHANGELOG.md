@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.6.1] - 2026-07-25
+
+### Changed
+
+- The MCP Registry server identity moved to the `io.github.OnourImpram` namespace. The earlier entry, `io.github.TheGoatPsy/mneme`, was claimed under this project's former GitHub handle; once the account was renamed the registry stopped granting permission to update it, so the versions listed there never advanced past 3.1.0. Install mneme from the new registry entry to receive updates. Installs that go straight to npm (`mneme-mcp-server`) or PyPI are unaffected and need no action.
+
 ## [3.6.0] - 2026-07-18
 
 ### Added
