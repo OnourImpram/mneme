@@ -13,7 +13,7 @@ No unreleased changes yet.
 
 ### Changed
 
-- The MCP Registry server identity moved to the `io.github.OnourImpram` namespace. The earlier entry, `io.github.TheGoatPsy/mneme`, was claimed under this project's former GitHub handle; once the account was renamed the registry stopped granting permission to update it, so the versions listed there never advanced past 3.1.0. Install mneme from the new registry entry to receive updates. Installs that go straight to npm (`mneme-mcp-server`) or PyPI are unaffected and need no action.
+- The MCP Registry server identity moved to the `io.github.OnourImpram` namespace. The earlier entry, `io.github.TheGoatPsy/mneme`, was claimed under this project's former GitHub handle; once the account was renamed the registry stopped granting permission to update it, so the last version published there was 3.5.0. Install mneme from the new registry entry to receive updates. Installs that go straight to npm (`mneme-mcp-server`) or PyPI are unaffected and need no action.
 
 ## [3.6.0] - 2026-07-18
 
