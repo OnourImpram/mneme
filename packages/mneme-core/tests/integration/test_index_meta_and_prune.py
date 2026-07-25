@@ -26,7 +26,12 @@ from mneme_core.fts5.indexer import (
     index_vault,
     read_index_meta,
 )
-from mneme_core.fts5.locale.tr import normalize_tr, normalize_tr_ascii_fold
+from mneme_core.fts5.locale.tr import (
+    normalize_tr,
+    normalize_tr_ascii_fold,
+    normalize_tr_ascii_fold_for_fts,
+    normalize_tr_for_fts,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -105,6 +110,7 @@ class TestNormalizationProfileWritten:
         conn = self._index_empty_vault(tmp_path, _identity)
         value = read_index_meta(conn, "normalization_profile")
         assert value == "identity"
+        assert read_index_meta(conn, "ascii_normalization_profile") == "disabled"
         conn.close()
 
     def test_tr_normalizer_stores_tr_cldr_profile(
@@ -121,6 +127,37 @@ class TestNormalizationProfileWritten:
         conn = self._index_empty_vault(tmp_path, normalize_tr_ascii_fold)
         value = read_index_meta(conn, "normalization_profile")
         assert value == "tr-ascii-fold"
+        conn.close()
+
+    def test_dual_key_index_stores_ascii_profile(self, tmp_path: Path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "izmir.md").write_text(
+            "# \u0130zmir\n\u0130zmir liman\u0131 a\u00e7\u0131k.\n",
+            encoding="utf-8",
+        )
+        conn = sqlite3.connect(":memory:")
+        ensure_schema(conn)
+        index_vault(
+            conn,
+            IndexerConfig(
+                vault_root=vault,
+                db_path=tmp_path / "fts.db",
+                normalize=normalize_tr,
+                normalize_for_fts=normalize_tr_for_fts,
+                normalize_ascii=normalize_tr_ascii_fold,
+                normalize_ascii_for_fts=normalize_tr_ascii_fold_for_fts,
+            ),
+        )
+
+        assert read_index_meta(conn, "normalization_profile") == "tr-cldr"
+        assert (
+            read_index_meta(conn, "ascii_normalization_profile")
+            == "tr-ascii-fold"
+        )
+        assert conn.execute("SELECT count(*) FROM documents_ascii_fts").fetchone() == (
+            1,
+        )
         conn.close()
 
     def test_profile_is_overwritten_on_second_index(

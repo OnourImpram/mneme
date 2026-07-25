@@ -33,7 +33,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..privacy import redact as _privacy_redact
+from ..privacy import (
+    redact as _privacy_redact,
+)
+from ..privacy import (
+    redact_mapping_items as _privacy_redact_mapping_items,
+)
 from ..vault.atomic_write import atomic_write_text
 
 DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
@@ -133,10 +138,26 @@ def _redact_value(
             )
         return redacted
     if isinstance(value, dict):
-        return {
-            k: _redact_value(v, f"{field_path}.{k}" if field_path else str(k), audit, config)
-            for k, v in value.items()
-        }
+        redacted_dict: dict[Any, Any] = {}
+        for original_key, safe_key, item in _privacy_redact_mapping_items(value):
+            child_path = f"{field_path}.{safe_key}" if field_path else str(safe_key)
+            if isinstance(original_key, str) and safe_key != original_key:
+                audit.append(
+                    {
+                        "ts": _now_iso(),
+                        "host": config.host,
+                        "field": f"{child_path}.[key]",
+                        "original_length": len(original_key),
+                        "audit_hash": _sha256_first16(original_key),
+                    }
+                )
+            redacted_dict[safe_key] = _redact_value(
+                item,
+                child_path,
+                audit,
+                config,
+            )
+        return redacted_dict
     if isinstance(value, list):
         return [
             _redact_value(item, f"{field_path}[{i}]", audit, config)

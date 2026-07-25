@@ -557,14 +557,25 @@ def index_rebuild(vault_root: Path | None, locale: str) -> None:
 
     vault = _resolve_vault(vault_root)
     if locale == "tr":
-        from mneme_core.fts5.locale.tr import normalize_tr
+        from mneme_core.fts5.locale.tr import (
+            normalize_tr,
+            normalize_tr_ascii_fold,
+            normalize_tr_ascii_fold_for_fts,
+        )
+
         normalize = normalize_tr
+        normalize_ascii = normalize_tr_ascii_fold
+        normalize_ascii_for_fts = normalize_tr_ascii_fold_for_fts
     else:
         normalize = None
+        normalize_ascii = None
+        normalize_ascii_for_fts = None
     cfg = fts5_indexer.IndexerConfig(
         vault_root=vault.root,
         db_path=vault.fts5_db,
         normalize=normalize if normalize is not None else fts5_indexer._identity,
+        normalize_ascii=normalize_ascii,
+        normalize_ascii_for_fts=normalize_ascii_for_fts,
     )
     conn = fts5_indexer.connect(vault.fts5_db)
     try:
@@ -793,6 +804,261 @@ def audit_log(vault_root: Path | None, since: str | None, limit: int) -> None:
     )
 
 
+def _verify_isolation_boundaries() -> list[dict[str, str]]:
+    """Exercise scope and redaction invariants in a disposable vault.
+
+    Every path used by this verification is derived from a system temporary
+    directory. The operator vault is deliberately not accepted as an input,
+    which keeps this write-heavy fixture isolated from user-owned data.
+    """
+    import tempfile
+    from dataclasses import replace
+
+    from .compression.config import CompressionConfig
+    from .compression.llm import CompressionResult, LlmCallSpec
+    from .compression.pipeline import pipeline_config_from_vault, run_compression
+    from .fts5.indexer import IndexerConfig, connect, ensure_schema, index_vault
+
+    scope_token = "mnemeisolationfixturetoken"
+    scope_secrets = (
+        "MNEME_DOCTOR_ALPHA_STORAGE_SECRET",
+        "MNEME_DOCTOR_BETA_STORAGE_SECRET",
+    )
+    provider_input_secret = "MNEME_DOCTOR_PROVIDER_INPUT_SECRET"
+    prompt_secret = "MNEME_DOCTOR_PROVIDER_PROMPT_SECRET"
+    provider_output_secret = "MNEME_DOCTOR_PROVIDER_OUTPUT_SECRET"
+    checks: list[dict[str, str]] = []
+
+    def result(name: str, passed: bool, detail: str) -> dict[str, str]:
+        return {
+            "name": name,
+            "status": "ok" if passed else "fail",
+            "detail": detail,
+        }
+
+    class IsolationProvider:
+        def __init__(self) -> None:
+            self.last_spec: LlmCallSpec | None = None
+
+        def compress(self, spec: LlmCallSpec) -> CompressionResult:
+            self.last_spec = spec
+            return CompressionResult(
+                text=(
+                    "Visible provider result "
+                    f"<private>{provider_output_secret}</private>."
+                ),
+                tokens_in=1,
+                tokens_out=1,
+                model=spec.model,
+            )
+
+    with tempfile.TemporaryDirectory(prefix="mneme-doctor-isolation-") as raw_tmp:
+        fixture_root = Path(raw_tmp) / "vault"
+        fixture_root.mkdir()
+        fixture = VaultConfig.from_path(fixture_root)
+
+        alpha_path = fixture.root / "alpha.md"
+        beta_path = fixture.root / "beta.md"
+        alpha_path.write_text(
+            "---\n"
+            "id: isolation-alpha\n"
+            "type: observation\n"
+            "scope: alpha\n"
+            "---\n\n"
+            f"# Alpha\n\n{scope_token} "
+            f"<private>{scope_secrets[0]}</private>\n",
+            encoding="utf-8",
+        )
+        beta_path.write_text(
+            "---\n"
+            "id: isolation-beta\n"
+            "type: observation\n"
+            "scope: beta\n"
+            "---\n\n"
+            f"# Beta\n\n{scope_token} "
+            f"<private>{scope_secrets[1]}</private>\n",
+            encoding="utf-8",
+        )
+
+        try:
+            conn = connect(fixture.fts5_db)
+            try:
+                ensure_schema(conn)
+                stats = index_vault(
+                    conn,
+                    IndexerConfig(
+                        vault_root=fixture.root,
+                        db_path=fixture.fts5_db,
+                    ),
+                )
+                scoped_paths: dict[str, set[str]] = {}
+                for scope in ("alpha", "beta"):
+                    rows = conn.execute(
+                        "SELECT documents.path FROM documents_fts"
+                        " JOIN documents ON documents.id = documents_fts.rowid"
+                        " WHERE documents_fts MATCH ? AND documents.scope = ?",
+                        (scope_token, scope),
+                    ).fetchall()
+                    scoped_paths[scope] = {str(row[0]) for row in rows}
+                wildcard_rows = conn.execute(
+                    "SELECT documents.path FROM documents_fts"
+                    " JOIN documents ON documents.id = documents_fts.rowid"
+                    " WHERE documents_fts MATCH ?",
+                    (scope_token,),
+                ).fetchall()
+                wildcard_paths = {str(row[0]) for row in wildcard_rows}
+                scope_passed = (
+                    stats.indexed == 2
+                    and scoped_paths == {
+                        "alpha": {"alpha.md"},
+                        "beta": {"beta.md"},
+                    }
+                    and wildcard_paths == {"alpha.md", "beta.md"}
+                )
+                checks.append(
+                    result(
+                        "isolation_scope",
+                        scope_passed,
+                        (
+                            "two concrete scopes remained disjoint and the explicit "
+                            "cross-scope view returned both fixture records"
+                            if scope_passed
+                            else "temporary FTS5 fixture violated the expected scope sets"
+                        ),
+                    )
+                )
+
+                stored_rows = conn.execute(
+                    "SELECT documents.title, documents.title_normalized,"
+                    " documents.content_raw, documents.body_text, documents.tags,"
+                    " documents.frontmatter_type, documents.session_id,"
+                    " documents.scope, documents.linked_notes, documents.key_points,"
+                    " documents_fts.title, documents_fts.content,"
+                    " documents_fts.tags, documents_fts.linked_notes"
+                    " FROM documents JOIN documents_fts"
+                    " ON documents.id = documents_fts.rowid"
+                ).fetchall()
+                stored_text = "\n".join(
+                    str(value) for row in stored_rows for value in row
+                )
+            finally:
+                conn.close()
+
+            database_bytes = b"".join(
+                path.read_bytes()
+                for path in fixture.state_dir.glob("fts5.sqlite*")
+                if path.is_file()
+            )
+            source_contains_secrets = all(
+                secret in alpha_path.read_text(encoding="utf-8")
+                or secret in beta_path.read_text(encoding="utf-8")
+                for secret in scope_secrets
+            )
+            storage_passed = (
+                source_contains_secrets
+                and "[REDACTED]" in stored_text
+                and all(secret not in stored_text for secret in scope_secrets)
+                and all(secret.encode() not in database_bytes for secret in scope_secrets)
+            )
+            checks.append(
+                result(
+                    "isolation_storage_redaction",
+                    storage_passed,
+                    (
+                        "private fixture values were absent from SQLite and FTS5 sinks"
+                        if storage_passed
+                        else "a private fixture value reached a derived storage sink"
+                    ),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - report a bounded self-test failure
+            existing = {entry["name"] for entry in checks}
+            detail = f"temporary index verification raised {type(exc).__name__}"
+            for name in ("isolation_scope", "isolation_storage_redaction"):
+                if name not in existing:
+                    checks.append(result(name, False, detail))
+
+        try:
+            enabled = CompressionConfig(enabled=True, cost_cap_usd_monthly=1.0)
+            pipeline = pipeline_config_from_vault(fixture, enabled)
+            prompt_path = fixture.root / "isolation-prompt.md"
+            prompt_path.write_text(
+                "Do not retain " f"<private>{prompt_secret}</private>.",
+                encoding="utf-8",
+            )
+            pipeline = replace(
+                pipeline,
+                prompt_path=prompt_path,
+                staging_active_window_s=-3600.0,
+            )
+            staging_path = pipeline.staging_dir / pipeline.host / "fixture.jsonl"
+            staging_path.parent.mkdir(parents=True, exist_ok=True)
+            staging_path.write_text(
+                json.dumps(
+                    {
+                        "tool_name": "doctor-isolation",
+                        "payload": (
+                            "before "
+                            f"<private>{provider_input_secret}</private> after"
+                        ),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            provider = IsolationProvider()
+            report = run_compression(pipeline, provider)
+            outbound = ""
+            if provider.last_spec is not None:
+                outbound = provider.last_spec.system + provider.last_spec.payload
+            written_path = Path(report.written_path) if report.written_path else None
+            persisted = (
+                written_path.read_text(encoding="utf-8")
+                if written_path is not None and written_path.is_file()
+                else ""
+            )
+            written_inside_fixture = (
+                written_path is not None
+                and written_path.resolve().is_relative_to(fixture.root.resolve())
+            )
+            provider_passed = (
+                report.status == "ok"
+                and provider.last_spec is not None
+                and written_inside_fixture
+                and "[REDACTED]" in outbound
+                and provider_input_secret not in outbound
+                and prompt_secret not in outbound
+                and "[REDACTED]" in persisted
+                and provider_output_secret not in persisted
+            )
+            checks.append(
+                result(
+                    "isolation_provider_redaction",
+                    provider_passed,
+                    (
+                        "provider input and provider output were redacted at both boundaries"
+                        if provider_passed
+                        else "temporary provider spy observed a redaction boundary failure"
+                    ),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - report a bounded self-test failure
+            checks.append(
+                result(
+                    "isolation_provider_redaction",
+                    False,
+                    f"temporary provider verification raised {type(exc).__name__}",
+                )
+            )
+
+    return checks
+
+
+def verify_isolation_boundaries() -> list[dict[str, str]]:
+    """Run the disposable scope and redaction boundary verification."""
+    return _verify_isolation_boundaries()
+
+
 @cli.command("doctor", help="Run vault health checks and print a JSON report.")
 @click.option(
     "--vault",
@@ -807,7 +1073,16 @@ def audit_log(vault_root: Path | None, since: str | None, limit: int) -> None:
     show_default=True,
     help="Emit output as JSON (default) or plain text.",
 )
-def doctor(vault_root: Path | None, as_json: bool) -> None:
+@click.option(
+    "--verify-isolation",
+    is_flag=True,
+    help="Run scope and redaction self-tests in a disposable vault fixture.",
+)
+def doctor(
+    vault_root: Path | None,
+    as_json: bool,
+    verify_isolation: bool,
+) -> None:
     """Check vault health: index presence, schema version, row count, config."""
     import sqlite3 as _sqlite3
 
@@ -1255,6 +1530,18 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
     else:
         checks.append(_check("temporal_index", "na", "index absent — skipped"))
 
+    if verify_isolation:
+        try:
+            checks.extend(_verify_isolation_boundaries())
+        except Exception as exc:  # noqa: BLE001 - keep doctor output structured
+            checks.append(
+                _check(
+                    "isolation_fixture",
+                    "fail",
+                    f"temporary isolation fixture raised {type(exc).__name__}",
+                )
+            )
+
     # Derive overall status: fail > warn > ok.
     statuses = {c["status"] for c in checks}
     if "fail" in statuses:
@@ -1273,6 +1560,16 @@ def doctor(vault_root: Path | None, as_json: bool) -> None:
 @cli.group("temporal", help="Temporal claim index subcommands.")
 def temporal_group() -> None:  # pragma: no cover - dispatcher
     pass
+
+
+def _resolve_temporal_scope(vault: VaultConfig, requested: str | None) -> str:
+    from .scope import valid_scope
+
+    candidate = requested if requested is not None else vault.default_scope()
+    scope = valid_scope(candidate)
+    if scope is None:
+        raise click.ClickException("scope must be a valid identifier or '*'")
+    return scope
 
 
 @temporal_group.command("index", help="Build or rebuild the temporal claims index for the vault.")
@@ -1333,7 +1630,16 @@ def temporal_index(vault_root: Path | None, locale: str) -> None:
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
-def temporal_as_of(timestamp: str, vault_root: Path | None) -> None:
+@click.option(
+    "--scope",
+    default=None,
+    help="Concrete claim scope. Omit for the configured default, or pass '*' explicitly.",
+)
+def temporal_as_of(
+    timestamp: str,
+    vault_root: Path | None,
+    scope: str | None,
+) -> None:
     import sqlite3 as _sqlite3
 
     from .temporal.query import as_of as _as_of
@@ -1344,13 +1650,14 @@ def temporal_as_of(timestamp: str, vault_root: Path | None) -> None:
         raise click.ClickException(f"Cannot parse timestamp: {timestamp!r}")
 
     vault = _resolve_vault(vault_root)
+    resolved_scope = _resolve_temporal_scope(vault, scope)
     if not vault.fts5_db.exists():
         click.echo(json.dumps({"claims": [], "note": "index not found"}, indent=2))
         return
 
     conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
     try:
-        claims = _as_of(conn, t)
+        claims = _as_of(conn, t, scope=resolved_scope)
     finally:
         conn.close()
 
@@ -1364,12 +1671,18 @@ def temporal_as_of(timestamp: str, vault_root: Path | None) -> None:
             "observed_at": c.observed_at.isoformat(),
             "claim_key": c.claim_key,
             "confidence_label": c.confidence_label.value,
+            "scope": c.scope,
         }
         for c in claims
     ]
     click.echo(
         json.dumps(
-            {"at": timestamp, "count": len(payload), "claims": payload},
+            {
+                "at": timestamp,
+                "scope": resolved_scope,
+                "count": len(payload),
+                "claims": payload,
+            },
             indent=2,
             ensure_ascii=False,
         )
@@ -1383,7 +1696,12 @@ def temporal_as_of(timestamp: str, vault_root: Path | None) -> None:
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
-def temporal_current(vault_root: Path | None) -> None:
+@click.option(
+    "--scope",
+    default=None,
+    help="Concrete claim scope. Omit for the configured default, or pass '*' explicitly.",
+)
+def temporal_current(vault_root: Path | None, scope: str | None) -> None:
     import sqlite3 as _sqlite3
     from datetime import UTC
     from datetime import datetime as _datetime
@@ -1391,6 +1709,7 @@ def temporal_current(vault_root: Path | None) -> None:
     from .temporal.query import current as _current
 
     vault = _resolve_vault(vault_root)
+    resolved_scope = _resolve_temporal_scope(vault, scope)
     if not vault.fts5_db.exists():
         click.echo(json.dumps({"claims": [], "note": "index not found"}, indent=2))
         return
@@ -1398,7 +1717,7 @@ def temporal_current(vault_root: Path | None) -> None:
     now = _datetime.now(UTC)
     conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
     try:
-        claims = _current(conn, now)
+        claims = _current(conn, now, scope=resolved_scope)
     finally:
         conn.close()
 
@@ -1412,12 +1731,18 @@ def temporal_current(vault_root: Path | None) -> None:
             "observed_at": c.observed_at.isoformat(),
             "claim_key": c.claim_key,
             "confidence_label": c.confidence_label.value,
+            "scope": c.scope,
         }
         for c in claims
     ]
     click.echo(
         json.dumps(
-            {"at": now.isoformat(), "count": len(payload), "claims": payload},
+            {
+                "at": now.isoformat(),
+                "scope": resolved_scope,
+                "count": len(payload),
+                "claims": payload,
+            },
             indent=2,
             ensure_ascii=False,
         )
@@ -1441,6 +1766,7 @@ def _claim_payload(c: object) -> dict[str, object]:
         "confidence_label": c.confidence_label.value,
         "trust": c.trust,
         "content_hash": c.content_hash,
+        "scope": c.scope,
     }
 
 
@@ -1459,19 +1785,29 @@ def _claim_payload(c: object) -> dict[str, object]:
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
-def temporal_blame(ref: str, vault_root: Path | None) -> None:
+@click.option(
+    "--scope",
+    default=None,
+    help="Concrete claim scope. Omit for the configured default, or pass '*' explicitly.",
+)
+def temporal_blame(
+    ref: str,
+    vault_root: Path | None,
+    scope: str | None,
+) -> None:
     import sqlite3 as _sqlite3
 
     from .temporal.blame import blame as _blame
 
     vault = _resolve_vault(vault_root)
+    resolved_scope = _resolve_temporal_scope(vault, scope)
     if not vault.fts5_db.exists():
         click.echo(json.dumps({"reports": [], "note": "index not found"}, indent=2))
         return
 
     conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
     try:
-        reports = _blame(conn, ref)
+        reports = _blame(conn, ref, scope=resolved_scope)
     finally:
         conn.close()
 
@@ -1486,7 +1822,12 @@ def temporal_blame(ref: str, vault_root: Path | None) -> None:
     ]
     click.echo(
         json.dumps(
-            {"ref": ref, "count": len(payload), "reports": payload},
+            {
+                "ref": ref,
+                "scope": resolved_scope,
+                "count": len(payload),
+                "reports": payload,
+            },
             indent=2,
             ensure_ascii=False,
         )
@@ -1503,26 +1844,33 @@ def temporal_blame(ref: str, vault_root: Path | None) -> None:
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
 )
-def temporal_contradictions(vault_root: Path | None) -> None:
+@click.option(
+    "--scope",
+    default=None,
+    help="Concrete claim scope. Omit for the configured default, or pass '*' explicitly.",
+)
+def temporal_contradictions(vault_root: Path | None, scope: str | None) -> None:
     import sqlite3 as _sqlite3
 
     from .temporal.blame import _claim_by_id
-    from .temporal.query import find_contradictions as _find
+    from .temporal.query import find_contradictions_scoped as _find
 
     vault = _resolve_vault(vault_root)
+    resolved_scope = _resolve_temporal_scope(vault, scope)
     if not vault.fts5_db.exists():
         click.echo(json.dumps({"contradictions": [], "note": "index not found"}, indent=2))
         return
 
     conn = _sqlite3.connect(f"file:{vault.fts5_db}?mode=ro", uri=True)
     try:
-        pairs = _find(conn)
+        pairs = _find(conn, scope=resolved_scope)
         payload = []
-        for a_id, b_id in pairs:
-            a = _claim_by_id(conn, a_id)
-            b = _claim_by_id(conn, b_id)
+        for pair_scope, a_id, b_id in pairs:
+            a = _claim_by_id(conn, a_id, pair_scope)
+            b = _claim_by_id(conn, b_id, pair_scope)
             payload.append(
                 {
+                    "scope": pair_scope,
                     "a": _claim_payload(a) if a else {"claim_id": a_id},
                     "b": _claim_payload(b) if b else {"claim_id": b_id},
                 }
@@ -1531,7 +1879,11 @@ def temporal_contradictions(vault_root: Path | None) -> None:
         conn.close()
     click.echo(
         json.dumps(
-            {"count": len(payload), "contradictions": payload},
+            {
+                "scope": resolved_scope,
+                "count": len(payload),
+                "contradictions": payload,
+            },
             indent=2,
             ensure_ascii=False,
         )

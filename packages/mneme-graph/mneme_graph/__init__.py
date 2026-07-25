@@ -11,5 +11,7 @@ Public surface:
     from mneme_graph.extractor.python_extractor import extract_file
 """
 
-__version__ = "0.2.0"
+from importlib.metadata import version as _distribution_version
+
+__version__ = _distribution_version("mneme-graph")
 __all__ = ["__version__"]

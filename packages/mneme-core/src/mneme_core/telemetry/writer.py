@@ -27,6 +27,7 @@ directory.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import socket
@@ -126,6 +127,36 @@ def redact_pii(
     return text
 
 
+def _redact_telemetry_value(
+    value: Any,
+    patterns: tuple[PiiPattern, ...],
+    audit_callback: Callable[[list[str]], None],
+) -> Any:
+    """Recursively redact telemetry values and user-controlled mapping keys."""
+    if isinstance(value, str):
+        return redact_pii(_privacy_redact(value), patterns, audit_callback)
+    if isinstance(value, dict):
+        return {
+            (
+                redact_pii(_privacy_redact(key), patterns, audit_callback)
+                if isinstance(key, str)
+                else key
+            ): _redact_telemetry_value(item, patterns, audit_callback)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _redact_telemetry_value(item, patterns, audit_callback)
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _redact_telemetry_value(item, patterns, audit_callback)
+            for item in value
+        )
+    return value
+
+
 def _log_audit(matched_patterns: list[str], config: TelemetryConfig) -> None:
     try:
         config.audit_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +166,7 @@ def _log_audit(matched_patterns: list[str], config: TelemetryConfig) -> None:
                 json.dumps(
                     {
                         "ts": _now().isoformat(),
-                        "host": config.host,
+                        "host": _privacy_redact(config.host),
                         "patterns_matched": matched_patterns,
                     },
                     ensure_ascii=False,
@@ -165,6 +196,18 @@ def _file_for_event_class(
     return "events.jsonl"
 
 
+def _safe_path_component(value: str, *, prefix: str) -> str:
+    """Return a bounded path component without exposing rejected input."""
+    if (
+        1 <= len(value) <= 128
+        and value not in {".", ".."}
+        and re.fullmatch(r"[A-Za-z0-9._-]+", value) is not None
+    ):
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
 def write_event(
     event_class: str,
     name: str,
@@ -185,8 +228,8 @@ def write_event(
         status: defaults to ``"success"``. Records with status
             ``"error"`` and any class other than ``"error"`` are also
             duplicated into ``errors.jsonl`` for easy triage.
-        **kwargs: extra fields merged into the record. String values
-            pass through redaction.
+        **kwargs: extra fields merged into the record. Nested strings and
+            mapping keys pass through redaction.
 
     Returns:
         True on successful write, False on invalid class or any OSError
@@ -200,38 +243,44 @@ def write_event(
     def audit_cb(matched: list[str]) -> None:
         _log_audit(matched, config)
 
-    # Apply structural <private> redaction first (always on), then PII
-    # pattern redaction (opt-in via pii_patterns).
-    redacted_name = redact_pii(
-        _privacy_redact(name), config.pii_patterns, audit_cb
-    )
     record: dict[str, Any] = {
         "ts": now.isoformat(),
         "session_id": session_id,
         "host": config.host,
         "event_class": event_class,
-        "name": redacted_name,
+        "name": name,
         "status": status,
     }
-    for k, v in kwargs.items():
-        if isinstance(v, str):
-            record[k] = redact_pii(
-                _privacy_redact(v), config.pii_patterns, audit_cb
-            )
-        else:
-            record[k] = v
+    record.update(kwargs)
 
-    target_file = _file_for_event_class(event_class, session_id)
-    out_dir = config.telemetry_dir / config.host / now.strftime("%Y-%m-%d")
+    # Apply structural and configured PII redaction to the complete record at
+    # the final persistence boundary. This catches nested provider metadata and
+    # fields added after an earlier sanitization pass.
+    redacted_record = _redact_telemetry_value(
+        record, config.pii_patterns, audit_cb
+    )
+    if not isinstance(redacted_record, dict):
+        return False
+    redacted_session_id = redact_pii(
+        _privacy_redact(session_id), config.pii_patterns, audit_cb
+    )
+    redacted_host = redact_pii(
+        _privacy_redact(config.host), config.pii_patterns, audit_cb
+    )
+
+    safe_session_id = _safe_path_component(redacted_session_id, prefix="session")
+    safe_host = _safe_path_component(redacted_host, prefix="host")
+    target_file = _file_for_event_class(event_class, safe_session_id)
+    out_dir = config.telemetry_dir / safe_host / now.strftime("%Y-%m-%d")
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / target_file
         with out_path.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+            fp.write(json.dumps(redacted_record, ensure_ascii=False) + "\n")
         if status == "error" and event_class != "error":
             err_path = out_dir / "errors.jsonl"
             with err_path.open("a", encoding="utf-8") as fp:
-                fp.write(json.dumps(record, ensure_ascii=False) + "\n")
+                fp.write(json.dumps(redacted_record, ensure_ascii=False) + "\n")
     except OSError:
         return False
     return True

@@ -193,6 +193,61 @@ class TestSuccessPath:
         assert live == []
         assert len(archived) >= 1
 
+    def test_reredacts_untrusted_queue_at_provider_boundary(
+        self, config: PipelineConfig, vault: VaultConfig
+    ) -> None:
+        host_dir = config.staging_dir / config.host
+        host_dir.mkdir(parents=True)
+        queue = host_dir / "untrusted-events.jsonl"
+        queue.write_text(
+            json.dumps(
+                {
+                    "closed": "before <private>QUEUE_SECRET</private> after",
+                    "nested": {"open": "prefix <private>UNCLOSED_SECRET"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        prompt = vault.root / "operator-prompt.md"
+        prompt.write_text(
+            "Compress safely. <private>PROMPT_SECRET</private>",
+            encoding="utf-8",
+        )
+        cfg = dataclasses.replace(config, prompt_path=prompt)
+        provider = FakeProvider(
+            text=_make_observation("2026-06-15", hash_hex="feedfacefeedface")
+        )
+
+        report = run_compression(cfg, provider)
+
+        assert report.status == "ok", report.reason
+        assert provider.last_spec is not None
+        serialized = provider.last_spec.system + provider.last_spec.payload
+        assert "QUEUE_SECRET" not in serialized
+        assert "UNCLOSED_SECRET" not in serialized
+        assert "PROMPT_SECRET" not in serialized
+        assert "[REDACTED]" in serialized
+        json.loads(provider.last_spec.payload)
+
+    def test_redacts_provider_output_before_daily_log_write(
+        self, config: PipelineConfig, vault: VaultConfig
+    ) -> None:
+        _seed_staging(vault)
+        markdown = _make_observation(
+            "2026-06-15", hash_hex="decafbaddecafbad"
+        ).replace(
+            "Body paragraph.",
+            "Visible <private>PROVIDER_OUTPUT_SECRET</private> body.",
+        )
+
+        report = run_compression(config, FakeProvider(text=markdown))
+
+        assert report.status == "ok", report.reason
+        persisted = Path(report.written_path or "").read_text(encoding="utf-8")
+        assert "PROVIDER_OUTPUT_SECRET" not in persisted
+        assert "Visible [REDACTED] body." in persisted
+
 
 class TestDuplicateDetection:
     def test_skips_when_content_hashes_already_present(

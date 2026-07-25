@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from ..scope import DEFAULT_SCOPE, concrete_scope_or_none
 
 CONFIG_FILENAME = "config.toml"
 MARKER_DIR = ".mneme"
@@ -141,10 +144,37 @@ class VaultConfig:
         """CCE JSONL index for fast checkpoint lookup."""
         return self.state_dir / "checkpoints" / "index.jsonl"
 
+    def default_scope(
+        self,
+        *,
+        env: Mapping[str, str] | None = None,
+        home: Path | None = None,
+    ) -> str:
+        """Resolve a concrete configured default without widening access."""
+        environment = os.environ if env is None else env
+        env_scope = environment.get("MNEME_SCOPE")
+        if env_scope:
+            return concrete_scope_or_none(env_scope) or DEFAULT_SCOPE
+
+        cfg = _read_config_toml(home)
+        if cfg is not None:
+            configured_scope = cfg.get("default_scope")
+            if isinstance(configured_scope, str) and configured_scope:
+                return concrete_scope_or_none(configured_scope) or DEFAULT_SCOPE
+
+        return DEFAULT_SCOPE
+
     @classmethod
-    def resolve(cls, explicit: Path | None = None) -> VaultConfig:
+    def resolve(
+        cls,
+        explicit: Path | None = None,
+        *,
+        cwd: Path | None = None,
+        home: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> VaultConfig:
         """Resolve the vault root via the documented priority order."""
-        candidate = _resolve_path(explicit)
+        candidate = _resolve_path(explicit, cwd=cwd, home=home, env=env)
         if candidate is None:
             raise VaultNotFoundError(
                 "Could not locate an mneme vault. Set MNEME_VAULT, pass --vault, "
@@ -160,32 +190,46 @@ class VaultConfig:
         return cls(root=path.expanduser().resolve())
 
 
-def _resolve_path(explicit: Path | None) -> Path | None:
-    env = os.environ.get("MNEME_VAULT")
-    if env:
-        return Path(env).expanduser()
+def _resolve_path(
+    explicit: Path | None,
+    *,
+    cwd: Path | None = None,
+    home: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path | None:
+    environment = os.environ if env is None else env
+    env_vault = environment.get("MNEME_VAULT")
+    if env_vault:
+        return Path(env_vault).expanduser()
 
     if explicit is not None:
         return explicit.expanduser()
 
-    cfg = _read_config_toml()
+    resolved_home = Path.home() if home is None else home
+    cfg = _read_config_toml(resolved_home)
     if cfg and "vault" in cfg:
         return Path(str(cfg["vault"])).expanduser()
 
-    here = Path.cwd().resolve()
+    here = (Path.cwd() if cwd is None else cwd).resolve()
+    home_boundary = resolved_home.resolve()
     for parent in [here, *here.parents]:
+        # ~/.mneme is the global configuration directory. Treating it as a
+        # marker would make every working directory below home select all of
+        # home as the vault.
+        if parent == home_boundary:
+            break
         if (parent / MARKER_DIR).is_dir():
             return parent
 
-    default = Path.home() / DEFAULT_VAULT_NAME
+    default = resolved_home / DEFAULT_VAULT_NAME
     if default.exists():
         return default
 
     return None
 
 
-def _read_config_toml() -> dict[str, Any] | None:
-    cfg_path = Path.home() / MARKER_DIR / CONFIG_FILENAME
+def _read_config_toml(home: Path | None = None) -> dict[str, Any] | None:
+    cfg_path = (Path.home() if home is None else home) / MARKER_DIR / CONFIG_FILENAME
     if not cfg_path.is_file():
         return None
     with cfg_path.open("rb") as f:

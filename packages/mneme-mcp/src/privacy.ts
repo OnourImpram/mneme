@@ -69,3 +69,17 @@ export function redact(input: string | null | undefined): {
 
 	return { text: afterOpen, count };
 }
+
+/** Recursively redact string values and user-controlled object keys. */
+export function redactValue(input: unknown): unknown {
+	if (typeof input === "string") return redact(input).text;
+	if (Array.isArray(input)) return input.map((item) => redactValue(item));
+	if (input !== null && typeof input === "object") {
+		const output: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(input)) {
+			output[redact(key).text] = redactValue(value);
+		}
+		return output;
+	}
+	return input;
+}

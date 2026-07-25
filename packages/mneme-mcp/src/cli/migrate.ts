@@ -41,13 +41,19 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
-	unlinkSync,
 } from "node:fs";
-import { join, resolve as resolvePath } from "node:path";
+import { basename, join, resolve as resolvePath } from "node:path";
 import Database from "better-sqlite3";
 import { redact as _privacyRedact } from "../privacy.js";
 import { assertWithinVault, atomicWriteText } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
+import type { MigrationRollbackHandle } from "./migration_rollback.js";
+import {
+	abortMigrationRollback,
+	finalizeMigrationRollback,
+	prepareMigrationRollback,
+	withMigrationLock,
+} from "./migration_rollback.js";
 
 /** Tri-state for what to do with the source claude-mem DB after export. */
 export type ArchiveMode = "preserve" | "copy" | "move";
@@ -87,6 +93,7 @@ export interface MigrationStats {
 	redactionsApplied: number;
 	archive: { mode: ArchiveMode; status: string; path?: string };
 	manifestPath?: string;
+	rollbackManifestPath?: string;
 	elapsedMs: number;
 	dryRun: boolean;
 	errors: string[];
@@ -143,8 +150,9 @@ const SCHEMA_VERSION = 1;
  *   observations (was "session", now "observation"),
  *   session_summaries (was "reference", now "session_summary"), and
  *   user_prompts (was "reference", now "user_prompt").
+ * - 3: Redact all exported migration metadata before hashing or rendering.
  */
-const MIGRATION_OUTPUT_REVISION = 2;
+const MIGRATION_OUTPUT_REVISION = 3;
 const EXPORT_DIR_REL = ["imported", "claude-mem"] as const;
 
 /**
@@ -164,22 +172,28 @@ export function redact(input: string | null | undefined): {
 }
 
 /**
- * Compute a stable SHA256 over a canonical projection of an observation
- * row. We hash the salient text columns (title, narrative, facts,
- * concepts, text) plus the temporal anchor, so a row's hash stays the
- * same across re-exports unless the underlying content actually moved.
+ * Compute a stable SHA256 over the redacted observation fields rendered
+ * into frontmatter, tags, or body content. Private-only changes therefore
+ * do not create an observable hash change, while visible metadata changes
+ * still trigger a rewrite.
  */
 export function observationContentHash(row: ObservationRow): string {
+	const safeRow = redactObservationRow(row).row;
 	const parts = [
 		`rev=${MIGRATION_OUTPUT_REVISION}`,
-		String(row.id),
-		row.title ?? "",
-		row.subtitle ?? "",
-		row.narrative ?? "",
-		row.facts ?? "",
-		row.concepts ?? "",
-		row.text ?? "",
-		row.created_at ?? "",
+		String(safeRow.id),
+		safeRow.memory_session_id ?? "",
+		safeRow.project ?? "",
+		safeRow.type ?? "",
+		safeRow.generated_by_model ?? "",
+		safeRow.agent_type ?? "",
+		safeRow.title ?? "",
+		safeRow.subtitle ?? "",
+		safeRow.narrative ?? "",
+		safeRow.facts ?? "",
+		safeRow.concepts ?? "",
+		safeRow.text ?? "",
+		safeRow.created_at ?? "",
 	];
 	return sha256(parts.join("␟"));
 }
@@ -257,12 +271,20 @@ export function buildObservationMarkdown(
 		text: string;
 	},
 ): string {
-	const title = redacted.title || redacted.subtitle || `Observation ${row.id}`;
-	const model = row.generated_by_model ?? "unknown";
-	const created = row.created_at ?? "n/a";
-	const type = row.type ?? "n/a";
-	const project = row.project ?? "n/a";
-	const session = row.memory_session_id ?? "n/a";
+	const safeRow = redactObservationRow({
+		...row,
+		title: redacted.title,
+		subtitle: redacted.subtitle,
+		narrative: redacted.narrative,
+		text: redacted.text,
+	}).row;
+	const title =
+		safeRow.title || safeRow.subtitle || `Observation ${safeRow.id}`;
+	const model = safeRow.generated_by_model ?? "unknown";
+	const created = safeRow.created_at ?? "n/a";
+	const type = safeRow.type ?? "n/a";
+	const project = safeRow.project ?? "n/a";
+	const session = safeRow.memory_session_id ?? "n/a";
 
 	const sections: string[] = [
 		`# ${title}`,
@@ -274,17 +296,17 @@ export function buildObservationMarkdown(
 		`**Created**: ${created}  `,
 		"",
 	];
-	if (redacted.narrative) {
-		sections.push("## Narrative", "", redacted.narrative, "");
+	if (safeRow.narrative) {
+		sections.push("## Narrative", "", safeRow.narrative, "");
 	}
-	if (row.facts) {
-		sections.push("## Facts", "", row.facts, "");
+	if (safeRow.facts) {
+		sections.push("## Facts", "", safeRow.facts, "");
 	}
-	if (row.concepts) {
-		sections.push("## Concepts", "", row.concepts, "");
+	if (safeRow.concepts) {
+		sections.push("## Concepts", "", safeRow.concepts, "");
 	}
-	if (redacted.text) {
-		sections.push("## Text", "", redacted.text, "");
+	if (safeRow.text) {
+		sections.push("## Text", "", safeRow.text, "");
 	}
 	return `${sections.join("\n")}\n`;
 }
@@ -414,6 +436,42 @@ const OBSERVATION_COLUMNS = [
 	"metadata",
 ] as const;
 
+const OBSERVATION_STRING_COLUMNS = [
+	"memory_session_id",
+	"project",
+	"text",
+	"type",
+	"title",
+	"subtitle",
+	"facts",
+	"narrative",
+	"concepts",
+	"files_read",
+	"files_modified",
+	"created_at",
+	"content_hash",
+	"generated_by_model",
+	"agent_type",
+	"agent_id",
+	"metadata",
+] as const satisfies ReadonlyArray<keyof ObservationRow>;
+
+function redactObservationRow(row: ObservationRow): {
+	row: ObservationRow;
+	count: number;
+} {
+	const output = { ...row };
+	let count = 0;
+	for (const column of OBSERVATION_STRING_COLUMNS) {
+		const value = row[column];
+		if (value === null) continue;
+		const result = redact(value);
+		output[column] = result.text;
+		count += result.count;
+	}
+	return { row: output, count };
+}
+
 /**
  * Orchestrator. Pure function over options + filesystem. Returns
  * statistics regardless of partial failures; errors are accumulated
@@ -421,6 +479,32 @@ const OBSERVATION_COLUMNS = [
  * destabilizing the migration of unrelated tables.
  */
 export function migrate(opts: MigrationOptions): MigrationStats {
+	if (opts.dryRun === true) return migrateUnlocked(opts);
+	try {
+		return withMigrationLock(opts.vault, () => migrateUnlocked(opts));
+	} catch (err) {
+		const archive: ArchiveMode = opts.archive ?? "preserve";
+		return {
+			status: "error",
+			sourceDb: opts.sourceDb,
+			vaultRoot: opts.vault.root,
+			exportRoot: resolvePath(join(opts.vault.root, ...EXPORT_DIR_REL)),
+			observations: { migrated: 0, skippedDedup: 0, rewritten: 0 },
+			sessionSummaries: { migrated: 0, skippedDedup: 0, rewritten: 0 },
+			userPromptsHeads: { migrated: 0, skippedDedup: 0, rewritten: 0 },
+			redactionsApplied: 0,
+			archive: {
+				mode: archive,
+				status: "skipped (operation lock unavailable)",
+			},
+			elapsedMs: 0,
+			dryRun: false,
+			errors: [`migration operation lock: ${errorMessage(err)}`],
+		};
+	}
+}
+
+function migrateUnlocked(opts: MigrationOptions): MigrationStats {
 	const t0 = Date.now();
 	const archive: ArchiveMode = opts.archive ?? "preserve";
 	const dryRun = opts.dryRun === true;
@@ -444,7 +528,7 @@ export function migrate(opts: MigrationOptions): MigrationStats {
 
 	if (!existsSync(opts.sourceDb)) {
 		stats.status = "error";
-		stats.errors.push(`Source DB not found: ${opts.sourceDb}`);
+		stats.errors.push("Source DB not found");
 		stats.elapsedMs = Date.now() - t0;
 		stats.archive.status = "skipped (source missing)";
 		return stats;
@@ -460,21 +544,58 @@ export function migrate(opts: MigrationOptions): MigrationStats {
 		return stats;
 	}
 
+	let rollbackHandle: MigrationRollbackHandle | undefined;
+	let workingRoot = exportRootAbs;
 	if (!dryRun) {
-		mkdirSync(exportRootAbs, { recursive: true });
+		try {
+			rollbackHandle = prepareMigrationRollback(
+				opts.vault,
+				exportRootAbs,
+				opts.sourceDb,
+				archive,
+			);
+			stats.rollbackManifestPath = rollbackHandle.manifestPath;
+			workingRoot = rollbackHandle.stagingRoot;
+		} catch (err) {
+			stats.status = "error";
+			stats.errors.push(`rollback snapshot: ${errorMessage(err)}`);
+			stats.archive.status = "skipped (rollback snapshot unavailable)";
+			stats.elapsedMs = Date.now() - t0;
+			return stats;
+		}
 	}
 
-	const db = new Database(opts.sourceDb, {
-		readonly: true,
-		fileMustExist: true,
-	});
+	let db: Database.Database;
+	try {
+		db = new Database(opts.sourceDb, {
+			readonly: true,
+			fileMustExist: true,
+		});
+	} catch (err) {
+		stats.status = "error";
+		stats.errors.push(`source database open: ${errorMessage(err)}`);
+		stats.archive.status = "skipped (source database unavailable)";
+		if (rollbackHandle !== undefined) {
+			try {
+				abortMigrationRollback(
+					opts.vault,
+					rollbackHandle,
+					stats.errors.join("; "),
+				);
+			} catch (abortError) {
+				stats.errors.push(`migration abort: ${errorMessage(abortError)}`);
+			}
+		}
+		stats.elapsedMs = Date.now() - t0;
+		return stats;
+	}
 	try {
 		db.pragma("query_only = ON");
 		const tables = tablesPresent(db);
 
 		if (tables.observations) {
 			try {
-				const result = migrateObservations(db, exportRootAbs, dryRun);
+				const result = migrateObservations(db, workingRoot, dryRun);
 				stats.observations.migrated = result.migrated;
 				stats.observations.skippedDedup = result.skippedDedup;
 				stats.observations.rewritten = result.rewritten;
@@ -488,7 +609,7 @@ export function migrate(opts: MigrationOptions): MigrationStats {
 
 		if (tables.sessionSummaries) {
 			try {
-				const result = migrateSessionSummaries(db, exportRootAbs, dryRun);
+				const result = migrateSessionSummaries(db, workingRoot, dryRun);
 				stats.sessionSummaries.migrated = result.migrated;
 				stats.sessionSummaries.skippedDedup = result.skippedDedup;
 				stats.sessionSummaries.rewritten = result.rewritten;
@@ -500,7 +621,7 @@ export function migrate(opts: MigrationOptions): MigrationStats {
 
 		if (tables.userPrompts) {
 			try {
-				const result = migrateUserPromptsHeads(db, exportRootAbs, dryRun);
+				const result = migrateUserPromptsHeads(db, workingRoot, dryRun);
 				stats.userPromptsHeads.migrated = result.migrated;
 				stats.userPromptsHeads.skippedDedup = result.skippedDedup;
 				stats.userPromptsHeads.rewritten = result.rewritten;
@@ -514,23 +635,55 @@ export function migrate(opts: MigrationOptions): MigrationStats {
 	}
 
 	if (!dryRun) {
-		// Phase J post-Codex-review fix: archive=move is destructive (unlinks
-		// the source DB after copy). If any table migration recorded an error,
-		// refuse to delete the source so the operator can re-run after the
-		// underlying failure is understood. Pass-through to applyArchive only
-		// when stats.errors is empty AND --confirm-delete was set for the
-		// move mode. preserve and copy modes always run.
-		const safeToMove = archive !== "move" || stats.errors.length === 0;
-		if (safeToMove) {
-			stats.archive = applyArchive(opts.sourceDb, exportRootAbs, archive);
-		} else {
-			stats.archive.status = "refused (errors present, archive=move blocked)";
-			stats.errors.push(
-				"archive=move refused because table migration errors are present; " +
-					"source DB preserved for re-run after the underlying failure is resolved",
-			);
+		if (rollbackHandle === undefined) {
+			stats.errors.push("rollback staging handle is unavailable");
 		}
-		stats.manifestPath = writeManifest(exportRootAbs, stats, opts);
+		if (stats.errors.length > 0 && archive === "move") {
+			stats.archive.status = "refused (migration errors present)";
+		} else {
+			stats.archive = applyArchive(
+				opts.sourceDb,
+				workingRoot,
+				exportRootAbs,
+				archive,
+			);
+			if (
+				stats.archive.status.startsWith("copy_failed") ||
+				stats.archive.status.startsWith("delete_failed")
+			) {
+				stats.errors.push(`archive: ${stats.archive.status}`);
+			}
+		}
+		const archiveFailed = stats.archive.status.startsWith("copy_failed");
+		if (archiveFailed && rollbackHandle !== undefined) {
+			stats.status = "error";
+			try {
+				abortMigrationRollback(
+					opts.vault,
+					rollbackHandle,
+					stats.errors.join("; "),
+				);
+			} catch (abortError) {
+				stats.errors.push(`migration abort: ${errorMessage(abortError)}`);
+			}
+			stats.elapsedMs = Date.now() - t0;
+			return stats;
+		}
+		stats.manifestPath = writeManifest(workingRoot, exportRootAbs, stats, opts);
+		try {
+			if (rollbackHandle === undefined)
+				throw new Error("rollback staging handle is unavailable");
+			finalizeMigrationRollback(opts.vault, rollbackHandle, {
+				sourceMoved: stats.archive.status === "moved",
+				...(stats.archive.path === undefined
+					? {}
+					: { archivePath: stats.archive.path }),
+			});
+			stats.manifestPath = join(exportRootAbs, "_manifest.json");
+		} catch (err) {
+			stats.status = "error";
+			stats.errors.push(`rollback manifest finalize: ${errorMessage(err)}`);
+		}
 	} else {
 		stats.archive.status = "skipped (dry-run)";
 	}
@@ -568,25 +721,15 @@ function migrateObservations(
 	};
 
 	for (const row of rows) {
-		const titleR = redact(row.title);
-		const subtitleR = redact(row.subtitle);
-		const narrativeR = redact(row.narrative);
-		const textR = redact(row.text);
-		const factsR = redact(row.facts);
-		const conceptsR = redact(row.concepts);
-		result.redactions +=
-			titleR.count +
-			subtitleR.count +
-			narrativeR.count +
-			textR.count +
-			factsR.count +
-			conceptsR.count;
+		const redacted = redactObservationRow(row);
+		const safeRow = redacted.row;
+		result.redactions += redacted.count;
 
-		const bucket = extractDateBucket(row.created_at);
+		const bucket = extractDateBucket(safeRow.created_at);
 		const fileName = `cm-obs-${row.id}.md`;
 		const targetAbs = join(exportRoot, bucket, fileName);
 
-		const hash = observationContentHash(row);
+		const hash = observationContentHash(safeRow);
 		const existingHash = readExistingContentHash(targetAbs);
 		if (existingHash === hash) {
 			result.skippedDedup += 1;
@@ -603,39 +746,36 @@ function migrateObservations(
 		}
 
 		const tagList = [
-			row.type ?? "",
-			row.project ? `project:${row.project}` : "",
+			safeRow.type ?? "",
+			safeRow.project ? `project:${safeRow.project}` : "",
 		].filter((s) => s.length > 0);
 
 		const fm = serializeFrontmatter(
 			[
 				["id", `cm-obs-${row.id}`],
 				["type", "observation"],
-				["created", row.created_at ?? ""],
+				["created", safeRow.created_at ?? ""],
 				["schema_version", SCHEMA_VERSION],
-				["session_id", row.memory_session_id ?? ""],
+				["session_id", safeRow.memory_session_id ?? ""],
 				["source", SOURCE_TAG],
 				["content_hash", hash],
-				["original_type", row.type ?? ""],
-				["project", row.project ?? ""],
-				["original_model", row.generated_by_model ?? ""],
-				["agent_type", row.agent_type ?? ""],
+				["original_type", safeRow.type ?? ""],
+				["project", safeRow.project ?? ""],
+				["original_model", safeRow.generated_by_model ?? ""],
+				["agent_type", safeRow.agent_type ?? ""],
 			],
 			[["tags", tagList]],
 		);
 
-		const body = buildObservationMarkdown(
-			{ ...row, facts: factsR.text, concepts: conceptsR.text },
-			{
-				title: titleR.text,
-				subtitle: subtitleR.text,
-				narrative: narrativeR.text,
-				text: textR.text,
-			},
-		);
+		const body = buildObservationMarkdown(safeRow, {
+			title: safeRow.title ?? "",
+			subtitle: safeRow.subtitle ?? "",
+			narrative: safeRow.narrative ?? "",
+			text: safeRow.text ?? "",
+		});
 
 		mkdirSync(join(exportRoot, bucket), { recursive: true });
-		atomicWriteText(targetAbs, `${fm}${body}`);
+		atomicWriteText(targetAbs, `${fm}${body}`, { vaultRoot: exportRoot });
 
 		if (existingHash === null) {
 			result.migrated += 1;
@@ -700,8 +840,9 @@ function migrateSessionSummaries(
 			["type", "session_summary"],
 			[
 				"created",
-				typeof row.created_at === "string" && row.created_at.length > 0
-					? row.created_at
+				typeof redactedRow.created_at === "string" &&
+				redactedRow.created_at.length > 0
+					? redactedRow.created_at
 					: new Date().toISOString(),
 			],
 			["schema_version", SCHEMA_VERSION],
@@ -712,7 +853,7 @@ function migrateSessionSummaries(
 
 		const body = buildSessionSummaryMarkdown(row, redactedRow);
 		mkdirSync(targetDir, { recursive: true });
-		atomicWriteText(targetAbs, `${fm}${body}`);
+		atomicWriteText(targetAbs, `${fm}${body}`, { vaultRoot: exportRoot });
 
 		if (existingHash === null) {
 			result.migrated += 1;
@@ -789,8 +930,9 @@ function migrateUserPromptsHeads(
 			["type", "user_prompt"],
 			[
 				"created",
-				typeof row.created_at === "string" && row.created_at.length > 0
-					? row.created_at
+				typeof redactedRow.created_at === "string" &&
+				redactedRow.created_at.length > 0
+					? redactedRow.created_at
 					: new Date().toISOString(),
 			],
 			["schema_version", SCHEMA_VERSION],
@@ -802,7 +944,7 @@ function migrateUserPromptsHeads(
 
 		const body = buildUserPromptMarkdown(row, redactedRow);
 		mkdirSync(targetDir, { recursive: true });
-		atomicWriteText(targetAbs, `${fm}${body}`);
+		atomicWriteText(targetAbs, `${fm}${body}`, { vaultRoot: exportRoot });
 
 		if (existingHash === null) {
 			result.migrated += 1;
@@ -819,57 +961,117 @@ function migrateUserPromptsHeads(
 
 function applyArchive(
 	sourceDb: string,
-	exportRoot: string,
+	workingRoot: string,
+	finalExportRoot: string,
 	mode: ArchiveMode,
 ): { mode: ArchiveMode; status: string; path?: string } {
 	if (mode === "preserve") {
 		return { mode, status: "preserved" };
 	}
-	const archiveDir = join(exportRoot, "_archive");
+	const archiveDir = join(workingRoot, "_archive");
 	const destDb = join(archiveDir, "claude-mem.db");
+	const finalDestDb = join(finalExportRoot, "_archive", "claude-mem.db");
 	try {
 		mkdirSync(archiveDir, { recursive: true });
-		copyFileSync(sourceDb, destDb);
+		if (mode === "move") {
+			assertNoSqliteSidecars(sourceDb);
+			// The rollback protocol uses an exact byte hash for destructive moves.
+			// A sidecar-free database can therefore be copied byte-for-byte and
+			// checked again immediately before the source is quarantined.
+			copyFileSync(sourceDb, destDb);
+		} else {
+			// VACUUM INTO uses SQLite's own snapshot machinery. Unlike copyFile,
+			// it includes committed WAL state and emits one self-contained DB.
+			const source = new Database(sourceDb, {
+				readonly: true,
+				fileMustExist: true,
+			});
+			try {
+				source.pragma("busy_timeout = 5000");
+				source.prepare("VACUUM INTO ?").run(destDb);
+			} finally {
+				source.close();
+			}
+			const snapshot = new Database(destDb, {
+				readonly: true,
+				fileMustExist: true,
+			});
+			try {
+				const integrity = snapshot.pragma("integrity_check", { simple: true });
+				if (integrity !== "ok") {
+					throw new Error("SQLite snapshot failed integrity_check");
+				}
+			} finally {
+				snapshot.close();
+			}
+		}
 	} catch (err) {
 		return { mode, status: `copy_failed: ${errorMessage(err)}` };
 	}
 	if (mode === "move") {
-		try {
-			unlinkSync(sourceDb);
-			return { mode, status: "moved", path: destDb };
-		} catch (err) {
-			return {
-				mode,
-				status: `delete_failed: ${errorMessage(err)}`,
-				path: destDb,
-			};
+		return { mode, status: "moved", path: finalDestDb };
+	}
+	return { mode, status: "copied", path: finalDestDb };
+}
+
+function assertNoSqliteSidecars(sourceDb: string): void {
+	for (const suffix of ["-wal", "-shm", "-journal"]) {
+		if (existsSync(`${sourceDb}${suffix}`)) {
+			throw new Error(
+				"archive=move requires an offline SQLite database with no WAL or journal sidecars; use archive=copy while the source may be active",
+			);
 		}
 	}
-	return { mode, status: "copied", path: destDb };
 }
 
 function writeManifest(
-	exportRoot: string,
+	workingRoot: string,
+	finalExportRoot: string,
 	stats: MigrationStats,
 	opts: MigrationOptions,
 ): string {
+	const pathReplacements = new Map([
+		[opts.sourceDb, "[SOURCE_DB]"],
+		[opts.vault.root, "[VAULT]"],
+		[finalExportRoot, "[EXPORT_ROOT]"],
+		[stats.rollbackManifestPath ?? "", "[LOCAL_ROLLBACK_JOURNAL]"],
+	]);
+	const sanitizeManifestText = (value: string): string => {
+		let sanitized = errorMessage(value);
+		for (const [path, replacement] of pathReplacements) {
+			if (path.length > 0) sanitized = sanitized.split(path).join(replacement);
+		}
+		return sanitized;
+	};
 	const manifest = {
 		schema: "mneme-migration-manifest/1",
 		run_at: new Date().toISOString(),
-		source_db: opts.sourceDb,
+		source_db: basename(opts.sourceDb),
 		source_db_size_bytes: safeStatSize(opts.sourceDb),
-		vault_root: opts.vault.root,
-		export_root: exportRoot,
+		vault_root: ".",
+		export_root: EXPORT_DIR_REL.join("/"),
 		observations: stats.observations,
 		session_summaries: stats.sessionSummaries,
 		user_prompts_heads: stats.userPromptsHeads,
 		redactions_applied: stats.redactionsApplied,
-		archive: stats.archive,
-		errors: stats.errors,
+		archive: {
+			mode: stats.archive.mode,
+			status: sanitizeManifestText(stats.archive.status),
+			...(stats.archive.path === undefined
+				? {}
+				: { path: basename(stats.archive.path) }),
+		},
+		rollback_manifest:
+			stats.rollbackManifestPath === undefined
+				? null
+				: "[LOCAL_ROLLBACK_JOURNAL]",
+		errors: stats.errors.map(sanitizeManifestText),
 	};
-	const manifestPath = join(exportRoot, "_manifest.json");
-	atomicWriteText(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-	return manifestPath;
+	const manifestPath = join(workingRoot, "_manifest.json");
+	atomicWriteText(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+		vaultRoot: workingRoot,
+	});
+	return join(finalExportRoot, "_manifest.json");
 }
 
 function safeStatSize(path: string): number | null {
@@ -881,5 +1083,8 @@ function safeStatSize(path: string): number | null {
 }
 
 function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+	const raw = err instanceof Error ? err.message : String(err);
+	return _privacyRedact(raw)
+		.text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^@\s/]+)@/gi, "$1[REDACTED]@")
+		.slice(0, 4096);
 }

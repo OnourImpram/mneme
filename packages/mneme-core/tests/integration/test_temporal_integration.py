@@ -82,6 +82,7 @@ def claim_vault(tmp_path: Path) -> Iterator[tuple[Path, VaultConfig]]:
         "observed_at: 2024-01-01T00:00:00+00:00\n"
         "statement: User speaks Turkish and English\n"
         "claim_key: user.language\n"
+        "scope: research\n"
         "---\n"
         "# Language\n"
         "Turkish and English speaker.\n",
@@ -178,6 +179,17 @@ class TestClaimIndexing:
         conn.close()
         assert row is not None, "Superseded claim row must not be deleted"
 
+    def test_scope_is_indexed_from_frontmatter(
+        self, claim_vault: tuple[Path, VaultConfig]
+    ) -> None:
+        db_path, _ = claim_vault
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT scope FROM claims WHERE claim_id = 'lang-1'"
+        ).fetchone()
+        conn.close()
+        assert row == ("research",)
+
     def test_reindex_is_idempotent(self, claim_vault: tuple[Path, VaultConfig]) -> None:
         """Running index_claims twice must not change the row count."""
         db_path, vault_config = claim_vault
@@ -187,6 +199,72 @@ class TestClaimIndexing:
         row = conn.execute("SELECT COUNT(*) FROM claims").fetchone()
         conn.close()
         assert row[0] == 3
+
+    def test_reindex_prunes_deleted_claim_and_resets_supersession(
+        self, claim_vault: tuple[Path, VaultConfig]
+    ) -> None:
+        db_path, vault_config = claim_vault
+        vault_root = vault_config.root / "vault"
+        (vault_root / "claim_location_new.md").unlink()
+
+        conn = fts5_connect(db_path)
+        index_claims(conn, VaultConfig.from_path(vault_root), normalize=normalize_tr)
+        deleted = conn.execute(
+            "SELECT 1 FROM claims WHERE claim_id = 'loc-2'"
+        ).fetchone()
+        target = conn.execute(
+            "SELECT superseded_by FROM claims WHERE claim_id = 'loc-1'"
+        ).fetchone()
+        conn.close()
+
+        assert deleted is None
+        assert target == (None,)
+
+    def test_reindex_prunes_note_that_is_no_longer_a_claim(
+        self, claim_vault: tuple[Path, VaultConfig]
+    ) -> None:
+        db_path, vault_config = claim_vault
+        vault_root = vault_config.root / "vault"
+        (vault_root / "claim_language.md").write_text(
+            "---\nid: lang-1\ntype: topic\ncreated: 2024-01-01T00:00:00+00:00\n---\n"
+            "# Language\nNo longer a temporal claim.\n",
+            encoding="utf-8",
+        )
+
+        conn = fts5_connect(db_path)
+        index_claims(conn, VaultConfig.from_path(vault_root), normalize=normalize_tr)
+        row = conn.execute(
+            "SELECT 1 FROM claims WHERE claim_id = 'lang-1'"
+        ).fetchone()
+        conn.close()
+
+        assert row is None
+
+    def test_reindex_prunes_claim_with_invalid_temporal_metadata(
+        self, claim_vault: tuple[Path, VaultConfig]
+    ) -> None:
+        db_path, vault_config = claim_vault
+        vault_root = vault_config.root / "vault"
+        (vault_root / "claim_language.md").write_text(
+            "---\n"
+            "id: lang-1\n"
+            "type: claim\n"
+            "created: 2024-01-01T00:00:00+00:00\n"
+            "observed_at: not-a-date\n"
+            "statement: User speaks Turkish and English\n"
+            "---\n"
+            "# Language\nInvalid observation time.\n",
+            encoding="utf-8",
+        )
+
+        conn = fts5_connect(db_path)
+        index_claims(conn, VaultConfig.from_path(vault_root), normalize=normalize_tr)
+        row = conn.execute(
+            "SELECT 1 FROM claims WHERE claim_id = 'lang-1'"
+        ).fetchone()
+        conn.close()
+
+        assert row is None
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +293,15 @@ class TestTemporalBackendInRetrieve:
         result = retrieve("user city Istanbul", config, kg_backend=temporal_backend)
         conn.close()
 
-        sources = [h.source for h in result]
-        assert "temporal" in sources, (
-            f"Expected a temporal hit; got sources={sources}, "
-            f"paths={[h.path for h in result]}"
+        temporal_hits = [
+            hit
+            for hit in result
+            if hit.source == "temporal" or "temporal" in hit.sources
+        ]
+        assert temporal_hits, (
+            f"Expected a temporal contribution; got sources="
+            f"{[(hit.source, hit.sources) for hit in result]}, "
+            f"paths={[hit.path for hit in result]}"
         )
 
     def test_empty_claims_table_returns_no_temporal_hits(

@@ -20,6 +20,7 @@ from mneme_core.retrieval.rrf import (
     Hit,
     RetrievalBackend,
     RetrievalConfig,
+    RetrievalIndexStaleError,
     build_fts5_query,
     fts5_search,
     retrieve,
@@ -100,6 +101,51 @@ def tr_indexed_db(tmp_path: Path) -> Iterator[Path]:
         normalize_ascii_for_fts=normalize_tr_ascii_fold_for_fts,
     )
     index_vault(conn, cfg)
+    conn.close()
+    yield db_path
+
+
+@pytest.fixture
+def scoped_db(tmp_path: Path) -> Iterator[Path]:
+    vault = tmp_path / "scoped-vault"
+    vault.mkdir()
+    for scope in ("clinical", "research"):
+        (vault / f"{scope}.md").write_text(
+            f"---\nid: {scope}\ntype: reference\nscope: {scope}\n---\n"
+            f"# Shared Scope Memory\n{scope} shared retrieval evidence.\n",
+            encoding="utf-8",
+        )
+    db_path = tmp_path / "scoped.db"
+    conn = sqlite3.connect(db_path)
+    ensure_schema(conn)
+    index_vault(conn, IndexerConfig(vault_root=vault, db_path=db_path))
+    conn.close()
+    yield db_path
+
+
+@pytest.fixture
+def legacy_unscoped_db(tmp_path: Path) -> Iterator[Path]:
+    db_path = tmp_path / "legacy-unscoped.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE documents(
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            path TEXT,
+            content_hash TEXT,
+            trust TEXT
+        );
+        CREATE VIRTUAL TABLE documents_fts USING fts5(
+            title, content, tags, linked_notes
+        );
+        INSERT INTO documents(id, title, path, content_hash, trust)
+        VALUES(1, 'Legacy Shared Memory', 'legacy.md', 'abc', 'user');
+        INSERT INTO documents_fts(rowid, title, content, tags, linked_notes)
+        VALUES(1, 'Legacy Shared Memory', 'legacy shared evidence', '', '');
+        """
+    )
+    conn.commit()
     conn.close()
     yield db_path
 
@@ -218,6 +264,43 @@ class TestFts5Search:
         hits = fts5_search("retrieval OR rank OR memory OR privacy", indexed_db, limit=1)
         assert len(hits) <= 1
 
+    def test_concrete_scope_filters_python_retrieval(self, scoped_db: Path) -> None:
+        clinical = fts5_search("shared retrieval", scoped_db, scope="clinical")
+        research = fts5_search("shared retrieval", scoped_db, scope="research")
+        assert [hit.path for hit in clinical] == ["clinical.md"]
+        assert [hit.path for hit in research] == ["research.md"]
+
+    def test_explicit_wildcard_reads_across_scopes(self, scoped_db: Path) -> None:
+        hits = fts5_search("shared retrieval", scoped_db, scope="*")
+        assert {hit.path for hit in hits} == {"clinical.md", "research.md"}
+
+    def test_concrete_scope_rejects_legacy_unscoped_index(
+        self, legacy_unscoped_db: Path
+    ) -> None:
+        with pytest.raises(RetrievalIndexStaleError, match="index rebuild"):
+            fts5_search("legacy shared", legacy_unscoped_db, scope="clinical")
+
+    def test_explicit_wildcard_can_read_legacy_unscoped_index(
+        self, legacy_unscoped_db: Path
+    ) -> None:
+        hits = fts5_search("legacy shared", legacy_unscoped_db, scope="*")
+        assert [hit.path for hit in hits] == ["legacy.md"]
+
+    def test_dual_key_query_rejects_missing_ascii_metadata(
+        self, indexed_db: Path
+    ) -> None:
+        with pytest.raises(RetrievalIndexStaleError, match="ASCII metadata"):
+            fts5_search("memory", indexed_db, prompt_ascii="memory")
+
+    def test_invalid_scope_is_rejected(self, indexed_db: Path) -> None:
+        with pytest.raises(ValueError, match="scope"):
+            fts5_search("memory", indexed_db, scope=" clinical ")
+
+    def test_fts_hit_carries_structured_provenance(self, indexed_db: Path) -> None:
+        hit = fts5_search("rank fusion", indexed_db)[0]
+        assert hit.content_hash is not None
+        assert hit.trust == "user"
+
 
 class TestRrfFuse:
     def _hit(self, hit_id: str, source: str = "fts5") -> Hit:
@@ -245,6 +328,32 @@ class TestRrfFuse:
         r3 = [self._hit("a", source="dense")]
         fused = rrf_fuse([r1, r2, r3])
         assert fused[0].sources == ["dense", "fts5"]
+
+    def test_same_path_with_backend_local_ids_is_one_document(self) -> None:
+        fts_hit = Hit(
+            id=7,
+            path="same.md",
+            title="Same",
+            score=0.0,
+            source="fts5",
+            content_hash="abc",
+            trust="user",
+            confidence_label="EXTRACTED",
+        )
+        temporal_hit = Hit(
+            id="claim-7",
+            path="same.md",
+            title="Same temporal",
+            score=1.0,
+            source="temporal",
+            confidence_label="AMBIGUOUS",
+        )
+        fused = rrf_fuse([[fts_hit], [temporal_hit]])
+        assert len(fused) == 1
+        assert fused[0].sources == ["fts5", "temporal"]
+        assert fused[0].content_hash == "abc"
+        assert fused[0].trust == "user"
+        assert fused[0].confidence_label == "AMBIGUOUS"
 
     def test_rrf_score_formula(self) -> None:
         """First-position hit in a single ranking yields score 1 / (k + 1)."""
@@ -333,6 +442,35 @@ class TestRetrieve:
 
     def test_default_rrf_k_constant(self) -> None:
         assert DEFAULT_RRF_K == 60
+
+    def test_retrieve_applies_configured_scope(self, scoped_db: Path) -> None:
+        config = RetrievalConfig(
+            fts5_db=scoped_db,
+            min_query_length=1,
+            scope="clinical",
+            top_n_final=10,
+        )
+        assert [hit.path for hit in retrieve("shared retrieval", config)] == [
+            "clinical.md"
+        ]
+
+    def test_retrieve_rejects_invalid_scope_before_any_backend(
+        self, tmp_path: Path
+    ) -> None:
+        calls: list[str] = []
+
+        def dense(query: str, limit: int) -> list[Hit]:
+            calls.append(query)
+            return []
+
+        config = RetrievalConfig(
+            fts5_db=tmp_path / "missing.db",
+            min_query_length=1,
+            scope="clinical*research",
+        )
+        with pytest.raises(ValueError, match="scope"):
+            retrieve("shared retrieval", config, dense_backend=dense)
+        assert calls == []
 
 
 class TestQueryGate:

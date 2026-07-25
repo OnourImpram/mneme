@@ -139,10 +139,9 @@ Three conditions are reported:
 | `pipeline_fts5_only` | Production `retrieve()` pipeline with only FTS5 enabled |
 | `pipeline_rrf_fts5_plus_bow` | Production `retrieve()` pipeline with RRF fusion of FTS5 and BoW cosine surrogate |
 
-The **headline condition** for regression guarding is
-`pipeline_rrf_fts5_plus_bow`, which exercises the full production RRF code
-path. The BoW backend is a synthetic surrogate; it is not a real dense
-embedding model and is present solely to exercise the fusion path.
+The **headline condition** for regression guarding is `pipeline_fts5_only`,
+the shipped production retrieval path. The BoW backend is a lexical surrogate,
+not a semantic or dense model, and is retained only as a fusion ablation.
 
 ---
 
@@ -198,9 +197,9 @@ Baseline values (measured 2026-05-25, seed 42, 500 docs, 50 queries):
 |---|---|---|
 | baseline\_fts5\_only | 0.8006 | 1.0000 |
 | pipeline\_fts5\_only | 0.8006 | 1.0000 |
-| pipeline\_rrf\_fts5\_plus\_bow | **0.8934** | **1.0000** |
+| pipeline\_rrf\_fts5\_plus\_bow, lexical ablation | 0.5210 | 0.9600 |
 
-The guard compares the `pipeline_rrf_fts5_plus_bow` condition. Baseline
+The guard compares the `pipeline_fts5_only` condition. Baseline
 values are locked in `baseline.json`; they are not updated automatically.
 A deliberate improvement to the retriever that raises metrics above the
 baseline is welcome — the guard does not penalize upward movement.

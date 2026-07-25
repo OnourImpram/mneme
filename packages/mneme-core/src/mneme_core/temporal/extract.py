@@ -92,6 +92,8 @@ class ClaimCandidate:
     claim_key:
         Semantic deduplication key.  Left ``None`` by the rule-based path
         because an incorrect key is worse than no key.
+    scope:
+        Vault scope that owns the source note. Defaults to ``default``.
     confidence:
         Always :attr:`~mneme_core.temporal.claim.ConfidenceLabel.INFERRED`
         for candidates produced by this module.
@@ -103,6 +105,7 @@ class ClaimCandidate:
     valid_to: datetime | None = field(default=None)
     observed_at: datetime | None = field(default=None)
     claim_key: str | None = field(default=None)
+    scope: str = field(default="default")
     confidence: ConfidenceLabel = field(default=ConfidenceLabel.INFERRED)
 
 
@@ -115,6 +118,7 @@ def extract_claims_rule_based(
     text: str,
     *,
     source_path: str,
+    scope: str = "default",
 ) -> list[ClaimCandidate]:
     """Derive :class:`ClaimCandidate` objects from *text* using pure rules.
 
@@ -175,6 +179,7 @@ def extract_claims_rule_based(
                 source_path=source_path,
                 valid_from=valid_from,
                 valid_to=valid_to,
+                scope=scope,
                 confidence=ConfidenceLabel.INFERRED,
             )
         )
@@ -208,6 +213,7 @@ def extract_claims(
     text: str,
     *,
     source_path: str,
+    scope: str = "default",
     provider: LlmProvider | None = None,
 ) -> list[ClaimCandidate]:
     """Extract temporal :class:`ClaimCandidate` objects from *text*.
@@ -223,6 +229,8 @@ def extract_claims(
         Raw note body text to analyse.
     source_path:
         Vault-relative path of the source note, stored on every candidate.
+    scope:
+        Vault scope that owns the source note.
     provider:
         Optional :class:`~mneme_core.compression.llm.LlmProvider`.  Must be
         ``None`` on the critical/Stop path; pass a provider only from a
@@ -235,15 +243,15 @@ def extract_claims(
         temporal/factual sentences are found.
     """
     if provider is None:
-        return extract_claims_rule_based(text, source_path=source_path)
+        return extract_claims_rule_based(text, source_path=source_path, scope=scope)
 
     try:
-        spec = LlmCallSpec(system=_EXTRACT_SYSTEM, payload=text)
+        spec = LlmCallSpec(system=_EXTRACT_SYSTEM, payload=redact(text))
         result = provider.compress(spec)
         raw_json = result.text.strip()
         parsed: object = json.loads(raw_json)
         if not isinstance(parsed, list):
-            return extract_claims_rule_based(text, source_path=source_path)
+            return extract_claims_rule_based(text, source_path=source_path, scope=scope)
         candidates: list[ClaimCandidate] = []
         for obj in parsed:
             if not isinstance(obj, dict):
@@ -262,14 +270,15 @@ def extract_claims(
                     source_path=source_path,
                     valid_from=valid_from,
                     valid_to=valid_to,
+                    scope=scope,
                     confidence=ConfidenceLabel.INFERRED,
                 )
             )
         return candidates
     except (LlmProviderError, json.JSONDecodeError, TypeError, ValueError, KeyError):
-        return extract_claims_rule_based(text, source_path=source_path)
+        return extract_claims_rule_based(text, source_path=source_path, scope=scope)
     except Exception:  # noqa: BLE001 — any unexpected error degrades gracefully
-        return extract_claims_rule_based(text, source_path=source_path)
+        return extract_claims_rule_based(text, source_path=source_path, scope=scope)
 
 
 __all__: Sequence[str] = [

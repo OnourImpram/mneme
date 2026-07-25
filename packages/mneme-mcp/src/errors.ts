@@ -7,6 +7,7 @@
  */
 
 import { ZodError } from "zod";
+import { redact } from "./privacy.js";
 
 export const ERROR_CODES = {
 	/** A required argument was missing or wrong type. */
@@ -47,14 +48,14 @@ export class MnemeToolError extends Error {
 
 export function toMnemeError(err: unknown): MnemeError {
 	if (err instanceof MnemeToolError) {
-		return { code: err.code, message: err.message };
+		return { code: err.code, message: redact(err.message).text };
 	}
 	if (err instanceof ZodError) {
 		return {
 			code: ERROR_CODES.INVALID_ARGUMENT,
-			message: err.issues.map((issue) => issue.message).join("; "),
+			message: redact(err.issues.map((issue) => issue.message).join("; ")).text,
 		};
 	}
 	const message = err instanceof Error ? err.message : String(err);
-	return { code: ERROR_CODES.IO_ERROR, message };
+	return { code: ERROR_CODES.IO_ERROR, message: redact(message).text };
 }

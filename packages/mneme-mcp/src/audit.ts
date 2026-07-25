@@ -1,40 +1,21 @@
 /**
- * Tamper-evident HMAC audit log for mneme_write redaction events.
+ * Cross-language tamper-evident HMAC audit chain.
  *
- * Every write that performs at least one redaction appends one JSON record
- * to an append-only daily log at:
+ * Python and TypeScript writers share the key, daily JSONL file, HMAC rule,
+ * and O_EXCL lock. Both writers carry an explicit sequence and advance the
+ * same keyed daily seal. Legacy sequence-free records remain readable, but
+ * every new append seals the complete chain so tail deletion is detectable.
  *
- *   <vault.stateDir>/audit/YYYY-MM-DD.jsonl
- *
- * Records are chained: each record's `hmac` field is
- *
- *   HMAC-SHA256(key, prev_hash_hex + JSON_of_record_without_hmac)
- *
- * where `prev_hash_hex` is the `hmac` of the immediately preceding record
- * in the same file, or the all-zeros 64-char hex string for the first record.
- * This chain lets an auditor detect insertions, deletions, or reordering.
- *
- * The HMAC key lives at <vault.stateDir>/audit-hmac.key (32 random bytes).
- * On POSIX the file is created with mode 0o600 via O_CREAT|O_EXCL so it
- * is never visible at a wider mode even momentarily — identical to the
- * pattern in mneme_core/kg/client.py `write_credentials`.
- *
- * Concurrent appends to the same daily file are serialized by a lock file
- * at <vault.stateDir>/audit/YYYY-MM-DD.lock, using an O_EXCL spin-lock
- * that mirrors the Python `file_lock` helper.
- *
- * Audit failures are NON-FATAL: they surface as a console.warn and are
- * returned as a boolean so callers can surface a warning without blocking
- * the write response.
- *
- * Core Invariant 2 compliance: no network or LLM calls are made anywhere
- * in this module.
+ * Audit failures remain non-fatal at this compatibility boundary. Callers
+ * receive false and can surface the accountability failure to the operator.
+ * No network or LLM calls are made by this module.
  */
 
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
+	fsyncSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
@@ -42,208 +23,196 @@ import {
 	statSync,
 	writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { atomicWriteText } from "./vault/atomic_write.js";
 
-/** Number of random bytes in the HMAC key file. */
 const KEY_BYTES = 32;
-
-/** All-zeros prev_hash for the first record in a file. */
 const ZERO_HASH = "0".repeat(64);
-
-/** Spin-lock poll interval in ms. */
+const KEY_FILENAME = "audit-hmac.key";
+const SEAL_VERSION = 1;
 const LOCK_POLL_MS = 10;
-
-/**
- * Spin-lock acquisition timeout in ms.
- *
- * Audit is best-effort non-fatal, so a short bound is correct: a stale
- * lock file (left by a crashed process) would otherwise block the event
- * loop for up to 500ms before stale-lock stealing reclaims it, which is
- * acceptable for an off-hot-path audit append.
- */
-const LOCK_TIMEOUT_MS = 500;
-
-/**
- * Age threshold in ms for stale-lock stealing.
- *
- * A lock file whose mtime is older than this value is presumed abandoned by a
- * crashed process and may be forcibly deleted. This is intentionally much
- * larger than LOCK_TIMEOUT_MS: a slow-but-alive writer taking several seconds
- * on a heavily loaded runner must NOT have its lock stolen mid-append, as that
- * would allow two processes to write concurrently and corrupt the JSONL chain.
- * 10 seconds is far beyond any realistic audit-append duration while still
- * being short enough to recover promptly from a crashed process.
- */
+const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 10_000;
+const KEY_READ_TIMEOUT_MS = 500;
+const SEAL_DOMAIN = Buffer.from("mneme-audit-seal-v1\0", "utf8");
+const LOWER_HEX_HMAC = /^[0-9a-f]{64}$/;
+const SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
 
 export interface AuditRecord {
 	timestamp_iso: string;
+	sequence: number;
 	relative_path: string;
 	redactions_applied: number;
 	prev_hash: string;
 	hmac: string;
 }
 
-/**
- * Load the HMAC key from `keyPath`, creating it at mode 0o600 if absent.
- *
- * On POSIX uses O_CREAT|O_EXCL at mode 0o600 so the file is never
- * world- or group-readable even for an instant (mirrors kg/client.py
- * `write_credentials`). On Windows the mode bits have no effect on
- * NTFS ACLs; operators must restrict the state directory via icacls.
- */
-function loadOrCreateKey(keyPath: string): Buffer {
-	if (existsSync(keyPath)) {
-		const buf = readFileSync(keyPath);
-		if (buf.length !== KEY_BYTES) {
-			throw new Error(
-				`audit-hmac.key is ${buf.length} bytes; expected ${KEY_BYTES}. ` +
-					`Delete ${keyPath} to regenerate.`,
-			);
-		}
-		return buf;
-	}
+interface ChainScan {
+	records: number;
+	heads: string[];
+	explicitSequenceSeen: boolean;
+	content: string;
+}
 
-	const key = randomBytes(KEY_BYTES);
+function sleepSync(milliseconds: number): void {
+	Atomics.wait(SLEEP_BUFFER, 0, 0, milliseconds);
+}
 
-	// Create parent dir first.
-	mkdirSync(join(keyPath, ".."), { recursive: true });
+function errorCode(error: unknown): string | undefined {
+	return (error as NodeJS.ErrnoException).code;
+}
 
-	if (process.platform !== "win32") {
-		// O_CREAT | O_EXCL | O_WRONLY at mode 0o600 — atomic, no wider window.
-		// If another process races and creates the file first, O_EXCL throws
-		// EEXIST and we fall through to the readFileSync path below.
-		let fd: number;
-		try {
-			fd = openSync(keyPath, "ax", 0o600); // 'ax' = O_WRONLY|O_CREAT|O_EXCL
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code;
-			if (code === "EEXIST") {
-				// Race: another process won; read their key.
-				return readFileSync(keyPath);
-			}
-			throw err;
+function isContentionError(error: unknown): boolean {
+	const code = errorCode(error);
+	return code === "EEXIST" || code === "EACCES" || code === "EPERM";
+}
+
+function isRetryableKeyReadError(error: unknown): boolean {
+	const code = errorCode(error);
+	return code === "ENOENT" || code === "EACCES" || code === "EPERM";
+}
+
+function writeAll(fd: number, content: Buffer): void {
+	let offset = 0;
+	while (offset < content.length) {
+		const written = writeSync(fd, content, offset, content.length - offset);
+		if (written <= 0) {
+			throw new Error("audit file write made no progress");
 		}
-		try {
-			writeSync(fd, key);
-		} finally {
-			closeSync(fd);
-		}
-		return key;
-	}
-	// Windows: mode 0o600 has no effect on NTFS ACLs, so the HMAC key may be
-	// readable by other local processes. The operator must restrict the state
-	// directory via icacls (e.g.:
-	//   icacls "<stateDir>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"
-	// ) to achieve the equivalent of POSIX 0o600. Full icacls automation is
-	// deferred; see SECURITY.md for the manual step.
-	// Use a write-new-only flag pair to avoid clobbering a concurrent writer.
-	try {
-		const fd = openSync(keyPath, "ax");
-		try {
-			writeSync(fd, key);
-		} finally {
-			closeSync(fd);
-		}
-		return key;
-	} catch (err) {
-		const code = (err as NodeJS.ErrnoException).code;
-		if (code === "EEXIST") {
-			return readFileSync(keyPath);
-		}
-		throw err;
+		offset += written;
 	}
 }
 
-/**
- * Acquire an exclusive O_EXCL lock file at `lockPath`.
- *
- * Spins up to LOCK_TIMEOUT_MS (500ms), then throws.
- * Returns a release function (unlinks the lock file).
- *
- * Stale-lock stealing: on each spin iteration, if the lock file's mtime
- * is older than LOCK_STALE_MS (10s), the owning process is presumed crashed
- * and the lock is deleted best-effort so acquisition can be retried
- * immediately. A fresh lock held by an active writer (recent mtime) is still
- * respected within the acquisition timeout bound, preserving serialization
- * for concurrent live appends.
- *
- * Two-constant design: LOCK_TIMEOUT_MS controls how long THIS caller spins
- * before giving up; LOCK_STALE_MS controls how old a lock must be before
- * we conclude the holder crashed. Keeping them separate prevents a slow-but-
- * alive writer from having its lock stolen before it finishes appending.
- */
-function acquireLock(lockPath: string): () => void {
-	const deadline = Date.now() + LOCK_TIMEOUT_MS;
+function readKey(keyPath: string): Buffer {
+	const deadline = performance.now() + KEY_READ_TIMEOUT_MS;
+	let observedLength: number | undefined;
+	let lastReadError: unknown;
+
 	while (true) {
 		try {
-			// O_CREAT|O_EXCL: fails with EEXIST if lock file already exists.
-			const fd = openSync(lockPath, "wx");
+			const key = readFileSync(keyPath);
+			observedLength = key.length;
+			if (key.length === KEY_BYTES) return key;
+			lastReadError = undefined;
+		} catch (error) {
+			if (!isRetryableKeyReadError(error)) throw error;
+			lastReadError = error;
+		}
+
+		if (performance.now() >= deadline) {
+			if (observedLength !== undefined) {
+				throw new Error(
+					`${KEY_FILENAME} is ${observedLength} bytes; expected ${KEY_BYTES}. ` +
+						`Delete ${keyPath} to regenerate.`,
+				);
+			}
+			throw lastReadError instanceof Error
+				? lastReadError
+				: new Error(`Unable to read ${KEY_FILENAME}.`);
+		}
+		sleepSync(LOCK_POLL_MS);
+	}
+}
+
+/** Load the shared key, creating it exclusively with mode 0o600. */
+function loadOrCreateKey(stateDir: string): Buffer {
+	const keyPath = join(stateDir, KEY_FILENAME);
+	if (existsSync(keyPath)) return readKey(keyPath);
+
+	mkdirSync(stateDir, { recursive: true });
+	const key = randomBytes(KEY_BYTES);
+	let fd: number;
+	try {
+		fd = openSync(keyPath, "ax", 0o600);
+	} catch (error) {
+		if (!isContentionError(error)) throw error;
+		return readKey(keyPath);
+	}
+
+	try {
+		writeAll(fd, key);
+		fsyncSync(fd);
+	} finally {
+		closeSync(fd);
+	}
+	return key;
+}
+
+function buffersEqual(left: Buffer, right: Buffer): boolean {
+	return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function stringsEqual(left: string, right: string): boolean {
+	return buffersEqual(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+
+function removeOwnedLock(lockPath: string, token: Buffer): void {
+	try {
+		const current = readFileSync(lockPath);
+		if (buffersEqual(current, token)) {
+			rmSync(lockPath, { force: true });
+		}
+	} catch {
+		// The lock disappeared or became unreadable. Never remove it blindly.
+	}
+}
+
+/** Acquire the daily O_EXCL lock shared with the Python writer. */
+function acquireLock(lockPath: string): () => void {
+	mkdirSync(dirname(lockPath), { recursive: true });
+	const deadline = performance.now() + LOCK_TIMEOUT_MS;
+	const token = Buffer.from(
+		`${process.pid}:${randomBytes(8).toString("hex")}`,
+		"ascii",
+	);
+
+	while (true) {
+		let fd: number | undefined;
+		try {
+			fd = openSync(lockPath, "wx", 0o600);
+			try {
+				writeAll(fd, token);
+			} catch (error) {
+				closeSync(fd);
+				fd = undefined;
+				rmSync(lockPath, { force: true });
+				throw error;
+			}
 			closeSync(fd);
-			return () => {
+			return () => removeOwnedLock(lockPath, token);
+		} catch (error) {
+			if (fd !== undefined) {
 				try {
-					rmSync(lockPath, { force: true });
+					closeSync(fd);
 				} catch {
-					// best-effort release
+					// Preserve the acquisition error.
 				}
-			};
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code;
-			if (code !== "EEXIST") throw err;
-			if (Date.now() > deadline) {
+			}
+			if (!isContentionError(error)) throw error;
+
+			if (!existsSync(lockPath)) continue;
+			try {
+				const stat = statSync(lockPath);
+				if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+					rmSync(lockPath, { force: true });
+					continue;
+				}
+			} catch (statError) {
+				if (errorCode(statError) === "ENOENT") continue;
+				// Access errors are contention on Windows. Wait until timeout.
+			}
+
+			if (performance.now() >= deadline) {
 				throw new Error(
 					`Could not acquire audit lock at ${lockPath} within ${LOCK_TIMEOUT_MS}ms`,
 				);
 			}
-			// Stale-lock stealing: if the lock file's mtime is older than the
-			// stale threshold, the owning process has crashed. Delete it so the
-			// next iteration can reclaim the lock.
-			try {
-				const st = statSync(lockPath);
-				if (Date.now() - st.mtimeMs > LOCK_STALE_MS) {
-					rmSync(lockPath, { force: true });
-					// Loop immediately to retry O_EXCL without sleeping.
-					continue;
-				}
-			} catch {
-				// Lock file disappeared between EEXIST and statSync — that is
-				// fine; the next O_EXCL attempt will succeed.
-				continue;
-			}
-			// Synchronous busy-wait: audit path is off the hot write path.
-			const start = Date.now();
-			while (Date.now() - start < LOCK_POLL_MS) {
-				// spin
-			}
+			sleepSync(LOCK_POLL_MS);
 		}
 	}
 }
 
-/**
- * Extract the `hmac` field from the last non-empty line of a JSONL file.
- * Returns ZERO_HASH if the file is empty or does not exist.
- */
-function readLastHmac(jsonlPath: string): string {
-	if (!existsSync(jsonlPath)) return ZERO_HASH;
-	const content = readFileSync(jsonlPath, "utf8");
-	const lines = content.split("\n").filter((l) => l.trim().length > 0);
-	if (lines.length === 0) return ZERO_HASH;
-	const last = lines[lines.length - 1];
-	try {
-		const parsed = JSON.parse(last ?? "") as Record<string, unknown>;
-		const h = parsed.hmac;
-		if (typeof h === "string" && h.length === 64) return h;
-	} catch {
-		// malformed last line — treat as no prev
-	}
-	return ZERO_HASH;
-}
-
-/**
- * Compute HMAC-SHA256(key, prevHash + serializedRecord).
- * `serializedRecord` must NOT contain the `hmac` field.
- */
 function computeHmac(
 	key: Buffer,
 	prevHash: string,
@@ -254,13 +223,214 @@ function computeHmac(
 		.digest("hex");
 }
 
+function computeSealHmac(key: Buffer, serializedSeal: string): string {
+	return createHmac("sha256", key)
+		.update(SEAL_DOMAIN)
+		.update(serializedSeal)
+		.digest("hex");
+}
+
+/** Validate every persisted record using Python's canonical scan contract. */
+function scanChain(jsonlPath: string, key: Buffer): ChainScan {
+	if (!existsSync(jsonlPath)) {
+		return {
+			records: 0,
+			heads: [],
+			explicitSequenceSeen: false,
+			content: "",
+		};
+	}
+
+	const content = readFileSync(jsonlPath, "utf8");
+	const heads: string[] = [];
+	let previous = ZERO_HASH;
+	let records = 0;
+	let explicitSequenceSeen = false;
+
+	for (const [index, rawLine] of content.split(/\r\n|\n|\r/).entries()) {
+		const raw = rawLine.trim();
+		if (!raw) continue;
+		records += 1;
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: unparseable record`,
+			);
+		}
+		if (
+			parsed === null ||
+			typeof parsed !== "object" ||
+			Array.isArray(parsed)
+		) {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: record is not an object`,
+			);
+		}
+		const record = parsed as Record<string, unknown>;
+
+		const sequence = record.sequence;
+		if (sequence !== undefined && sequence !== null) {
+			explicitSequenceSeen = true;
+			if (!Number.isInteger(sequence) || sequence !== records) {
+				throw new Error(
+					`existing audit chain is invalid at line ${index + 1}: sequence mismatch`,
+				);
+			}
+		}
+
+		const recordedHmac = record.hmac;
+		if (
+			typeof recordedHmac !== "string" ||
+			!LOWER_HEX_HMAC.test(recordedHmac)
+		) {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: invalid hmac`,
+			);
+		}
+		if (record.prev_hash !== previous) {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: prev_hash mismatch`,
+			);
+		}
+
+		const marker = `,"hmac":${JSON.stringify(recordedHmac)}`;
+		const canonicalTail = `${marker}}`;
+		if (!raw.endsWith(canonicalTail)) {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: hmac field not in canonical position`,
+			);
+		}
+		const serialized = `${raw.slice(0, -canonicalTail.length)}}`;
+		const expected = computeHmac(key, previous, serialized);
+		if (!stringsEqual(expected, recordedHmac)) {
+			throw new Error(
+				`existing audit chain is invalid at line ${index + 1}: hmac mismatch`,
+			);
+		}
+
+		previous = recordedHmac;
+		heads.push(recordedHmac);
+	}
+
+	return { records, heads, explicitSequenceSeen, content };
+}
+
+/** Verify the shared cross-language daily seal. */
+function verifySeal(
+	sealPath: string,
+	day: string,
+	key: Buffer,
+	chain: ChainScan,
+): void {
+	let sealIsFile = false;
+	if (existsSync(sealPath)) {
+		sealIsFile = statSync(sealPath).isFile();
+	}
+	if (!sealIsFile) {
+		if (chain.explicitSequenceSeen) {
+			throw new Error(
+				"existing audit seal is invalid: seal missing for Python-sequenced audit chain",
+			);
+		}
+		return;
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(sealPath, "utf8"));
+	} catch (error) {
+		throw new Error(
+			`existing audit seal is invalid: seal unreadable: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error("existing audit seal is invalid: seal is not an object");
+	}
+	const seal = parsed as Record<string, unknown>;
+	const version = seal.version;
+	const sealDay = seal.day;
+	const sequence = seal.sequence;
+	const headHmac = seal.head_hmac;
+	const sealedAt = seal.sealed_at;
+	const sealHmac = seal.seal_hmac;
+
+	if (version !== SEAL_VERSION || sealDay !== day) {
+		throw new Error("existing audit seal is invalid: seal metadata mismatch");
+	}
+	if (!Number.isInteger(sequence) || (sequence as number) < 1) {
+		throw new Error("existing audit seal is invalid: seal sequence is invalid");
+	}
+	if (typeof headHmac !== "string" || headHmac.length !== 64) {
+		throw new Error("existing audit seal is invalid: seal head is invalid");
+	}
+	if (typeof sealedAt !== "string" || typeof sealHmac !== "string") {
+		throw new Error("existing audit seal is invalid: seal fields are invalid");
+	}
+
+	const body = {
+		version,
+		day: sealDay,
+		sequence,
+		head_hmac: headHmac,
+		sealed_at: sealedAt,
+	};
+	const expected = computeSealHmac(key, JSON.stringify(body));
+	if (!stringsEqual(expected, sealHmac)) {
+		throw new Error("existing audit seal is invalid: seal hmac mismatch");
+	}
+
+	const sealedSequence = sequence as number;
+	if (sealedSequence > chain.heads.length) {
+		throw new Error(
+			`existing audit seal is invalid: tail truncation detected: seal requires ${sealedSequence} records, chain has ${chain.heads.length}`,
+		);
+	}
+	if (chain.heads[sealedSequence - 1] !== headHmac) {
+		throw new Error("existing audit seal is invalid: sealed head mismatch");
+	}
+}
+
+function writeSeal(
+	sealPath: string,
+	stateDir: string,
+	day: string,
+	sequence: number,
+	headHmac: string,
+	key: Buffer,
+): void {
+	const body = {
+		version: SEAL_VERSION,
+		day,
+		sequence,
+		head_hmac: headHmac,
+		sealed_at: new Date().toISOString(),
+	};
+	const sealHmac = computeSealHmac(key, JSON.stringify(body));
+	atomicWriteText(
+		sealPath,
+		`${JSON.stringify({ ...body, seal_hmac: sealHmac })}\n`,
+		{ vaultRoot: stateDir },
+	);
+}
+
+function restoreSnapshot(
+	path: string,
+	stateDir: string,
+	existed: boolean,
+	content: string,
+): void {
+	if (existed) {
+		atomicWriteText(path, content, { vaultRoot: stateDir });
+		return;
+	}
+	rmSync(path, { force: true });
+}
+
 /**
- * Append one tamper-evident audit record to today's JSONL log.
- *
- * @param stateDir  vault.stateDir (e.g. /vault/.mneme)
- * @param relativePath  vault-relative file path, forward slashes
- * @param redactionsApplied  total redaction count for this write
- * @returns true on success, false on non-fatal failure
+ * Append one TypeScript-shaped record and advance today's verified seal.
  */
 export function appendAuditRecord(
 	stateDir: string,
@@ -270,53 +440,59 @@ export function appendAuditRecord(
 	try {
 		const auditDir = join(stateDir, "audit");
 		mkdirSync(auditDir, { recursive: true });
-
-		const keyPath = join(stateDir, "audit-hmac.key");
-		const key = loadOrCreateKey(keyPath);
-
-		// toISOString() is always UTC, so the daily filename uses the UTC
-		// calendar date by design — files are named YYYY-MM-DD in UTC.
-		const today = new Date().toISOString().slice(0, 10);
-		const jsonlPath = join(auditDir, `${today}.jsonl`);
-		const lockPath = join(auditDir, `${today}.lock`);
+		const key = loadOrCreateKey(stateDir);
+		const day = new Date().toISOString().slice(0, 10);
+		const jsonlPath = join(auditDir, `${day}.jsonl`);
+		const sealPath = join(auditDir, `${day}.seal.json`);
+		const lockPath = join(auditDir, `${day}.lock`);
 
 		const release = acquireLock(lockPath);
 		try {
-			// CORRECTNESS INVARIANT: readLastHmac and the subsequent
-			// atomicWriteText must both execute inside the acquireLock guard.
-			// Moving readLastHmac outside the lock would be a bug: another
-			// writer could append between the read and the write, producing a
-			// chain break (duplicate or skipped prev_hash).
-			const prevHash = readLastHmac(jsonlPath);
-
-			// Build the record without the hmac field first.
+			const chain = scanChain(jsonlPath, key);
+			verifySeal(sealPath, day, key, chain);
+			const sequence = chain.records + 1;
+			const prevHash = chain.heads.at(-1) ?? ZERO_HASH;
 			const recordWithoutHmac = {
 				timestamp_iso: new Date().toISOString(),
+				sequence,
 				relative_path: relativePath,
 				redactions_applied: redactionsApplied,
 				prev_hash: prevHash,
 			};
-
 			const serialized = JSON.stringify(recordWithoutHmac);
 			const hmac = computeHmac(key, prevHash, serialized);
-
 			const fullRecord: AuditRecord = { ...recordWithoutHmac, hmac };
-			const line = `${JSON.stringify(fullRecord)}\n`;
-
-			// Atomic append: read existing content, append line, atomic write.
-			const existing = existsSync(jsonlPath)
-				? readFileSync(jsonlPath, "utf8")
-				: "";
-			atomicWriteText(jsonlPath, existing + line);
+			const separator =
+				chain.content.length === 0 || /[\r\n]$/.test(chain.content) ? "" : "\n";
+			const chainExisted = existsSync(jsonlPath);
+			const sealExisted = existsSync(sealPath);
+			const existingSeal = sealExisted ? readFileSync(sealPath, "utf8") : "";
+			try {
+				atomicWriteText(
+					jsonlPath,
+					`${chain.content}${separator}${JSON.stringify(fullRecord)}\n`,
+					{ vaultRoot: stateDir },
+				);
+				writeSeal(sealPath, stateDir, day, sequence, hmac, key);
+			} catch (appendError) {
+				try {
+					restoreSnapshot(jsonlPath, stateDir, chainExisted, chain.content);
+					restoreSnapshot(sealPath, stateDir, sealExisted, existingSeal);
+				} catch (restoreError) {
+					throw new Error(
+						`audit append failed and snapshot restoration failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+						{ cause: appendError },
+					);
+				}
+				throw appendError;
+			}
 		} finally {
 			release();
 		}
-
 		return true;
-	} catch (err) {
-		// Non-fatal: log warning but never block the write result.
+	} catch (error) {
 		console.warn(
-			`[mneme audit] Failed to append audit record: ${err instanceof Error ? err.message : String(err)}`,
+			`[mneme audit] Failed to append audit record: ${error instanceof Error ? error.message : String(error)}`,
 		);
 		return false;
 	}

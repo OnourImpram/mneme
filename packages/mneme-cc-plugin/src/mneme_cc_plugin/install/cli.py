@@ -33,6 +33,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from pathlib import Path
 import click
 import mneme_core.cli as core_cli
 from mneme_core.distill.audit import cli as audit_cli
+from mneme_core.vault.atomic_write import atomic_write_text
 
 from .. import __version__
 from .settings import (
@@ -68,7 +70,7 @@ PROFILE_EXTRAS: dict[str, list[str]] = {
 # then read as 1000-2000 SECONDS and could hang the editor on a wedged
 # hook. The values are safety ceilings above each hook's internal
 # deadlines, not p95 targets: Stop can legitimately wait on the
-# session-log lock (5s) plus a git status (3s), so its ceiling is 10s.
+# session-log lock (5s) plus a bounded git status (0.25s), so its ceiling is 10s.
 # These must stay in sync with the native plugin manifest hooks/hooks.json
 # (enforced by tests/unit/test_hook_timeouts_consistent.py).
 HOOK_TIMEOUTS_S: dict[str, int] = {
@@ -217,16 +219,30 @@ class Installer:
                 f"npm install failed (exit {res.returncode}): {res.stderr[:400]}"
             )
 
-    def init_vault(self) -> None:
+    def init_vault(self, *, update_profile: bool = False) -> None:
         marker = self.config.vault_root / ".mneme"
         marker.mkdir(parents=True, exist_ok=True)
         config_toml = marker / "config.toml"
         if not config_toml.exists():
-            config_toml.write_text(
+            atomic_write_text(
+                config_toml,
                 f'profile = "{self.config.profile}"\n'
                 f"schema_version = 1\n",
-                encoding="utf-8",
+                vault_root=self.config.vault_root,
             )
+        elif update_profile:
+            try:
+                current = config_toml.read_text(encoding="utf-8")
+                updated = _replace_top_level_profile(current, self.config.profile)
+                atomic_write_text(
+                    config_toml,
+                    updated,
+                    vault_root=self.config.vault_root,
+                )
+            except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
+                raise click.ClickException(
+                    f"cannot persist profile in {config_toml}: {exc}"
+                ) from exc
         self._say(f"vault: marker created at {marker}")
 
     def _hook_command(self, event: str) -> str:
@@ -342,6 +358,36 @@ def _default_codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
+def _replace_top_level_profile(content: str, profile: str) -> str:
+    """Replace only the root TOML profile key and preserve other text."""
+    parsed = tomllib.loads(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("vault configuration is not a TOML table")
+
+    lines = content.splitlines()
+    replaced = False
+    in_table = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_table = True
+        if in_table or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key == "profile":
+            lines[index] = f'profile = "{profile}"'
+            replaced = True
+            break
+    if not replaced:
+        lines.insert(0, f'profile = "{profile}"')
+
+    updated = "\n".join(lines) + "\n"
+    updated_parsed = tomllib.loads(updated)
+    if updated_parsed.get("profile") != profile:
+        raise ValueError("updated vault profile did not round-trip")
+    return updated
+
+
 CODEX_BLOCK_START = "# >>> mneme (managed) >>>"
 CODEX_BLOCK_END = "# <<< mneme (managed) <<<"
 
@@ -400,7 +446,8 @@ _SKILL_PRIME_DESC = (
 _SKILL_SEARCH_DESC = (
     "Use when the user asks a factual question whose answer might live in"
     " the vault. Invokes mneme_search. Production  gated for sum BM25; the"
-    " experimental feature-hashed lexical-vector backend is not wired into MCP, and KG enrichment is gated to summarize or"
+    " experimental feature-hashed lexical-vector backend is not wired into MCP,"
+    " and KG enrichment is gated to summarize or"
     " timeline when full-profile graph state is active."
 )
 
@@ -964,7 +1011,7 @@ def install(
     if dry_run:
         inst._say(f"vault (dry-run): would create marker at {cfg.vault_root / '.mneme'}")
     else:
-        inst.init_vault()
+        inst.init_vault(update_profile=upgrade_profile is not None)
         if client in ("claude-code", "all"):
             if cfg.settings_path.exists():
                 inst.register_hooks()
@@ -1009,15 +1056,28 @@ def install(
     type=click.Choice(PROFILES),
     required=True,
 )
-def upgrade(profile: str) -> None:
+@click.option(
+    "--vault",
+    "vault_root",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+@click.option(
+    "--skip-python",
+    is_flag=True,
+    help="Skip pip dependency refresh.",
+)
+def upgrade(profile: str, vault_root: Path | None, skip_python: bool) -> None:
     cfg = InstallerConfig(
         profile=profile,
-        vault_root=_default_vault_root(),
+        vault_root=(vault_root or _default_vault_root()).expanduser().resolve(),
         settings_path=_default_settings_path(),
         backup_dir=_default_backup_dir(),
     )
     inst = Installer(config=cfg)
-    inst.install_python_deps()
+    if not skip_python:
+        inst.install_python_deps()
+    inst.init_vault(update_profile=True)
     inst._say(f"upgraded to profile={profile}")
 
 
@@ -1134,10 +1194,16 @@ def uninstall(
     type=click.Choice(PROFILES),
     default=DEFAULT_PROFILE,
 )
+@click.option(
+    "--verify-isolation",
+    is_flag=True,
+    help="Run scope and redaction self-tests in a disposable vault fixture.",
+)
 def doctor(
     vault_root: Path | None,
     settings_path: Path | None,
     profile: str,
+    verify_isolation: bool,
 ) -> None:
     cfg = InstallerConfig(
         profile=profile,
@@ -1146,7 +1212,31 @@ def doctor(
         backup_dir=_default_backup_dir(),
     )
     report = Installer(config=cfg).doctor()
+    isolation_failed = False
+    if verify_isolation:
+        try:
+            isolation_checks = core_cli.verify_isolation_boundaries()
+        except Exception as exc:
+            isolation_checks = [
+                {
+                    "name": "isolation_fixture",
+                    "status": "fail",
+                    "detail": (
+                        "temporary isolation fixture raised "
+                        f"{type(exc).__name__}"
+                    ),
+                }
+            ]
+        isolation_failed = any(
+            check.get("status") == "fail" for check in isolation_checks
+        )
+        report["isolation"] = {
+            "overall": "fail" if isolation_failed else "ok",
+            "checks": isolation_checks,
+        }
     click.echo(json.dumps(report, indent=2, default=str))
+    if isolation_failed:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command("version", help="Print mneme package version.")

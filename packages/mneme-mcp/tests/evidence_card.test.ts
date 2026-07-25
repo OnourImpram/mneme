@@ -10,8 +10,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hitToEvidenceCard } from "../src/evidence_card.js";
-import { CANONICAL_MEMORY_TYPES } from "../src/tools/search.js";
 import type { Fts5Hit } from "../src/retrieval/fts5.js";
+import { CANONICAL_MEMORY_TYPES } from "../src/tools/search.js";
 
 // ---------------------------------------------------------------------------
 // Fixture

@@ -44,18 +44,26 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import os
+import re
 import shutil
+import stat
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .privacy import redact
+from .vault.atomic_write import atomic_write_bytes, atomic_write_text
 from .vault.config import VaultConfig
 
 SYNC_CONFIG_FILENAME = "sync.json"
 SYNC_REPO_DIR_NAME = "sync-repo"
 TEAM_DIR_NAME = "team"
+_MAX_SYNC_FILE_BYTES = 64 * 1024 * 1024
+_MEMBER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 
 #: Subprocess runner signature: (argv, cwd) -> CompletedProcess.
 Runner = Callable[[Sequence[str], Path], "subprocess.CompletedProcess[str]"]
@@ -91,11 +99,84 @@ class SyncConfig:
         return bool(self.remote_url)
 
 
+def _validate_sync_config(config: SyncConfig) -> None:
+    if _MEMBER_RE.fullmatch(config.member) is None or config.member in {".", ".."}:
+        raise ValueError("sync member must be a safe path identifier")
+    branch = config.branch
+    if (
+        _BRANCH_RE.fullmatch(branch) is None
+        or ".." in branch
+        or "//" in branch
+        or branch.endswith(("/", ".", ".lock"))
+        or "@{" in branch
+    ):
+        raise ValueError("sync branch is not a safe git reference")
+    if "\x00" in config.remote_url or "\n" in config.remote_url:
+        raise ValueError("sync remote URL contains forbidden control characters")
+    parsed = urlsplit(config.remote_url)
+    if parsed.scheme in {"http", "https"} and parsed.username is not None:
+        raise ValueError("sync remote URL must not contain embedded credentials")
+    if parsed.password is not None or parsed.query or parsed.fragment:
+        raise ValueError("sync remote URL must not contain credentials or URL parameters")
+
+
+def _safe_git_error(stderr: str, remote_url: str) -> str:
+    """Return bounded git stderr without echoing configured remote material."""
+    safe = redact(stderr)
+    if remote_url:
+        safe = safe.replace(remote_url, "[REMOTE]")
+    safe = re.sub(
+        r"https?://[^\s/@:]+:[^\s/@]+@",
+        "https://[CREDENTIAL-REDACTED]@",
+        safe,
+        flags=re.IGNORECASE,
+    )
+    return safe[:2048]
+
+
+def _read_stable_regular(path: Path, root: Path) -> bytes:
+    """Read one bounded regular file without following an escaping link."""
+    root_resolved = root.resolve(strict=True)
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root_resolved):
+        raise OSError(f"sync path escapes trusted root: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        path_stat = path.lstat()
+        file_stat = os.fstat(fd)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            path.is_symlink()
+            or bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
+            or not stat.S_ISREG(file_stat.st_mode)
+            or (path_stat.st_dev, path_stat.st_ino)
+            != (file_stat.st_dev, file_stat.st_ino)
+        ):
+            raise OSError(f"sync path is not a stable regular file: {path}")
+        if file_stat.st_size > _MAX_SYNC_FILE_BYTES:
+            raise OSError(f"sync file exceeds the configured size limit: {path}")
+        chunks: list[bytes] = []
+        remaining = _MAX_SYNC_FILE_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > _MAX_SYNC_FILE_BYTES:
+            raise OSError(f"sync file exceeds the configured size limit: {path}")
+        return payload
+    finally:
+        os.close(fd)
+
+
 def load_sync_config(vault: VaultConfig) -> SyncConfig:
     """Read ``sync.json`` from the state dir. Never raises."""
     path = vault.state_dir / SYNC_CONFIG_FILENAME
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(_read_stable_regular(path, vault.root).decode("utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return SyncConfig()
     if not isinstance(raw, dict):
@@ -115,6 +196,7 @@ def load_sync_config(vault: VaultConfig) -> SyncConfig:
 
 def write_sync_config(vault: VaultConfig, config: SyncConfig) -> Path:
     """Persist *config* as sync.json and return its path."""
+    _validate_sync_config(config)
     path = vault.state_dir / SYNC_CONFIG_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, object] = {
@@ -125,7 +207,11 @@ def write_sync_config(vault: VaultConfig, config: SyncConfig) -> Path:
     }
     if config.encrypt_recipients:
         payload["encrypt"] = {"recipients": list(config.encrypt_recipients)}
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        vault_root=vault.root,
+    )
     return path
 
 
@@ -160,7 +246,10 @@ def build_share_tree(
     then re-scanned and any surviving ``<private>`` opener marks the
     report unsafe so the caller refuses to push (fail closed).
     """
+    _validate_sync_config(config)
     root = vault.root.resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_root = dest.resolve(strict=True)
     state_prefix = vault.state_dir.resolve()
     shared = excluded = redactions = 0
     member_dir = dest / TEAM_DIR_NAME / config.member
@@ -180,20 +269,23 @@ def build_share_tree(
             excluded += 1
             continue
         try:
-            body = md_path.read_text(encoding="utf-8", errors="replace")
+            body = _read_stable_regular(md_path, root).decode(
+                "utf-8", errors="replace"
+            )
         except OSError:
             continue
         redacted = redact(body)
         if redacted != body:
             redactions += 1
         target = member_dir / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(redacted, encoding="utf-8", newline="")
+        atomic_write_text(target, redacted, vault_root=dest_root)
         shared += 1
 
     leaked: list[str] = []
     for staged in sorted(member_dir.rglob("*.md")) if member_dir.is_dir() else []:
-        text = staged.read_text(encoding="utf-8", errors="replace")
+        text = _read_stable_regular(staged, dest_root).decode(
+            "utf-8", errors="replace"
+        )
         if redact(text) != text:
             leaked.append(staged.relative_to(dest).as_posix())
     return ShareReport(
@@ -202,6 +294,50 @@ def build_share_tree(
         redactions_applied=redactions,
         leaked_paths=tuple(leaked),
     )
+
+
+def _redact_share_file(path: Path, root: Path) -> bool:
+    """Re-redact one staged markdown file immediately before its sink."""
+    root_resolved = root.resolve(strict=True)
+    resolved = path.resolve(strict=True)
+    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
+        raise OSError(f"staged share path escapes root: {path}")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    open_fd: int | None = fd
+    try:
+        path_stat = path.lstat()
+        file_stat = os.fstat(fd)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            path.is_symlink()
+            or bool(getattr(path_stat, "st_file_attributes", 0) & reparse_flag)
+            or not stat.S_ISREG(file_stat.st_mode)
+            or (path_stat.st_dev, path_stat.st_ino)
+            != (file_stat.st_dev, file_stat.st_ino)
+        ):
+            raise OSError(f"staged share path is not a stable regular file: {path}")
+        with os.fdopen(fd, "r", encoding="utf-8", errors="replace") as fp:
+            open_fd = None
+            text = fp.read()
+    finally:
+        if open_fd is not None:
+            os.close(open_fd)
+
+    redacted = redact(text)
+    # Replacing from a same-directory exclusive temp file prevents this write
+    # from following a symlink swapped in after the descriptor-bound read.
+    atomic_write_text(path, redacted, vault_root=root_resolved)
+    return redacted != text
+
+
+def _redact_share_tree(root: Path) -> int:
+    """Treat the staged share tree as untrusted and sanitize it in place."""
+    count = 0
+    for path in sorted(root.rglob("*.md")) if root.is_dir() else []:
+        count += int(_redact_share_file(path, root))
+    return count
 
 
 def _encrypt_tree(
@@ -220,6 +356,9 @@ def _encrypt_tree(
     for r in recipients:
         args_recipients.extend(["-r", r])
     for plain in sorted(dest.rglob("*.md")):
+        # The share tree can be modified after its initial build and scan.
+        # Sanitize each plaintext file at the age process boundary.
+        _redact_share_file(plain, dest)
         out = plain.with_suffix(plain.suffix + ".age")
         proc = runner(["age", *args_recipients, "-o", str(out), str(plain)], dest)
         if proc.returncode != 0:
@@ -316,6 +455,10 @@ def push(
     config = load_sync_config(vault)
     if not config.configured:
         return SyncResult(False, "sync not configured: write .mneme/sync.json first")
+    try:
+        _validate_sync_config(config)
+    except ValueError as exc:
+        return SyncResult(False, f"invalid sync config: {exc}")
     repo = _ensure_sync_repo(vault, config, runner)
 
     member_dir = repo / TEAM_DIR_NAME / config.member
@@ -336,6 +479,14 @@ def push(
         except (RuntimeError, OSError) as exc:
             shutil.rmtree(member_dir, ignore_errors=True)
             return SyncResult(False, str(exc), report=report)
+    else:
+        try:
+            # Reapply redaction after build/verification and immediately before
+            # git snapshots the share tree. The staging directory is untrusted.
+            _redact_share_tree(member_dir)
+        except OSError as exc:
+            shutil.rmtree(member_dir, ignore_errors=True)
+            return SyncResult(False, f"final share redaction failed: {exc}", report=report)
 
     _git(runner, repo, "add", "--all", f"{TEAM_DIR_NAME}/{config.member}")
     commit = _git(
@@ -348,10 +499,18 @@ def push(
         f"sync: {config.member} share tree ({report.files_shared} files)",
     )
     if commit.returncode != 0 and "nothing to commit" not in (commit.stdout + commit.stderr):
-        return SyncResult(False, f"commit failed: {commit.stderr.strip()}", report=report)
+        return SyncResult(
+            False,
+            f"commit failed: {_safe_git_error(commit.stderr.strip(), config.remote_url)}",
+            report=report,
+        )
     pushed = _git(runner, repo, "push", "origin", f"HEAD:{config.branch}")
     if pushed.returncode != 0:
-        return SyncResult(False, f"push failed: {pushed.stderr.strip()}", report=report)
+        return SyncResult(
+            False,
+            f"push failed: {_safe_git_error(pushed.stderr.strip(), config.remote_url)}",
+            report=report,
+        )
     return SyncResult(True, f"pushed {report.files_shared} file(s)", report=report)
 
 
@@ -376,50 +535,87 @@ def pull(
     config = load_sync_config(vault)
     if not config.configured:
         return SyncResult(False, "sync not configured: write .mneme/sync.json first")
+    try:
+        _validate_sync_config(config)
+    except ValueError as exc:
+        return SyncResult(False, f"invalid sync config: {exc}")
     repo = _ensure_sync_repo(vault, config, runner)
     fetched = _git(runner, repo, "fetch", "origin", config.branch)
     if fetched.returncode != 0:
-        return SyncResult(False, f"fetch failed: {fetched.stderr.strip()}")
+        return SyncResult(
+            False,
+            f"fetch failed: {_safe_git_error(fetched.stderr.strip(), config.remote_url)}",
+        )
     reset = _git(runner, repo, "checkout", "-B", config.branch, f"origin/{config.branch}")
     if reset.returncode != 0:
-        return SyncResult(False, f"checkout failed: {reset.stderr.strip()}")
+        return SyncResult(
+            False,
+            f"checkout failed: {_safe_git_error(reset.stderr.strip(), config.remote_url)}",
+        )
 
     imported: list[str] = []
     conflicts: list[str] = []
     team_root = repo / TEAM_DIR_NAME
     if team_root.is_dir():
+        team_root_resolved = team_root.resolve(strict=True)
+        if not team_root_resolved.is_relative_to(repo.resolve(strict=True)):
+            return SyncResult(False, "remote team tree escapes the sync repository")
         for src in sorted(team_root.rglob("*")):
             if not src.is_file():
                 continue
             rel = src.relative_to(repo)
             parts = rel.parts
+            if len(parts) < 3 or _MEMBER_RE.fullmatch(parts[1]) is None:
+                return SyncResult(False, "remote sync tree contains an invalid member path")
             if len(parts) >= 2 and parts[1] == config.member:
                 continue  # own share tree round-trips; vault stays canonical
             local = vault.root / rel
-            incoming = src.read_bytes()
+            try:
+                incoming = _read_stable_regular(src, team_root_resolved)
+            except OSError as exc:
+                return SyncResult(False, f"remote sync file rejected: {exc}")
             is_markdown = src.suffix.lower() == ".md"
             if local.exists():
+                try:
+                    local_bytes = _read_stable_regular(local, vault.root)
+                except OSError as exc:
+                    return SyncResult(False, f"local sync target rejected: {exc}")
                 if is_markdown:
                     recorded = _imported_payload_hash(
-                        local.read_text(encoding="utf-8", errors="replace")
+                        local_bytes.decode("utf-8", errors="replace")
                     )
                     if recorded == _payload_sha256(incoming):
                         continue  # remote payload unchanged; local edits stay
-                if local.read_bytes() == incoming:
+                if local_bytes == incoming:
                     continue  # legacy unmarked import, still identical
                 sidecar = local.with_name(local.name + ".conflict")
-                sidecar.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, sidecar)
+                try:
+                    if is_markdown:
+                        # A remote conflict is still an untrusted persistence sink.
+                        # Never copy markdown bytes around the canonical redactor.
+                        atomic_write_text(
+                            sidecar,
+                            redact(incoming.decode("utf-8", errors="replace")),
+                            vault_root=vault.root,
+                        )
+                    else:
+                        atomic_write_bytes(sidecar, incoming, vault_root=vault.root)
+                except OSError as exc:
+                    return SyncResult(False, f"conflict sidecar rejected: {exc}")
                 conflicts.append(rel.as_posix())
                 continue
-            local.parent.mkdir(parents=True, exist_ok=True)
-            if is_markdown:
-                member_name = parts[1] if len(parts) >= 2 else "unknown"
-                body = redact(incoming.decode("utf-8", errors="replace"))
-                marked = _mark_team_import(body, member_name, _payload_sha256(incoming))
-                local.write_text(marked, encoding="utf-8", newline="")
-            else:
-                shutil.copyfile(src, local)
+            try:
+                if is_markdown:
+                    member_name = parts[1] if len(parts) >= 2 else "unknown"
+                    body = redact(incoming.decode("utf-8", errors="replace"))
+                    marked = _mark_team_import(
+                        body, member_name, _payload_sha256(incoming)
+                    )
+                    atomic_write_text(local, marked, vault_root=vault.root)
+                else:
+                    atomic_write_bytes(local, incoming, vault_root=vault.root)
+            except OSError as exc:
+                return SyncResult(False, f"local sync write rejected: {exc}")
             imported.append(rel.as_posix())
     return SyncResult(
         True,

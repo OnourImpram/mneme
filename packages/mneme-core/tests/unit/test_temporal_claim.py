@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from mneme_core.temporal.claim import ConfidenceLabel, claim_from_note
+from typing import Any
+
+import pytest
+
+from mneme_core.temporal.claim import Claim, ConfidenceLabel, claim_from_note
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fm(**kwargs):  # type: ignore[no-untyped-def]
+
+def _fm(**kwargs: Any) -> dict[str, Any]:
     """Build a minimal frontmatter dict for a claim note."""
     base = {
         "id": "test-001",
@@ -19,7 +24,10 @@ def _fm(**kwargs):  # type: ignore[no-untyped-def]
     return base
 
 
-def _make(frontmatter=None, body="# Test title\nsome body", **kw):  # type: ignore[no-untyped-def]
+def _make(
+    frontmatter: dict[str, Any] | None = None,
+    body: str = "# Test title\nsome body",
+) -> Claim | None:
     if frontmatter is None:
         frontmatter = _fm()
     return claim_from_note(
@@ -27,13 +35,13 @@ def _make(frontmatter=None, body="# Test title\nsome body", **kw):  # type: igno
         body,
         path="notes/test.md",
         content_hash="abc123",
-        **kw,
     )
 
 
 # ---------------------------------------------------------------------------
 # Eligibility gate
 # ---------------------------------------------------------------------------
+
 
 class TestEligibilityGate:
     def test_returns_none_for_plain_note(self) -> None:
@@ -47,20 +55,32 @@ class TestEligibilityGate:
         assert result is not None
 
     def test_valid_from_makes_eligible(self) -> None:
-        fm = {"id": "x", "type": "topic", "created": "2024-01-01T00:00:00+00:00",
-              "valid_from": "2024-06-01T00:00:00+00:00"}
+        fm = {
+            "id": "x",
+            "type": "topic",
+            "created": "2024-01-01T00:00:00+00:00",
+            "valid_from": "2024-06-01T00:00:00+00:00",
+        }
         result = claim_from_note(fm, "body", path="x.md", content_hash="h")
         assert result is not None
 
     def test_valid_to_makes_eligible(self) -> None:
-        fm = {"id": "x", "type": "topic", "created": "2024-01-01T00:00:00+00:00",
-              "valid_to": "2024-12-31T00:00:00+00:00"}
+        fm = {
+            "id": "x",
+            "type": "topic",
+            "created": "2024-01-01T00:00:00+00:00",
+            "valid_to": "2024-12-31T00:00:00+00:00",
+        }
         result = claim_from_note(fm, "body", path="x.md", content_hash="h")
         assert result is not None
 
     def test_observed_at_makes_eligible(self) -> None:
-        fm = {"id": "x", "type": "topic", "created": "2024-01-01T00:00:00+00:00",
-              "observed_at": "2024-06-15T00:00:00+00:00"}
+        fm = {
+            "id": "x",
+            "type": "topic",
+            "created": "2024-01-01T00:00:00+00:00",
+            "observed_at": "2024-06-15T00:00:00+00:00",
+        }
         result = claim_from_note(fm, "body", path="x.md", content_hash="h")
         assert result is not None
 
@@ -69,43 +89,58 @@ class TestEligibilityGate:
 # Malformed dates → None, never raise
 # ---------------------------------------------------------------------------
 
+
 class TestMalformedDates:
-    def test_malformed_valid_from_is_none(self) -> None:
+    def test_malformed_valid_from_rejects_claim(self) -> None:
         fm = _fm(valid_from="not-a-date")
-        result = _make(frontmatter=fm)
-        assert result is not None
-        assert result.valid_from is None
+        assert _make(frontmatter=fm) is None
 
-    def test_malformed_valid_to_is_none(self) -> None:
+    def test_malformed_valid_to_rejects_claim(self) -> None:
         fm = _fm(valid_to="9999-99-99")
-        result = _make(frontmatter=fm)
-        assert result is not None
-        assert result.valid_to is None
+        assert _make(frontmatter=fm) is None
 
-    def test_malformed_observed_at_falls_back_to_created(self) -> None:
+    def test_malformed_observed_at_rejects_claim(self) -> None:
         fm = _fm(observed_at="bad-date", created="2024-03-01T00:00:00+00:00")
-        result = _make(frontmatter=fm)
-        assert result is not None
-        # Should fall back to created, not raise
-        assert result.observed_at is not None
+        assert _make(frontmatter=fm) is None
 
-    def test_malformed_created_falls_back_to_epoch(self) -> None:
-        fm = _fm(observed_at="bad-date", created="also-bad")
-        result = _make(frontmatter=fm)
-        assert result is not None
-        # Falls back to epoch sentinel
-        assert result.observed_at.year == 1970
+    def test_malformed_created_rejects_claim(self) -> None:
+        fm = _fm(created="also-bad")
+        assert _make(frontmatter=fm) is None
 
-    def test_no_exception_on_all_malformed_dates(self) -> None:
+    def test_all_malformed_dates_reject_claim_without_raising(self) -> None:
         fm = _fm(valid_from="bad", valid_to="bad", observed_at="bad", created="bad")
-        # Must not raise
-        result = _make(frontmatter=fm)
-        assert result is not None
+        assert _make(frontmatter=fm) is None
+
+    def test_missing_observation_time_rejects_claim(self) -> None:
+        fm = {"id": "test-001", "type": "claim"}
+        assert _make(frontmatter=fm) is None
+
+    def test_valid_from_does_not_substitute_for_observation_time(self) -> None:
+        fm = {
+            "id": "test-001",
+            "type": "claim",
+            "valid_from": "2026-07-18T00:00:00+00:00",
+        }
+
+        assert _make(frontmatter=fm) is None
+
+    @pytest.mark.parametrize(
+        ("valid_from", "valid_to"),
+        [
+            ("2025-01-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"),
+            ("2024-01-01T00:00:00+00:00", "2024-01-01T00:00:00+00:00"),
+        ],
+    )
+    def test_empty_or_reversed_window_rejects_claim(
+        self, valid_from: str, valid_to: str
+    ) -> None:
+        assert _make(frontmatter=_fm(valid_from=valid_from, valid_to=valid_to)) is None
 
 
 # ---------------------------------------------------------------------------
 # Statement extraction and redaction
 # ---------------------------------------------------------------------------
+
 
 class TestStatementExtraction:
     def test_statement_field_used_when_present(self) -> None:
@@ -144,6 +179,7 @@ class TestStatementExtraction:
 # observed_at defaults to created
 # ---------------------------------------------------------------------------
 
+
 class TestObservedAtDefault:
     def test_observed_at_defaults_to_created(self) -> None:
         fm = _fm(created="2024-05-01T12:00:00+00:00")
@@ -153,8 +189,7 @@ class TestObservedAtDefault:
         assert result.observed_at.month == 5
 
     def test_explicit_observed_at_overrides_created(self) -> None:
-        fm = _fm(created="2024-01-01T00:00:00+00:00",
-                 observed_at="2024-06-01T00:00:00+00:00")
+        fm = _fm(created="2024-01-01T00:00:00+00:00", observed_at="2024-06-01T00:00:00+00:00")
         result = _make(frontmatter=fm)
         assert result is not None
         assert result.observed_at.month == 6
@@ -163,6 +198,7 @@ class TestObservedAtDefault:
 # ---------------------------------------------------------------------------
 # Confidence label default
 # ---------------------------------------------------------------------------
+
 
 class TestConfidenceLabel:
     def test_default_label_is_extracted(self) -> None:
@@ -184,6 +220,7 @@ class TestConfidenceLabel:
 # Provenance fields
 # ---------------------------------------------------------------------------
 
+
 class TestProvenance:
     def test_path_stored(self) -> None:
         result = _make()
@@ -199,6 +236,27 @@ class TestProvenance:
         result = _make()
         assert result is not None
         assert result.trust == "user"
+
+    def test_scope_defaults_to_default(self) -> None:
+        result = _make()
+        assert result is not None
+        assert result.scope == "default"
+
+    def test_conflicting_scope_and_legacy_project_are_rejected(self) -> None:
+        result = _make(frontmatter=_fm(scope="clinical", project="legacy-project"))
+        assert result is None
+
+    def test_legacy_project_is_scope_fallback(self) -> None:
+        result = _make(frontmatter=_fm(project="research"))
+        assert result is not None
+        assert result.scope == "research"
+
+    def test_wildcard_scope_is_rejected_for_storage(self) -> None:
+        assert _make(frontmatter=_fm(scope="*")) is None
+
+    @pytest.mark.parametrize("scope", [" clinical ", "clinical*", "\u200bclinical"])
+    def test_malformed_scope_is_rejected_for_storage(self, scope: str) -> None:
+        assert _make(frontmatter=_fm(scope=scope)) is None
 
     def test_claim_id_stable(self) -> None:
         result1 = _make()
@@ -237,6 +295,7 @@ class TestProvenance:
 # Optional fields
 # ---------------------------------------------------------------------------
 
+
 class TestOptionalFields:
     def test_supersedes_stored(self) -> None:
         fm = _fm(supersedes="some-other-claim-id")
@@ -267,11 +326,15 @@ class TestOptionalFields:
 # Normalize callable
 # ---------------------------------------------------------------------------
 
+
 class TestNormalize:
     def test_normalize_applied_to_statement_normalized(self) -> None:
         fm = _fm(statement="Istanbul")
         result = claim_from_note(
-            fm, "body", path="x.md", content_hash="h",
+            fm,
+            "body",
+            path="x.md",
+            content_hash="h",
             normalize=str.lower,
         )
         assert result is not None

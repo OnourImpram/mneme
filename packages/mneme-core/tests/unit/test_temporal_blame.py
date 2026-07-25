@@ -26,6 +26,7 @@ def _insert(conn: sqlite3.Connection, claim_id: str, **kw: object) -> None:
         "confidence_label": "EXTRACTED",
         "trust": "user",
         "content_hash": "0" * 64,
+        "scope": kw.get("scope", "default"),
         "indexed_at": datetime.now(UTC).isoformat(),
     }
     cols = ", ".join(row)
@@ -59,6 +60,36 @@ class TestBlame:
         assert [c.claim_id for c in rep.ancestors] == ["c1"]
         assert [c.claim_id for c in rep.descendants] == ["c3"]
 
+    def test_descendant_walk_preserves_all_branches(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        _insert(conn, "root", observed_at="2026-01-01T00:00:00+00:00")
+        _insert(
+            conn,
+            "left",
+            supersedes="root",
+            observed_at="2026-02-01T00:00:00+00:00",
+        )
+        _insert(
+            conn,
+            "right",
+            supersedes="root",
+            observed_at="2026-02-02T00:00:00+00:00",
+        )
+        _insert(
+            conn,
+            "left-child",
+            supersedes="left",
+            observed_at="2026-03-01T00:00:00+00:00",
+        )
+
+        report = blame(conn, "root")[0]
+        assert [claim.claim_id for claim in report.descendants] == [
+            "left",
+            "right",
+            "left-child",
+        ]
+
     def test_path_ref_returns_all_claims_in_file(self, conn: sqlite3.Connection) -> None:
         _insert(conn, "a1", path="facts/loc.md", observed_at="2026-01-01T00:00:00+00:00")
         _insert(conn, "a2", path="facts/loc.md", observed_at="2026-01-02T00:00:00+00:00")
@@ -75,6 +106,22 @@ class TestBlame:
         _insert(conn, "k3", claim_key="user.role")
         rep = blame(conn, "k1")[0]
         assert [c.claim_id for c in rep.rivals] == ["k2"]
+
+    def test_blame_and_lineage_are_scope_isolated(self, conn: sqlite3.Connection) -> None:
+        _insert(conn, "shared", statement="default", scope="default")
+        _insert(conn, "shared", statement="clinical", scope="clinical")
+        _insert(conn, "next", supersedes="shared", scope="clinical")
+
+        default_report = blame(conn, "shared")[0]
+        assert default_report.target.statement == "default"
+        assert default_report.descendants == []
+
+        clinical_report = blame(conn, "shared", scope="clinical")[0]
+        assert clinical_report.target.statement == "clinical"
+        assert [claim.claim_id for claim in clinical_report.descendants] == ["next"]
+
+        wildcard = blame(conn, "shared", scope="*")
+        assert {report.target.scope for report in wildcard} == {"default", "clinical"}
 
     def test_cyclic_supersedes_terminates(self, conn: sqlite3.Connection) -> None:
         _insert(conn, "x1", supersedes="x2")

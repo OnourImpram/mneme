@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from mneme_core.cce.build import build_checkpoint, write_checkpoint
-from mneme_core.cce.checkpoint import parse_markdown
+from mneme_core.cce.checkpoint import CURRENT_CHECKPOINT_SCHEMA_VERSION, parse_markdown
 from mneme_core.cce.config import CceConfig, write_config
+from mneme_core.scope import DEFAULT_SCOPE
 from mneme_core.vault.config import VaultConfig
 
 
@@ -62,6 +66,51 @@ class TestBuildCheckpoint:
         assert len(cp.anchor) == 12
         assert cp.session_id == "s1"
         assert cp.prev_anchor is None
+        assert cp.scope is not None
+        assert cp.schema_version == CURRENT_CHECKPOINT_SCHEMA_VERSION
+
+    def test_omitted_scope_uses_vault_configured_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("MNEME_SCOPE", "clinical")
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+
+        cp = build_checkpoint(vault, "s1", "", None)
+
+        assert cp.scope == "clinical"
+
+    def test_explicit_scope_overrides_configured_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("MNEME_SCOPE", "configured")
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+
+        cp = build_checkpoint(vault, "s1", "", None, scope="research")
+
+        assert cp.scope == "research"
+
+    @pytest.mark.parametrize("scope", ["*", "clinical*research"])
+    def test_explicit_wildcard_scope_is_rejected(
+        self, scope: str, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+
+        with pytest.raises(ValueError, match="scope"):
+            build_checkpoint(vault, "s1", "", None, scope=scope)
+
+    def test_wildcard_configured_default_falls_back_to_concrete_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("MNEME_SCOPE", "*")
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+
+        cp = build_checkpoint(vault, "s1", "", None)
+
+        assert cp.scope == DEFAULT_SCOPE
 
     def test_files_touched_appear_as_items(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)
@@ -122,6 +171,8 @@ class TestWriteCheckpoint:
         assert doc_path.is_file()
         content = doc_path.read_text(encoding="utf-8")
         assert "type: checkpoint" in content
+        assert f'scope: "{cp.scope}"' in content
+        assert f"schema_version: {CURRENT_CHECKPOINT_SCHEMA_VERSION}" in content
 
     def test_index_line_appended(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)
@@ -137,6 +188,8 @@ class TestWriteCheckpoint:
         assert len(lines) == 1
         record = json.loads(lines[0])
         assert record["anchor"] == cp.anchor
+        assert record["scope"] == cp.scope
+        assert record["schema_version"] == CURRENT_CHECKPOINT_SCHEMA_VERSION
 
     def test_round_trip_via_parse_markdown(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)
@@ -147,6 +200,36 @@ class TestWriteCheckpoint:
         parsed = parse_markdown(doc_path.read_text(encoding="utf-8"))
         assert parsed.anchor == cp.anchor
         assert parsed.session_id == cp.session_id
+        assert parsed.scope == cp.scope
+
+    def test_write_rejects_legacy_checkpoint_before_filesystem_mutation(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+        current = build_checkpoint(vault, "s1", "", None, scope="default")
+        legacy = replace(current, schema_version=1, scope=None)
+
+        with pytest.raises(ValueError, match="schema version 2"):
+            write_checkpoint(vault, legacy)
+
+        assert not vault.checkpoints_dir.exists()
+        assert not vault.checkpoint_index.exists()
+
+    def test_new_write_does_not_rewrite_existing_legacy_markdown(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path)
+        _enable_cce(vault)
+        vault.checkpoints_dir.mkdir(parents=True)
+        legacy_path = vault.checkpoints_dir / "legacy.md"
+        legacy_content = "---\nanchor: legacy\nschema_version: 1\n---\n\nlegacy body\n"
+        legacy_path.write_text(legacy_content, encoding="utf-8")
+
+        current = build_checkpoint(vault, "s1", "", None, scope="research")
+        write_checkpoint(vault, current)
+
+        assert legacy_path.read_text(encoding="utf-8") == legacy_content
 
     def test_pruning_removes_oldest_when_over_cap(self, tmp_path: Path) -> None:
         vault = _vault(tmp_path)

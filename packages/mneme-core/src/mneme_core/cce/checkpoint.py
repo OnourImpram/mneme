@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from ..privacy import redact
+from ..scope import concrete_scope_or_none
 from ..vault.atomic_write import atomic_write_text
 from ..vault.file_lock import file_lock
 
 _LOCK_TIMEOUT_S = 5.0
+CURRENT_CHECKPOINT_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,24 @@ class Checkpoint:
     prev_anchor: str | None
     items: tuple[WorkingSetItem, ...]
     schema_version: int = 1
+    scope: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.schema_version < 1:
+            raise ValueError("checkpoint schema version must be positive")
+        if self.scope is not None and concrete_scope_or_none(self.scope) is None:
+            raise ValueError("checkpoint scope must be a bounded concrete scope")
+        if self.schema_version >= CURRENT_CHECKPOINT_SCHEMA_VERSION and self.scope is None:
+            raise ValueError("checkpoint schema version 2 requires a concrete scope")
+
+
+def _scope_for_write(cp: Checkpoint) -> str:
+    if cp.schema_version != CURRENT_CHECKPOINT_SCHEMA_VERSION:
+        raise ValueError("only checkpoint schema version 2 can be written")
+    scope = concrete_scope_or_none(cp.scope)
+    if scope is None:
+        raise ValueError("checkpoint schema version 2 requires a concrete scope")
+    return scope
 
 
 def make_anchor(created: str, session_id: str) -> str:
@@ -61,6 +81,7 @@ def render_markdown(cp: Checkpoint) -> str:
     All text fields are passed through :func:`mneme_core.privacy.redact`
     before rendering so ``<private>`` spans never survive to disk.
     """
+    scope = _scope_for_write(cp)
     prev = cp.prev_anchor if cp.prev_anchor is not None else "null"
     lines: list[str] = [
         "---",
@@ -70,6 +91,7 @@ def render_markdown(cp: Checkpoint) -> str:
         f"session_id: {cp.session_id}",
         f"anchor: {cp.anchor}",
         f"prev_anchor: {prev}",
+        f"scope: {json.dumps(scope, ensure_ascii=False)}",
         f"schema_version: {cp.schema_version}",
         "---",
         "",
@@ -107,6 +129,7 @@ def parse_markdown(text: str) -> Checkpoint:
     session_id = ""
     prev_anchor: str | None = None
     schema_version = 1
+    scope: str | None = None
 
     in_frontmatter = False
     frontmatter_done = False
@@ -140,6 +163,19 @@ def parse_markdown(text: str) -> Checkpoint:
                         schema_version = int(val)
                     except ValueError:
                         schema_version = 1
+                elif key == "scope":
+                    if val.startswith('"') and val.endswith('"'):
+                        try:
+                            decoded_scope = json.loads(val)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError("checkpoint scope is not valid JSON") from exc
+                        if not isinstance(decoded_scope, str):
+                            raise ValueError("checkpoint scope must be a string")
+                        scope = decoded_scope
+                    elif val.startswith("'") and val.endswith("'"):
+                        scope = val[1:-1].replace("''", "'")
+                    else:
+                        scope = val
             continue
 
         # --- body parsing ---
@@ -184,6 +220,7 @@ def parse_markdown(text: str) -> Checkpoint:
         prev_anchor=prev_anchor,
         items=tuple(items),
         schema_version=schema_version,
+        scope=scope,
     )
 
 
@@ -214,6 +251,7 @@ def append_index(
         cp: checkpoint to index.
         doc_path: path to the markdown document on disk.
     """
+    scope = _scope_for_write(cp)
     top_salience = max((i.salience for i in cp.items), default=0.0)
     record: dict[str, Any] = {
         "anchor": cp.anchor,
@@ -224,6 +262,8 @@ def append_index(
         "path": str(doc_path),
         "item_count": len(cp.items),
         "top_salience": round(top_salience, 4),
+        "scope": scope,
+        "schema_version": cp.schema_version,
     }
     lock_path = index_path.with_suffix(index_path.suffix + ".lock")
     with file_lock(lock_path, timeout_s=_LOCK_TIMEOUT_S):

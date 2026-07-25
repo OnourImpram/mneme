@@ -25,15 +25,13 @@ import {
 	ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { toMnemeError } from "./errors.js";
+import { redact, redactValue } from "./privacy.js";
 import { isToolError } from "./tool_error.js";
-import {
-	publicToolDefinitions,
-	TOOL_DEFINITIONS,
-} from "./tool_registry.js";
+import { publicToolDefinitions, TOOL_DEFINITIONS } from "./tool_registry.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "3.5.0";
+const SERVER_VERSION = "3.6.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 
@@ -91,7 +89,7 @@ async function main(): Promise<void> {
 								ok: false,
 								error: {
 									code: "UNKNOWN_TOOL",
-									message: `Unknown tool: ${name}`,
+									message: `Unknown tool: ${redact(name).text}`,
 								},
 							},
 							null,
@@ -104,7 +102,7 @@ async function main(): Promise<void> {
 		}
 		try {
 			const result = await def.handler(args ?? {}, vault);
-			const payload = JSON.stringify(result, null, 2);
+			const payload = JSON.stringify(redactValue(result), null, 2);
 			return {
 				content: [{ type: "text", text: payload }],
 				isError: isToolError(result),
@@ -115,7 +113,7 @@ async function main(): Promise<void> {
 				content: [
 					{
 						type: "text",
-						text: JSON.stringify({ ok: false, error: e }, null, 2),
+						text: JSON.stringify(redactValue({ ok: false, error: e }), null, 2),
 					},
 				],
 				isError: true,
@@ -125,12 +123,11 @@ async function main(): Promise<void> {
 
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
-	console.error(
-		`[${SERVER_NAME}] connected v${SERVER_VERSION}, vault=${vault.root}`,
-	);
+	console.error(`[${SERVER_NAME}] connected v${SERVER_VERSION}`);
 }
 
 main().catch((err: unknown) => {
-	console.error("[mneme-mcp] fatal:", err);
+	const message = err instanceof Error ? err.message : String(err);
+	console.error("[mneme-mcp] fatal:", redact(message).text);
 	process.exit(1);
 });

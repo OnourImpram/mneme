@@ -1,214 +1,200 @@
-# Mneme Ten Loop Engineering Report
+# Mneme 3.6.0 Ten Loop Engineering Report
 
-**Status:** In progress on `sol-ultra/mneme-ten-loop-upgrade-20260716`.
+**Status:** Complete.
 
-## Repository identity and change boundary
+**Technical decision:** `GO` for human review and merge consideration. Candidate evidence SHA `17d5651c8405989072287c00f7390de461936551` passed the complete CI matrix, CodeQL, benchmarks, and `release.yml` dry run. The report closeout commit must pass the same exact-head gates before merge.
 
-| Field | Value |
+## Execution identity
+
+| Field | Current value |
 |---|---|
 | Repository | `OnourImpram/mneme` |
-| Original branch | `main` |
-| Starting SHA | `36a2da1dbb713da25852ee6cb77f2b5e0a5798a9` |
-| Upgrade branch | `sol-ultra/mneme-ten-loop-upgrade-20260716` |
-| Pull request | Draft PR 30 |
-| Final SHA | Pending final verification |
+| Starting branch | `main` |
+| Starting SHA | `02641d9c59c354c53733cc065c081fdd9d25836b` |
+| Upgrade branch | `sol-ultra/mneme-ten-loop-upgrade-20260717-r3` |
+| Release-candidate PR | [#36](https://github.com/OnourImpram/mneme/pull/36) |
+| Verified evidence SHA | `17d5651c8405989072287c00f7390de461936551` |
+| Started | 2026-07-18, Europe/Istanbul |
+| Latest published release at start | `v3.5.0` |
+| Target | One unmerged 3.6.0 release candidate PR |
+| Explicitly excluded | Merge, tag, package publish, release publish, history rewrite, user vault mutation |
 
-No commit in this protocol targets `main` directly. No history rewrite, tag change, release deletion, user-vault operation, credential access, or automatic merge is part of the work.
+This run replaces the stale PR 30 report that was present on the starting tree. Evidence from that older branch is not treated as evidence for this release candidate unless reproduced on this branch.
 
-## Baseline environment
+## Baseline truth
 
-The reproducible baseline was captured by the branch-scoped `engineering-preflight` GitHub Actions job before substantive source changes.
+The branch was created from a clean fresh checkout of the exact starting SHA. The target branch did not exist remotely before this run. The normal release workflow was retained. Four temporary 3.6.0 workflows and three ready markers were present on the starting tree and are removed in Loop 1.
+
+At start, the latest release was `v3.5.0`. Pull requests 28, 29, 31, 32, 33, 34, and 35 were open. PR 31 was conflicting and is used only as a hunk-level donor after local tests. PR 35 remains a separate tree-sitter dependency failure lane. Its native crash boundary is now reproduced and recorded below, but the PR remains open until the release-candidate delivery phase.
+
+The primary GitHub CI run was red across the declared Python and Node matrix. The local starting tree also contained stale temporary release automation and did not provide a complete ten-loop evidence report.
+
+## Local environment
 
 | Component | Baseline value |
 |---|---|
-| Runner | GitHub-hosted Linux, x86_64 |
-| Kernel | Linux 6.17 on Azure |
-| Python | 3.12.13 |
-| pip | 26.1.2 |
-| Node | 22.23.1 |
-| npm | 10.9.8 |
+| Operating system | Windows, PowerShell |
+| Python | 3.14.3 |
+| Node | 24.14.0 |
 | pnpm | 9.15.9 |
-| Git | 2.54.0 |
-| Tracked files | 449 |
-| Version sources | 18, all consistent at 3.5.0 |
+| Git | 2.53.0.windows.1 |
+| GitHub CLI | 2.88.1 |
+| GNU Make | Not installed locally |
+| Docker CLI | Available, daemon unavailable during initial Neo4j check |
+| Python packages | Editable installs in branch-local `.venv` |
+| Node packages | Installed from frozen lockfile |
 
-The public CI additionally declares Python 3.11 through 3.14 and Node 22 and 24 across Linux, macOS, and Windows. Those matrices are verified by the final branch CI rather than inferred from the Linux preflight.
+## Baseline command record
 
-## Baseline verification
-
-| Command or suite | Result | Evidence |
+| Command or gate | Baseline result | Current branch evidence |
 |---|---:|---|
-| `make install-dev` | Pass | 20 s |
-| `make test` | Fail | `mneme-graph` native crash, status 139 |
-| `make lint` | Pass | 7 s |
-| `python tools/version_bump.py --check` | Pass | all 18 sources agree |
-| `python tools/spec_verify.py` | Pass | Stop critical-path static invariants |
-| `python tools/repo_integrity.py` | Pass | existing release-integrity rules |
-| Codex validator | Pass | plugin structure accepted |
-| Antigravity validator | Pass | extension structure accepted |
-| `mneme-core` tests | Pass | 1467 passed, 1 skipped, 85.77 percent coverage |
-| `mneme-cc-plugin` tests | Pass | 217 passed, 81.39 percent coverage |
-| `mneme-graph` tests | **Crash** | SIGSEGV or SIGBUS in tree-sitter traversal |
-| `mneme-code` tests | Pass | 119 passed, 94.24 percent coverage |
-| Cross-package parity | Pass | 52 passed |
-| Node build | Pass | TypeScript compiler |
-| Node tests | Pass | 473 passed across 26 files |
-| Node lint | Pass | Biome, 27 source files |
-| `make bench-all` | Pass | all committed synthetic guards passed |
-
-The baseline crash was independently reproduced under Python 3.13 with `tree-sitter 0.26.0`. Downgrading only the binding to 0.25.2 made the same self-analysis test pass, establishing an ABI compatibility fault rather than a flaky Python assertion.
-
-## Baseline benchmark anchors
-
-These values are synthetic, seed-42 regression anchors. They are not evidence of real-world superiority.
-
-| Benchmark | Baseline |
-|---|---:|
-| Synthetic RRF plus BoW surrogate nDCG at 5 | 0.893413 |
-| Synthetic RRF plus BoW surrogate Recall at 10 | 1.000000 |
-| Stop-hook proxy p95 | 0.636 ms |
-| LongMemEval fixture Recall at 1, 5, and 10 | 1.000000 |
-| LongMemEval fixture MRR at 10 | 1.000000 |
-| CCE synthetic self-heal recall | 1.000000 |
-| CCE synthetic gain over baseline | 0.600000 |
-
-## Repository truth model
-
-A capability is classified as shipped only when an ordinary user can reach it through a documented, packaged, and tested path.
-
-| Capability | Classification at start | Reachable path |
-|---|---|---|
-| Markdown durable store | Shipped | Python core and hooks write vault markdown |
-| FTS5 MCP search | Shipped | install, index, `mneme_search`, TypeScript handler |
-| Nine MCP tools | Shipped | MCP `ListTools`, call handler, package binary |
-| Claude Code integration | Shipped | six registered hook events, commands, two skills, MCP |
-| Codex integration | Shipped | four mapped hooks, two skills, MCP |
-| Antigravity integration | Shipped | four mapped hooks, two skills, MCP |
-| Generic MCP clients | Shipped, non-native | nine tools, no lifecycle capture |
-| Graphiti and Neo4j enrichment | Gated | full profile, credentials, local service |
-| Deterministic temporal claim lifecycle | Shipped | Python core CLI and SQLite state |
-| Context Continuity Engine | Opt in | config-gated hooks plus two MCP tools |
-| Feature-hashed lexical-vector backend | Experimental and disconnected | Python API and benchmark harness only |
-| Real semantic embedding backend | Roadmap | adapter protocol only, no packaged model |
-| RRF in production MCP search | Not shipped | Python API and synthetic benchmark only |
-| Team git synchronization | Opt in | Python CLI, operator-supplied git remote |
-| Age encryption | Gated | external `age` executable |
-| Local web console | Opt in | loopback-only Python server |
-
-## Master issue ledger
-
-| ID | Loop | Severity | Category | Subsystem | Evidence and impact | Planned or completed correction | Status |
-|---|---:|---|---|---|---|---|---|
-| MNEME-001 | 1 | P1 | Reliability | mneme-graph | `tree-sitter 0.26.0` terminates graph builds with SIGSEGV or SIGBUS | Constrained to the tested 0.25 ABI, added a pre-parse runtime guard and six regression tests | Resolved in Loop 2, branch CI pending |
-| MNEME-002 | 1 | P1 | API contract | MCP schemas | Hand-authored `ListTools` schema omits runtime-supported `scope` and canonical memory types | Generated MCP Draft 7 input schemas from runtime Zod schemas and added registry plus end-to-end contract tests | Resolved in Loop 2, branch CI pending |
-| MNEME-003 | 1 | P1 | Isolation | FTS5 | A restricted query against a legacy index silently skips scope filtering | Fail closed and require rebuild, while preserving explicit `scope="*"` | Open |
-| MNEME-004 | 1 | P1 | Isolation | Graphiti and Neo4j | Restricted Cypher admits legacy `scope IS NULL` nodes | Exclude unscoped nodes from restricted queries and test query construction | Open |
-| MNEME-005 | 1 | P1 | Claim integrity | Retrieval | README advertises an installer flag and an MCP dense path that do not exist | Reclassify feature hashing and RRF as experimental, disconnected surfaces | In progress |
-| MNEME-006 | 1 | P2 | CI | TypeScript | Vitest thresholds are declared but `pnpm test` does not activate coverage | Add an explicit coverage script and invoke it in CI | Open |
-| MNEME-007 | 1 | P2 | Documentation | Clients and MCP | Six, seven, and nine tool claims coexist. Five and six hook claims coexist | Reconcile all current user surfaces and add integrity checks | In progress |
-| MNEME-008 | 1 | P2 | Privacy and legal | Privacy documentation | Categorical GDPR status and file or network claims exceed code evidence | Scope technical claims and remove legal conclusions | Open |
-| MNEME-009 | 1 | P2 | Error handling | Graph extraction | Public registry swallows containment violations under a broad `Exception` | Preserve fail-soft parsing while propagating security-boundary violations | Open |
-| MNEME-010 | 1 | P2 | Observability | Retrieval telemetry | Backend labels can describe interfaces not executed by the MCP path | Derive provenance only from executed results and document path truth | Open |
-| MNEME-011 | 1 | P2 | Benchmark integrity | Evaluation | Headline retrieval numbers use a title-anchored synthetic corpus and BoW surrogate | Label every public use as synthetic and publish ablations and limitations | Open |
-| MNEME-012 | 1 | P2 | Supply chain | Packaging | Native tree-sitter dependency had no upper compatibility bound | Pinned `tree-sitter>=0.25,<0.26`, added runtime compatibility diagnostics and clean-suite verification | Resolved in Loop 2, branch CI pending |
-
-Each resolved entry is updated with its implementation commit, test command, benchmark consequence, compatibility effect, and final status before release review.
+| Python core Ruff | Pass | Re-run after each Python change |
+| Python core strict mypy | Pass | Re-run after each Python change |
+| TypeScript build | Pass | Re-run after each TypeScript change |
+| TypeScript Biome | Fail at start | Full source and test tree clean before commit partitioning |
+| Python core tests | Two environment-bound failures at start | 1665 passed, 14 skipped, 84.24 percent coverage |
+| MCP tests | Four environment-bound failures at start | 619 passed, 6 skipped. Statements 87.58 percent, branches 80.87 percent, functions 92.90 percent, lines 88.58 percent |
+| `spec_verify.py` | Pass | Pass, 6 hooks checked against 7 forbidden roots |
+| `repo_integrity.py` | Pass before strengthened rules | Strengthened rules pass locally |
+| Plugin validators | Existing validators pass | Claude, Codex, and Antigravity validators pass |
+| Version sources | 18 sources at 3.5.0 | All 18 sources agree on 3.6.0 |
 
 ## Invariant ledger
 
-| Invariant | Enforcement at start | Protocol action |
-|---|---|---|
-| Markdown is durable ground truth | Architecture plus storage tests | Preserve |
-| Derived indexes are rebuildable | FTS5 and graph rebuild commands | Preserve and test clean rebuild |
-| Stop has no LLM dependency | `spec_verify.py`, hook tests | Re-run every loop |
-| Stop has no external network dependency | static verifier and architecture | Re-run and qualify documentation |
-| Stop remains below 1000 ms p95 | latency guard | Measure before and after |
-| Private spans do not enter downstream stores | Python and TypeScript tests | Expand sync and connector adversarial coverage |
-| Retrieved content remains untrusted | neutralization and capability firewall tests | Red-team Markdown, KG, and checkpoint paths |
-| Paths cannot escape the vault | containment utilities and tests | Audit symlinks, race windows, and error swallowing |
-| Restricted reads cannot return another scope | partial tests | Fail closed on legacy or unscoped stores |
-| Cross-scope reads require explicit `scope="*"` | tool convention | Make schema visible and add public contract tests |
-| Durable autonomous edits require policy | proposal queue and Python drain | Verify direct-write distinction and document authorization boundary |
-| Sensitive categories require human approval | policy engine tests | Preserve |
-| Autonomous edits are journalled and reversible | journal and rollback tests | Fault-inject and re-run |
-| Audit-chain tampering is detectable | HMAC chain tests | Re-run and review key permissions |
-| Migration is idempotent and non-destructive by default | migration tests | Package smoke and rollback review |
-| Public schemas equal runtime validation | Not enforced | Generate from Zod and test |
-| Documentation describes reachable behavior | Drift present | Add repository-integrity checks |
-| Benchmarks are reproducible and synthetic labels are explicit | Partial | Correct every headline and retain seed and hardware metadata |
-| Optional dependencies remain optional | Package extras | Clean lite install smoke test |
-| Core works without cloud accounts | Default architecture | Verify offline and qualify installation-network claims |
+| Invariant | Enforcement state |
+|---|---|
+| Markdown remains durable ground truth | Preserved. Derived index rebuilds do not rewrite ground truth |
+| Concrete scope reads never widen on legacy derived data | Implemented and verified for Python FTS5, Node prime, and CCE |
+| Cross-scope reads require exact explicit `*` | Shared Python and TypeScript scope contracts implemented |
+| Durable writes reject `*` | Write, proposal, queue, checkpoint, temporal export, and KG staging paths reject it |
+| Private spans are redacted before every durable or provider sink | Compression, FTS5, telemetry, connector, sync, KG, Graphiti, and proposal paths covered |
+| Vault writes fail closed on symlink, reparse, and parent identity changes | Guarded Python and TypeScript atomic writes implemented with adversarial tests |
+| Python and TypeScript serialize audit and proposal writes | Shared O_EXCL lock paths, sequence, and keyed seal verified across both runtimes |
+| Audit tail truncation is detectable | Cross-language append and truncation fixture verifies the shared keyed daily seal |
+| Rollback requires current hash equality | Implemented and regression tested |
+| Stop performs no network or LLM calls | Runtime spies reject socket, HTTP, provider, and compression calls. The full-profile test passed |
+| Stop p95 is less than 1000 ms | Full handler over real temporary files remains below budget. Exact candidate Stop proxy p95 is 4.704 ms |
+| Temporal visibility is deterministic and scope isolated | Implemented for SQLite claims and Graphiti query planning. The Neo4j service-container integration passed on pre-final code SHA `c237247` |
+| Documentation describes reachable behavior only | Capability classes, temporal behavior, lexical surrogate limits, and package boundaries independently reviewed |
+| No tag, release, publish, or merge occurs in this run | Enforced by execution boundary |
 
-## Loop 1. Repository truth and architectural consistency
+## Issue ledger
 
-### Inspection and model
+| ID | Severity | Loop | Finding | Current disposition |
+|---|---:|---:|---|---|
+| MNEME-R3-001 | P1 | 1 | Temporary release workflows and ready markers made repository truth invalid | Removed. Actionlint 1.7.7 and strengthened integrity gates pass after commit partitioning |
+| MNEME-R3-002 | P1 | 2 | Public MCP schemas could drift from runtime Zod behavior | Registry now derives Draft 7 schemas from Zod and tests all nine tools |
+| MNEME-R3-003 | P1 | 2 | CCE read tools lacked scope contracts | Optional scope and legacy default-only rules implemented |
+| MNEME-R3-004 | P1 | 3 | Atomic writes did not fully guard parent replacement races | Descriptor and parent identity checks added in Python and TypeScript |
+| MNEME-R3-005 | P1 | 3 | Proposal queue append and drain could lose concurrent records | Shared lock, bounded append, atomic claim, and preservation archives added |
+| MNEME-R3-006 | P1 | 3 | Audit truncation at the tail was not detectable | Sequence and keyed daily seal added |
+| MNEME-R3-007 | P1 | 3 | Stale rollback could overwrite a newer file | Current hash comparison required before rollback |
+| MNEME-R3-008 | P1 | 4 | Concrete-scope FTS5 queries trusted legacy unscoped indexes | They now fail closed and require rebuild. Exact `*` remains explicit |
+| MNEME-R3-009 | P2 | 4 | Retrieval telemetry conflated attempted and contributing backends | Four backend states implemented |
+| MNEME-R3-010 | P1 | 5 | Graph reads had scope clauses without a bound live ingestion group | KG staging and worker now bind deterministic Graphiti `group_id` |
+| MNEME-R3-011 | P1 | 5 | `as_of_applied` could describe configuration rather than a successful snapshot query | It is true only after a successful transaction-time graph query |
+| MNEME-R3-012 | P1 | 6 | Checkpoint rehydration could select another scope and was injected outside the untrusted-memory fence | Scope-aware bounded lookup and untrusted wrapping implemented |
+| MNEME-R3-013 | P2 | 6 | Capture and audit failures could be silent | Closed. Failure visibility and accountable failure paths pass lifecycle and privacy review |
+| MNEME-R3-014 | P2 | 7 | Local Docker daemon unavailable for live Neo4j proof | Closed by the Neo4j service-container integration on pre-final code SHA `c237247` |
+| MNEME-R3-015 | P2 | 8 | Clean artifact and migration rollback proof was incomplete | Closed. Final 3.6.0 verifier passed 21 required checks across 12 artifacts |
+| MNEME-R3-016 | P2 | 9 | Competitive and semantic capability claims require official-source correction | Closed. Official-source classes, immutable repository links, evidence types, and terminology pass OSS maintainer re-review |
+| MNEME-R3-017 | P1 | 7 | Expanding the tree-sitter upper bound to 0.26 admits a native ABI access violation during full graph extraction | Windows exit `0xC0000005` reproduced with the runtime guard intentionally bypassed. The `<0.26` metadata bound and pre-parse guard remain enforced. PR 35 was closed with the evidence |
+| MNEME-R3-018 | P1 | 10 | A manual release workflow dispatch could reach publish jobs without a tag-push event | Resolve and all seven publish jobs now require a tag push. Independent release review found no remaining P0 or P1 |
+| MNEME-R3-019 | P1 | 4 | Python retrieval could widen concrete legacy reads, use an unkeyed query digest, and lose structured RRF fields | Concrete scopes fail closed, per-vault HMAC is used, and canonical dedup preserves hash, trust, confidence, and provenance |
+| MNEME-R3-020 | P1 | 4 | Node prime did not enforce the same legacy scope and Turkish normalization rules as search | Concrete legacy reads now fail closed and prime queries both CLDR and ASCII Turkish forms |
+| MNEME-R3-021 | P1 | 5 | Temporal current-time evaluation drifted across calls and stale or invalid derived claims remained queryable | One UTC snapshot is reused, invalid windows are rejected, and stale claims are pruned deterministically |
+| MNEME-R3-022 | P1 | 5 | Temporal ambiguity and transaction-time provenance were inconsistent across paths | Ambiguity is canonicalized and observation time is no longer inferred from valid time |
+| MNEME-R3-023 | P1 | 3 | Private mapping keys could reach compression staging, audit field paths, and KG records | Recursive key redaction with deterministic collision suffixes is applied before every sink |
+| MNEME-R3-024 | P1 | 3 | A TypeScript audit suffix did not advance the shared seal and could be truncated undetected | Both runtimes now advance one sequence and seal. Partial writes restore chain and seal snapshots |
+| MNEME-R3-025 | P1 | 3 | Python telemetry used an unkeyed query digest | A separate 32-byte per-vault HMAC key is created with exclusive, symlink-rejecting semantics |
+| MNEME-R3-026 | P1 | 8 | Migration metadata could bypass redaction before hashes, frontmatter, tags, and body generation | Every observation string column is redacted before derivation. Migration revision 3 preserves rollback compatibility |
+| MNEME-R3-027 | P2 | 7 | Refused console POST requests intermittently reset on Windows when the body was left unread | The handler discards at most 1 MiB before `405`. The 21-case file passed five consecutive runs, 105 tests total |
+| MNEME-R3-028 | P1 | 9 | Benchmark A treated duplicate logical documents as distinct and overstated fused nDCG | Metrics now use canonical document identities. Production FTS5 is the headline and the lexical surrogate underperforms it |
+| MNEME-R3-029 | P1 | 8 | Stable source aliases such as macOS `/var` and `/private/var` could be misclassified during migration finalization | Stable parent aliases are canonicalized after signed-manifest verification. New manifests bind and use the canonical operational source path |
+| MNEME-R3-030 | P1 | 8 | Canonical or lexical absolute paths could remain visible in migration diagnostics | Drive, UNC, POSIX, and file-URI paths are redacted after delimiters while structural closing punctuation is retained |
+| MNEME-R3-031 | P1 | 10 | Python 3.11 Windows could exceed the one-second proposal queue lock budget during concurrent durable flushes | The shared queue contract now waits up to 30 seconds and treats a lock as stale after 60 seconds. The 80-write latency regression and the Python 3.11 Windows matrix pass |
+| MNEME-R3-032 | P1 | 8 | A signed schema v2 manifest with a lexical source alias did not bind a signed canonical restore target | Automatic move finalization, interrupted recovery, and source restoration fail closed for an unbound alias. The signed archive is preserved for manual hash-verified recovery |
+| MNEME-R3-033 | P2 | 8 | Generic path redaction can consume terminal `.`, `!`, `?`, or `:` punctuation | Accepted as a privacy-conservative cosmetic limitation. Paths remain redacted and closing brackets, parentheses, commas, and semicolons are preserved |
+| MNEME-R3-034 | P1 | 10 | The final Windows Python 3.11 and 3.13 matrix reproduced lost session blocks because Stop used a 0.5-second lock budget despite the documented five-second contract | Production now uses five seconds. A test-only 0.2-second deadline preserves the fail-soft latency fixture, and the eight-writer regression passed 12 consecutive Windows stress runs |
 
-The full tracked repository, package manifests, client manifests, workflows, public commands, design documents, benchmark baselines, and documentation surfaces were inventoried. The authoritative starting state contains four Python distributions, one npm package, three native client integrations, nine MCP tools, six registered Claude Code hook events, four mapped Codex hook events, four mapped Antigravity events, five workflows, 24 public documentation files, eight P2 design documents, and 18 lockstep version sources.
+## Loop scorecard
 
-### Findings
+| Loop | Status | Evidence summary |
+|---:|---|---|
+| 1 | Complete | Repository recovery, actionlint 1.7.7, version, license, Node, tool, and manifest gates pass locally and remotely |
+| 2 | Complete | Shared scope contracts and nine-tool schema/runtime parity pass |
+| 3 | Complete | Atomic writes, cross-language audit, rollback, queue, and sink redaction pass adversarial fixtures |
+| 4 | Complete | Scoped retrieval, Turkish behavior, canonical RRF, telemetry states, and benchmark gate pass |
+| 5 | Complete | Deterministic temporal isolation passes locally and the real Neo4j service integration proves `group_id` isolation in CI |
+| 6 | Complete | Scope-aware CCE, poisoned and stale input handling, and no-network Stop behavior pass |
+| 7 | Complete | Performance and fault matrix pass. Tree-sitter 0.26 crash boundary is reproduced and guarded |
+| 8 | Complete | Final 3.6.0 package verifier passes 21 required checks and verifies 12 artifacts |
+| 9 | Complete | Official-source capability classes and honest lexical-surrogate language pass independent review |
+| 10 | Complete | Four independent reviews, version bump, exact-head matrices, CodeQL, benchmarks, package dry run, clean-clone proof, and PR governance pass |
 
-The baseline was not green because the graph package crashed in native code. Public descriptions also disagreed on tool count, hook count, retrieval wiring, dense terminology, current package status, and license. The production MCP search path was traced from `ListTools` through Zod validation, the TypeScript handler, read-only FTS5, EvidenceCard construction, telemetry, and the returned result. That path executes FTS5 only. The feature-hashed vector implementation and RRF fusion are currently Python-library and benchmark surfaces, not an installed MCP capability.
+## Verified targeted results
 
-### Changes
+1. Guarded Python proposal queue tests passed repeatedly with concurrent writers and no record loss. The final 80-write fixture injects 20 ms durable-flush latency across 12 workers.
+2. TypeScript proposal queue build and tests passed, including active contention, stale-lock recovery, and non-disclosing errors. The shared lock wait and stale thresholds are 30 and 60 seconds.
+3. Python audit concurrency passed five consecutive stress runs. Tail truncation, missing seal, cross-language suffix, and restoration fault tests passed.
+4. CCE loss detection and scoped checkpoint lookup passed 25 tests. Claude checkpoint rehydration passed 20 tests and is fenced as untrusted input.
+5. KG staging, worker, provider redaction, deterministic group binding, and graph export passed 65 tests.
+6. Final local Python results were core 1665 passed and 14 skipped at 84.24 percent coverage, CC plugin 236 passed at 81.58 percent, graph 404 passed and 2 skipped at 87.25 percent, code 119 passed at 93.40 percent, parity 52 passed, and tools 22 passed in three consecutive runs.
+7. Final local Node results were 619 passed and 6 skipped. Coverage was 87.58 percent statements, 80.87 percent branches, 92.90 percent functions, and 88.58 percent lines. Biome and the strict TypeScript build passed.
+8. Lifecycle and Stop tests passed 12 cases. The exact candidate Stop proxy measured p95 4.704 ms, below 1000 ms, and network and LLM spies observed no forbidden call.
+9. The exact candidate seven-surface synthetic benchmark gate passed on the production Python FTS5 path. Recall@10 was 1.0, Precision@10 was 0.1, MRR was 0.7336666667, nDCG@10 was 0.8006292454, and retrieval p95 was 3.797255 ms.
+10. `actionlint` 1.7.7 was downloaded from its official release, its Windows archive checksum was verified against the official checksum file, and every current workflow passed locally.
+11. An isolated tree-sitter 0.26.0 environment with tree-sitter-python 0.25.0, tree-sitter-javascript 0.25.0, and tree-sitter-typescript 0.23.2 reproduced Windows native exit `-1073741819` (`0xC0000005`) while the full graph suite walked `_extract_callee_name`. The probe intentionally bypassed Mneme's runtime guard. The supported 0.25.2 environment remains pinned, and normal execution rejects 0.26 before parsing.
+12. The focused fault matrix passed 39 Python tests with 4 Windows-inapplicable skips and 120 Node tests with 1 skip. It covered concurrent writers, lock contention, stale locks, tail truncation, malformed JSONL and keys, invalid scope config, corrupt SQLite, migration rename boundaries, and simulated process crashes.
+13. Four independent reviews covered release integrity, privacy boundaries, retrieval and temporal correctness, and open-source maintainability. All reported P0 and P1 findings were fixed and re-fixtured. The final migration re-review reported zero P0 or P1 and one disclosed P2 for privacy-conservative terminal punctuation loss.
+14. Ruff and strict mypy passed all four Python source packages. A wider Ruff pass also covered tools, benchmarks, and parity tests. The console refusal test file passed five consecutive runs after its Windows body-consumption fix.
+15. Migration integration passed 54 tests with 1 platform skip. New canonical manifests retain automatic move and rollback. Signed legacy lexical-alias manifests fail closed before quarantine or restoration and preserve the archive for manual hash-verified recovery.
+16. Candidate evidence SHA `17d5651` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29649759486), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29649759485), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29649759470), and [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29649763427) with `dry_run=true` and `target_version=3.6.0`. Every publish job was skipped.
+17. GNU Make 4.3 ran the declared `make install-dev`, `make test`, and `make lint` targets in a fresh native WSL clone using Python 3.12.3, Node 24.14.0, and pnpm 9.15.9. The official Node archive checksum passed. The clean Linux Node surface ran 625 tests and remained above all 80 percent coverage gates.
 
-Current public surfaces are being reconciled to nine tools, six registered Claude Code hook events, and FTS5-only production MCP search. The report, issue ledger, invariant ledger, and truth model establish the evidence base for later loops.
+These results were reproduced after the ten commits were partitioned. The immutable candidate identity is deliberately recorded by the PR head and GitHub check suite rather than embedded in its own commit content.
 
-### Verification
+## Benchmark record
 
-`python tools/version_bump.py --check`, `python tools/spec_verify.py`, and `python tools/repo_integrity.py` passed at baseline. Updated integrity gates and all documentation links are re-run at the end of the loop.
+The exact candidate seven-surface gate used deterministic synthetic input with seed 42, 500 documents, 50 queries, cutoff 10, and the production Python FTS5 path. All seven surfaces passed. Retrieval quality measured Recall@10 1.0, Precision@10 0.1, MRR 0.7336666667, and nDCG@10 0.8006292454. Retrieval p95 was 3.797255 ms. Index build took 1185.2386 ms at 421.856 documents per second, produced a 1,175,552 byte index, and Python peak allocation was 4,898,636 bytes. LongMemEval and LoCoMo pinned-schema fixtures scored 1.0 and rejected malformed input. The RRF plus feature-hashing lexical surrogate scored nDCG@10 0.54056 and Recall@10 0.82, below production FTS5. It is therefore an ablation only and is not described as semantic or dense retrieval. Raw local evidence is `benchmarks/_runs/mneme-3.6-rc-gate-exact-sha.json`, which remains ignored as generated state. Results are synthetic regression evidence, not a cross-product comparison.
 
-## Loop 2. Functional correctness and API contracts
+## Package record
 
-### Inspection and model
+The exact candidate 3.6.0 package verifier passed all 21 required checks and recorded outcome `pass` in ignored local evidence `benchmarks/_runs/package-rc-3.6.0-exact-sha.json`. It built and inspected four wheels, four sdists, one npm tarball, one deterministic Claude plugin tarball, one MCP registry metadata artifact, and one SHA256 manifest, for 12 artifacts total. The npm tarball SHA256 is `9972f9dd6e951cd00d69d2c1e4816c9de84ae97bd7cd78f14ffada1f7d7bdc6e`. The SHA256 manifest artifact digest is `ceb814bae857f391a6caae3864325038481c808996adcc89f66778ad2299bbab`. Clean wheel and npm installation and uninstall, Claude plugin lifecycle, generic client stanza lifecycle, profile switching, claude-mem migration idempotency and rollback, destructive guard, archive safety, metadata agreement, and tree-sitter bounds passed. The first precommit attempt correctly failed because the release workflow prerequisite `hatchling` was absent. After installing `build` and `hatchling`, both the precommit and exact candidate verifiers passed. Official `mcp-publisher` binary validation was unavailable locally and remains an optional external check. No artifact was published.
 
-The MCP request path was re-traced from `tools/list` to runtime validation for all nine tools. The server maintained two independent input contracts: hand-authored JSON objects in `src/index.ts` and Zod schemas in each handler module. The public contract was narrower than runtime behavior. In particular, every scope-aware tool validated `scope`, but no MCP client could discover it from `tools/list`, and the search type enum advertised only three of eleven canonical memory types. Separately, graph extraction was reproduced in isolated child processes to distinguish Python exceptions from native-process termination.
+## Governance record
 
-### Findings
+At start, Dependabot vulnerability alerts were disabled and `main` branch protection allowed administrator bypass. The GitHub API was used to enable vulnerability alerts and set `enforce_admins` to true. A second API read verified HTTP 204 for the alerts endpoint and `enforce_admins: true`. Release-candidate PR [#36](https://github.com/OnourImpram/mneme/pull/36) is open with the required title. PR 28 remains open as a separate dependency lane. PRs 29, 31, 32, 33, and 34 were commented with unique-diff inventories and closed as superseded. PR 35 was commented with the reproduced tree-sitter 0.26 native crash and closed. None was merged.
 
-The MCP mismatch was architectural rather than a single missing field. Any future Zod change could drift silently because CI had no schema-parity assertion. The recall schema also contained a refinement that was unconditionally true. The graph failure was a repeatable native ABI incompatibility between `tree-sitter 0.26.0` and the released language wheels. It caused SIGSEGV or SIGBUS rather than a catchable exception, so fail-soft Python wrappers could not contain it.
+GNU Make is unavailable in the Windows host shell, so GNU Make 4.3 was run in a fresh native WSL clone. `make install-dev`, `make test`, and `make lint` passed with Python 3.12.3, the checksum-verified official Node 24.14.0 Linux binary, and pnpm 9.15.9. Editable imports for all four Python packages resolved to that exact clone at 3.6.0. The global Windows Python installation emits a stale invalid distribution warning for `~neme-cc-plugin`; isolated package installation passed and the warning is classified as a local environment P2.
 
-### Changes
+## Website record
 
-A new `tool_registry.ts` is now the single registry for tool names, descriptions, runtime handlers, and Zod schemas. MCP Draft 7 input schemas are generated with `z.toJSONSchema(..., {io: "input"})` from those authoritative runtime schemas. Scope, defaults, bounds, date patterns, all canonical memory types, and field descriptions are therefore visible to clients without duplication. The no-op recall refinement was removed, scope length is consistently bounded, and high-cost text inputs received explicit maximum lengths.
+The existing self-contained GitHub Pages site was updated on its dedicated `gh-pages` branch without changing the application or package trees. Pages commit [`45b6890`](https://github.com/OnourImpram/mneme/commit/45b6890a000617a5a54467caea85079b8b97c8ab) keeps 3.5.0 as the published stable version and presents 3.6.0 explicitly as a release candidate that has not been merged, tagged, or published. The site now records scope isolation, deterministic temporal planning, legacy index rebuild compatibility, the 19-check candidate matrix, and the exact synthetic benchmark metrics. Feature hashing is described only as an experimental lexical-vector ablation, never as semantic or dense retrieval. The former cross-product comparison table was replaced with Mneme's evidenced default, opt-in, experimental, and not-shipped boundaries.
 
-The graph package now constrains `tree-sitter` to the tested 0.25 ABI line. Both native extractors call a compatibility guard before parsing so an overridden incompatible dependency fails with a diagnostic Python exception instead of entering known-unsafe native traversal. Six compatibility tests cover the supported release, unsupported older and newer releases, and malformed version metadata. The complete extractor suite independently exercises both guarded native extractors.
+HTML parsing found one H1, no duplicate IDs, no missing local anchors, valid JSON-LD with `softwareVersion` 3.5.0, alt text on every image, and `noopener` on all 18 new-tab links. Desktop at 1440 by 1000 and mobile at 390 by 844 passed Playwright visual inspection, interactive menu, FAQ, copy-state, console, overlap, and overflow checks. The mobile document width remained exactly 390 pixels. Lighthouse on the local preview scored 83 performance, 100 accessibility, 82 best practices, and 100 SEO. The remaining best-practices deduction was the expected localhost HTTP result. GitHub, pinned candidate documents, PR 36, PyPI, Pages, and MCP Registry links returned HTTP 200. The npm website returned an automated Cloudflare challenge, while `npm view mneme-mcp-server version` independently confirmed published stable version 3.5.0.
 
-### Verification
+GitHub Pages reported status `built` at exact commit `45b6890a000617a5a54467caea85079b8b97c8ab`. A no-cache live fetch and a second Playwright pass confirmed the release-candidate heading, not-published label, stable 3.5.0 JSON-LD value, responsive mobile boundary layout, zero page overflow, and zero browser console warnings at [the live site](https://onourimpram.github.io/mneme/).
 
-The complete graph suite passes with 406 tests and 91.06 percent coverage under Python 3.13.5. Ruff and strict mypy pass for the graph package. The exact self-analysis reproducer that previously terminated the process now succeeds. New TypeScript registry tests assert nine tools, generated-schema identity, visible scope on all six scope-aware tools, all eleven canonical memory types, numeric defaults and limits, and nested date patterns. The stdio integration test independently checks the `tools/list` scope contract. TypeScript build, test, and lint verification is delegated to the branch CI matrix because the local execution container cannot download the locked pnpm runtime.
+Website documentation head `6e8520f` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29651790795), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29651790813), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29651790796), and the exact-head [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29651794839). All 30 reported PR checks succeeded. The dry-run summary passed and every package, registry, and marketplace publication job was skipped.
 
-## Loop 3. Security, privacy, and adversarial vault content
+The subsequent checklist-only head exposed MNEME-R3-034 in two Windows jobs while every Linux and macOS Python job passed. The focused fail-soft, p95, and eight-writer tests passed locally after the correction. The eight-writer test then passed 12 additional consecutive Windows stress runs. The complete plugin suite passed 237 tests at 81.58 percent branch coverage, and Ruff, strict mypy, version agreement, specification verification, and repository integrity passed before the corrected head was created.
 
-Pending completion.
+Corrected code head `72b8986` passed [CI](https://github.com/OnourImpram/mneme/actions/runs/29653117797), [CodeQL](https://github.com/OnourImpram/mneme/actions/runs/29653117799), [benchmarks](https://github.com/OnourImpram/mneme/actions/runs/29653117806), and the exact-head [`release.yml` dry run](https://github.com/OnourImpram/mneme/actions/runs/29653125419). All 21 CI jobs passed. The Windows Python 3.11 and 3.13 jobs that reproduced MNEME-R3-034 both passed on the corrected code.
 
-## Loop 4. Retrieval quality and memory semantics
+## Residual risks
 
-Pending completion.
+1. The local Docker daemon was unavailable. The required real Neo4j test passed in the GitHub service container on evidence SHA `17d5651`.
+2. Existing SQLite test helpers emit some `ResourceWarning` messages. Connection lifecycle cleanup remains a nonblocking P2.
+3. The local rollback manifest retains exact source and vault paths because rollback must identify the original local resources. The public migration manifest and emitted diagnostics are redacted. The local manifest is a documented P2 privacy boundary and must remain local-only.
+4. Signed schema v2 manifests that recorded only a lexical source alias do not contain a signed canonical restore target. Automatic source finalization and restoration fail closed. The signed archive is preserved for manual hash-verified recovery.
+5. Generic diagnostic path redaction can consume terminal `.`, `!`, `?`, or `:` punctuation. This is cosmetic and privacy-conservative.
+6. Official documentation pages without versioned URLs remain mutable. `COMPETITIVE.md` records the access date and pins repository sources, but cannot make third-party documentation immutable.
+7. Some prerelease tag patterns can start the release workflow before preflight rejects a non-final target version. Publish jobs still require a tag push and verified preflight artifacts.
+8. The local global Python site-packages contains a stale invalid distribution warning. Isolated package verification is clean.
+9. The official `mcp-publisher` binary was unavailable locally. Repository metadata validation passed, and publisher validation remains an optional external gate.
+10. Local policy prevented a final local Git commit. Remote commits were created through the GitHub Git Data API without force. Two fresh clones of evidence SHA `17d5651` had empty tracked status, passed `git fsck`, and produced zero high-confidence secret-pattern hits. The report closeout head must retain the same clean-state proof before merge.
 
-## Loop 5. Temporal memory, graph memory, and isolation
+## Final decision
 
-Pending completion.
-
-## Loop 6. Memory lifecycle and context continuity
-
-Pending completion.
-
-## Loop 7. Performance, concurrency, resilience, and portability
-
-Pending completion.
-
-## Loop 8. Integration, migration, packaging, and developer experience
-
-Pending completion.
-
-## Loop 9. Competitive capability gap closure
-
-Pending completion.
-
-## Loop 10. Release candidate hardening and independent final review
-
-Pending completion.
-
-## Final verification and release decision
-
-Pending completion. No release-readiness claim is made before the clean final matrix, package builds, installation smoke tests, benchmark guards, and four independent adversarial reviews complete.
+**GO for human review and merge consideration.** There are zero open P0 or P1 findings. Candidate evidence SHA `17d5651` passed the complete Python 3.11 through 3.14, Node 22 and 24, Linux, macOS, and Windows matrix, plus CodeQL, seven benchmark surfaces, real Neo4j integration, package verification, and the exact-head release dry run. Governance and clean-clone checks are complete. Disclosed P2 risks remain listed above. The report closeout commit must remain green at its own exact PR head. Human approval, merge, tag, and publication remain separate external gates and were not performed.

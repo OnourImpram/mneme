@@ -147,9 +147,7 @@ describe("renderInjection — keypoints without points (empty keyPoints fallback
 	it("renders H2 + see-path only when keyPoints is empty", () => {
 		const doc = { ...BASE_DOC, keyPoints: [] };
 		const result = renderInjection(doc, "keypoints");
-		expect(result).toBe(
-			"## My Session Note\n\nSee `notes/2026-05-24.md`.\n",
-		);
+		expect(result).toBe("## My Session Note\n\nSee `notes/2026-05-24.md`.\n");
 	});
 });
 

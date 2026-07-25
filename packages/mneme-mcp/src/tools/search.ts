@@ -9,16 +9,17 @@
 import { existsSync } from "node:fs";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import { ERROR_CODES } from "../errors.js";
+import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
-import { normalizeTr } from "../locale/tr.js";
+import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
 import { redact } from "../privacy.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
 import {
 	computeQueryHash,
 	emitSearchTelemetry,
 } from "../retrieval/telemetry.js";
+import { ScopeSchema } from "../scope.js";
 import type { VaultConfig } from "../vault/config.js";
 import {
 	DEFAULT_STOPWORDS,
@@ -100,13 +101,9 @@ export const SearchInputSchema = z.object({
 	 * Scope filter. Omit to use config.defaultScope(). Pass "*" for
 	 * cross-scope. Skipped when the index lacks the scope column.
 	 */
-	scope: z
-		.string()
-		.max(256)
-		.describe(
-			"Scope to search. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
-		)
-		.optional(),
+	scope: ScopeSchema.describe(
+		"Scope to search. Omit for the configured default scope. Pass '*' only for an explicit cross-scope query.",
+	).optional(),
 });
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;
@@ -231,8 +228,9 @@ function extractQueryTokens(
 
 /**
  * Read the normalization_profile row from index_meta if the table and row
- * exist. Returns null when the table is absent or the row is missing (legacy
- * index — soft-degrade). Throws only on unexpected I/O failures.
+ * exist. Returns null when the table is absent or the row is missing so the
+ * caller can reject an unverified legacy index. Throws only on unexpected
+ * I/O failures.
  */
 function readIndexProfile(dbPath: string): string | null {
 	const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -288,13 +286,7 @@ export function searchTool(
 	try {
 		indexProfile = readIndexProfile(vault.fts5Db);
 	} catch (err) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+		return { ok: false, error: toMnemeError(err) };
 	}
 
 	if (indexProfile !== null && indexProfile !== QUERY_SIDE_NORMALIZER_PROFILE) {
@@ -308,12 +300,15 @@ export function searchTool(
 	}
 
 	if (indexProfile === null) {
-		// Legacy index — no profile row. Soft-degrade: log and proceed.
-		// (console.warn is acceptable; this is not on a critical/Stop path.)
-		console.warn(
-			"[mneme-mcp] index_meta.normalization_profile absent — " +
-				"legacy index detected; proceeding without locale validation.",
-		);
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+				message:
+					"The FTS5 index has no normalizer profile and cannot be trusted for locale-sensitive retrieval. " +
+					"Run 'mneme-core index rebuild --locale tr' before retrying.",
+			},
+		};
 	}
 
 	const ftsQuery = buildFts5Query(args.query, {
@@ -321,7 +316,14 @@ export function searchTool(
 		stopwords: DEFAULT_STOPWORDS,
 		normalize: normalizeTr,
 	});
-	if (ftsQuery.length === 0) {
+	const ftsQueryAscii = buildFts5Query(args.query, {
+		minTokenLength: 2,
+		stopwords: DEFAULT_STOPWORDS,
+		normalize: normalizeTrAsciiFold,
+	});
+	if (ftsQuery.length === 0 && ftsQueryAscii.length === 0) {
+		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+		emitSearchTelemetry(vault.stateDir, queryHash, 0, 0);
 		return {
 			ok: true,
 			data: { query: args.query, hits: [], cards: [], backends_used: [] },
@@ -343,19 +345,33 @@ export function searchTool(
 		raw = fts5Search({
 			dbPath: vault.fts5Db,
 			ftsQuery,
+			ftsQueryAscii,
 			limit: args.top_k,
 			mtimeFrom,
 			mtimeTo,
 			scope,
 		});
 	} catch (err) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.IO_ERROR,
-				message: err instanceof Error ? err.message : String(err),
+		const elapsedMs = Date.now() - searchStart;
+		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+		emitSearchTelemetry(
+			vault.stateDir,
+			queryHash,
+			0,
+			elapsedMs,
+			[],
+			{ fts5: 0 },
+			{ fts5: elapsedMs },
+			{
+				fts5: {
+					attempted: true,
+					succeeded: false,
+					failed: true,
+					contributed: false,
+				},
 			},
-		};
+		);
+		return { ok: false, error: toMnemeError(err) };
 	}
 	const elapsedMs = Date.now() - searchStart;
 
@@ -370,9 +386,17 @@ export function searchTool(
 		queryHash,
 		filtered.length,
 		elapsedMs,
-		["fts5"],
+		filtered.length > 0 ? ["fts5"] : [],
 		{ fts5: filtered.length },
 		{ fts5: elapsedMs },
+		{
+			fts5: {
+				attempted: true,
+				succeeded: true,
+				failed: false,
+				contributed: filtered.length > 0,
+			},
+		},
 	);
 
 	// Extract normalized tokens for match-centered snippeting (T7).

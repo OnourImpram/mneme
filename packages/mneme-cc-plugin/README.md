@@ -41,4 +41,4 @@ Upgrade in place: `mneme upgrade --profile=standard`.
 
 ## License
 
-MIT. See LICENSE in the repository root.
+Apache License 2.0. See `LICENSE` and `NOTICE` in the repository root.

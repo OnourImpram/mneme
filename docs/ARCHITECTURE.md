@@ -28,7 +28,7 @@ mneme is built on three convictions:
                                 v
                    +------------+-----------+
                    |  mneme-mcp (TS stdio)  |
-                   |  (6 mneme_* tools)     |
+                   |  (9 mneme_* tools)     |
                    +------------+-----------+
                                 |
                                 v
@@ -203,6 +203,22 @@ Each ADR has the form: Context, Decision, Consequences. Decisions live in the co
 Why NOT in-session pruning or compaction suppression: controlling what the host compacts or actively pruning the live context window is the token-optimizer / Adaptive Context Layer's domain. The CCE's concern is durable memory and loss recovery after the fact, not in-session budget management or handoff compression.
 
 **Consequences**: Recovery is measurable in Benchmark F (`benchmarks/compaction_recall/`), a synthetic seeded fixture (`MNEME_BENCH_SEED=42`). Baseline recall (no CCE) is 0.40; self-heal recall (CCE enabled) is 1.00; gain is +0.60; zero invented facts verified. This is a synthetic regression anchor, not a real-world quality claim. Checkpoints are plain markdown, git-visible, and Obsidian-browsable — the same vault-native ground truth as every other mneme artifact. All CCE paths fail-soft: every path is wrapped in try/except and always exits 0, so a broken CCE never breaks the user's session. The UserPromptSubmit hook (the sixth hook) is added and gated behind `CceConfig.enabled`; users who do not enable the CCE incur zero overhead.
+
+### ADR-017: Scope and time are query semantics, not metadata hints
+
+**Context**: Mneme 3.5 introduced scope fields, but a legacy FTS5 index could not prove scope isolation and Graphiti configuration could be mistaken for successful time-travel behavior. CCE checkpoints, temporal claims, contradiction traversal, and graph ingestion also need one consistent partition key.
+
+**Decision**: Treat scope, valid time, and transaction time as enforced query inputs. Concrete reads against a legacy unscoped FTS5 index fail closed and request a rebuild. Exact `*` is reserved for an explicit cross-scope read and is rejected by durable writes. Legacy temporal and graph records bind only to `default`. A deterministic planner applies `valid_from`, `valid_to`, and `as_of`, while KG and Graphiti use a deterministic scope-derived group identifier. Derived index rebuilds never rewrite Markdown ground truth.
+
+**Consequences**: A concrete query cannot silently widen because derived data lacks a partition. Existing vault files remain compatible, but old indexes require a one-time rebuild before scoped reads. Cross-scope access remains available only through an explicit caller choice. Live Neo4j isolation remains an integration gate because local unit tests cannot prove database service behavior.
+
+### ADR-018: Publish one preflight artifact set without rebuilding
+
+**Context**: Rebuilding packages in separate publish jobs breaks the byte-level link between tests and released artifacts. Manual workflow dispatch and mutable publisher binaries also create avoidable release ambiguity.
+
+**Decision**: Build four wheels, four sdists, the npm tarball, Claude plugin tarball, and MCP Registry metadata once in the preflight job. Record all publishable bytes in `SHA256SUMS`. Every publish job downloads and verifies that same artifact set and selects one exact versioned filename. Publishing requires a tag push. Manual dispatch is verification-only. The MCP Registry publisher is version pinned and checksum verified.
+
+**Consequences**: The release candidate can be installed and reviewed before publication, then published without changing its bytes. A failed registry or package publication prevents the final GitHub Release. Human approval, merge, tag creation, and publication remain external gates rather than effects of the release candidate pull request.
 
 ## Out of Scope for v1.0
 

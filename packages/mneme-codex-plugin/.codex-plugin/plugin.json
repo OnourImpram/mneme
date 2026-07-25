@@ -1,6 +1,6 @@
 {
   "name": "mneme",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Vault-native memory for Codex. Markdown is ground truth. Hybrid retrieval, temporal knowledge graph, zero LLM cost on Stop. Claude-Code-native at its core, extended to Codex.",
   "author": {
     "name": "Onour Impram",
@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/OnourImpram/mneme",
   "repository": "https://github.com/OnourImpram/mneme",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "memory",
     "mcp",

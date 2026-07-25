@@ -92,7 +92,12 @@ describe("loadTracker — malformed file", () => {
 		mkdirSync(join(stateDir, "injection-tracker"), { recursive: true });
 		writeFileSync(
 			join(stateDir, "injection-tracker", "sess.json"),
-			JSON.stringify({ sessionId: 42, seenHashes: "not-array", hits: 0, skips: 0 }),
+			JSON.stringify({
+				sessionId: 42,
+				seenHashes: "not-array",
+				hits: 0,
+				skips: 0,
+			}),
 			"utf8",
 		);
 		const tracker = loadTracker(stateDir, "sess");

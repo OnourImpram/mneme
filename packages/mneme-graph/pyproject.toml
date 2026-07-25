@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-graph"
-version = "3.5.0"
+version = "3.6.0"
 description = "Local code knowledge graph for mneme: tree-sitter extraction, atomic GraphStore, confidence-labelled nodes."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,3 +63,8 @@ mneme-graph = "mneme_graph.cli:main"
 testpaths = ["tests"]
 python_files = "test_*.py"
 addopts = "-v --strict-markers --cov=mneme_graph --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+data_file = ".coverage.mneme-graph"
+source = ["mneme_graph"]

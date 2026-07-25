@@ -5,6 +5,39 @@ Markdown is ground truth: no upgrade in mneme's history has ever
 required touching your vault files, and every derived store (FTS5
 index, claims table, graph) is rebuildable from them.
 
+## 3.5.x to 3.6.0
+
+Upgrade the installed clients, then rebuild derived state once:
+
+```bash
+pipx upgrade mneme-cc-plugin
+npm update -g mneme-mcp-server
+mneme index rebuild
+mneme doctor --verify-isolation
+```
+
+The rebuild reads Markdown ground truth and replaces only the derived FTS5
+database under `.mneme/`. It does not rewrite vault Markdown. Mneme 3.6.0
+refuses a concrete scope read when an older index does not contain scope
+metadata. This replaces the 3.5 compatibility behavior that could widen a
+concrete query while waiting for a rebuild. Exact `scope: "*"` remains an
+intentional cross-scope read.
+
+`mneme_checkpoint_list` and `mneme_working_set_load` now accept an optional
+scope. Omitting it uses `MNEME_SCOPE`, then `default_scope` from
+`~/.mneme/config.toml`, then `default`. Durable writes never accept `*`.
+
+No semantic model is downloaded or added to the base package. The default
+retrieval path remains local FTS5 BM25. Graphiti and provider-backed
+compression remain explicit opt-in surfaces.
+
+New 3.6.0 `--archive move` migrations bind the canonical source path into the
+signed rollback manifest. A legacy signed schema v2 manifest that recorded only
+a lexical alias, for example macOS `/var` instead of `/private/var`, has no
+signed canonical restore target. Mneme therefore refuses automatic source
+finalization and restoration for that legacy manifest. It preserves the signed
+archive for manual, hash-verified recovery instead of guessing a destination.
+
 ## 2.x to 3.x
 
 ```bash
@@ -52,6 +85,10 @@ recipes 11 to 15.
   `payload_sha256`), and adds `memory policy init|validate`. Existing
   unmarked `team/` imports keep working; the next changed remote
   payload surfaces as a `.conflict` sidecar exactly as before.
+- 3.5.0 introduced scope metadata and explicit cross-scope reads. 3.6.0 makes
+  concrete reads fail closed until a legacy derived index is rebuilt, scopes
+  CCE and temporal paths, and binds KG ingestion to deterministic Graphiti
+  groups.
 
 ## 1.x to 3.x
 

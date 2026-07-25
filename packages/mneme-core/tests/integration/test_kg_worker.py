@@ -14,6 +14,7 @@ from mneme_core.kg.worker import (
     drain_dry_run,
     drain_live,
 )
+from mneme_core.temporal.graphiti_export import group_id_for_scope
 
 
 @pytest.fixture
@@ -62,6 +63,40 @@ class TestDryRun:
         record = json.loads(line)
         assert record["mode"] == "dry-run"
 
+    def test_corrupt_jsonl_is_visible_and_not_counted_as_valid(self, config: KgConfig) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            '{"event_id":"valid","payload":{}}\n{"event_id":"truncated"',
+            encoding="utf-8",
+        )
+
+        result = drain_dry_run(config)
+
+        assert result["total_events"] == 1
+        assert result["corrupt_files"] == 1
+        assert result["corrupt_records"] == 1
+        assert result["read_errors"] == 0
+        assert result["corrupt_details"] == [
+            {"file": "00-events.jsonl", "line": 2, "reason": "unterminated_line"}
+        ]
+
+    def test_oversized_jsonl_is_visible_without_unbounded_read(
+        self, config: KgConfig
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_bytes(
+            b"{" + b"x" * (1_048_576 + 1) + b"}\n"
+        )
+
+        result = drain_dry_run(config)
+
+        assert result["total_events"] == 0
+        assert result["corrupt_files"] == 1
+        assert result["corrupt_details"][0]["reason"] == "line_too_large"
+
+
 
 class TestDrainLive:
     def test_returns_error_when_graphiti_not_installed(
@@ -106,7 +141,10 @@ class TestCommunityRefresh:
 
 
 def _install_graphiti_stub(
-    monkeypatch: pytest.MonkeyPatch, *, add_episode_raises: bool = False
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    add_episode_raises: bool = False,
+    captured: list[dict[str, object]] | None = None,
 ) -> None:
     """Inject a minimal in-process Graphiti so drain_live runs offline."""
     import sys
@@ -116,7 +154,9 @@ def _install_graphiti_stub(
         def __init__(self, *_a: object, **_k: object) -> None:
             pass
 
-        async def add_episode(self, **_kwargs: object) -> None:
+        async def add_episode(self, **kwargs: object) -> None:
+            if captured is not None:
+                captured.append(dict(kwargs))
             if add_episode_raises:
                 raise RuntimeError("provider boom")
 
@@ -134,6 +174,142 @@ def _write_credentials(config: KgConfig) -> None:
         json.dumps({"bolt_url": "bolt://x", "user": "neo4j", "password": "x"}),
         encoding="utf-8",
     )
+
+
+class TestProviderBoundaryRedaction:
+    def test_modified_queue_is_redacted_again_before_graphiti(
+        self,
+        config: KgConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        queue_record = {
+            "event_id": "<private>secret-event-id</private>",
+            "ts": "2026-07-18T00:00:00+00:00",
+            "content_hash": "a" * 64,
+            "payload": {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "body": "visible <private>secret-input</private> visible",
+                },
+                "tool_response": {
+                    "body": "visible <PRIVATE reason='x'>secret-response</PRIVATE>",
+                },
+            },
+        }
+        (queue_dir / "00-events.jsonl").write_text(
+            json.dumps(queue_record) + "\n",
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 1
+        assert len(captured) == 1
+        provider_payload = json.dumps(captured[0], ensure_ascii=False, default=str)
+        assert "secret-event-id" not in provider_payload
+        assert "secret-input" not in provider_payload
+        assert "secret-response" not in provider_payload
+        assert provider_payload.count("[REDACTED]") >= 3
+
+    def test_live_ingestion_binds_graphiti_group_to_scope(
+        self,
+        config: KgConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        config.scope = "clinical"
+        _seed_queue(config, 1)
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 1
+        assert captured[0]["group_id"] == group_id_for_scope("clinical")
+
+    def test_legacy_queue_record_is_bound_to_default_group(
+        self,
+        config: KgConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            json.dumps(
+                {
+                    "event_id": "legacy",
+                    "ts": "2026-07-18T00:00:00+00:00",
+                    "payload": {"tool_name": "Edit"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 1
+        assert captured[0]["group_id"] == group_id_for_scope("default")
+
+    def test_invalid_queue_scope_fails_before_provider_call(
+        self,
+        config: KgConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            json.dumps(
+                {
+                    "event_id": "invalid",
+                    "ts": "2026-07-18T00:00:00+00:00",
+                    "scope": "*",
+                    "payload": {"tool_name": "Edit"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_failed"] == 1
+        assert captured == []
+
+    def test_corrupt_jsonl_fails_closed_before_provider_call(
+        self,
+        config: KgConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        queue_dir = config.queue_dir / config.host / "2026-07-18"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        (queue_dir / "00-events.jsonl").write_text(
+            '{"event_id":"truncated","payload":{',
+            encoding="utf-8",
+        )
+        _write_credentials(config)
+        captured: list[dict[str, object]] = []
+        _install_graphiti_stub(monkeypatch, captured=captured)
+
+        result = drain_live(config, per_episode_usd_estimate=0.0)
+
+        assert result["episodes_added"] == 0
+        assert result["episodes_failed"] == 0
+        assert result["corrupt_files"] == 1
+        assert result["corrupt_records"] == 1
+        assert captured == []
+        assert (queue_dir / "00-events.jsonl").is_file()
 
 
 class TestCostCap:

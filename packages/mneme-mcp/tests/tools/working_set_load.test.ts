@@ -32,6 +32,16 @@ describe("WorkingSetLoadInputSchema smoke", () => {
 		expect(parsed.top_k).toBe(10);
 	});
 
+	it("accepts concrete and explicit wildcard scopes", () => {
+		expect(
+			WorkingSetLoadInputSchema.parse({ anchor: "abc123", scope: "clinical" })
+				.scope,
+		).toBe("clinical");
+		expect(
+			WorkingSetLoadInputSchema.parse({ anchor: "abc123", scope: "*" }).scope,
+		).toBe("*");
+	});
+
 	it("rejects top_k above 500", () => {
 		expect(() =>
 			WorkingSetLoadInputSchema.parse({ anchor: "x", top_k: 501 }),

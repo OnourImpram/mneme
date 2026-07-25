@@ -63,6 +63,76 @@ class TestConfig:
         assert cfg.member == "alice"
         assert cfg.exclude == ("drafts/*",)
 
+    @pytest.mark.parametrize(
+        ("member", "branch"),
+        [
+            ("../../outside", "vault-sync"),
+            ("alice", "../unsafe"),
+            ("alice", "--upload-pack"),
+        ],
+    )
+    def test_unsafe_path_and_git_identifiers_are_rejected(
+        self, tmp_path: Path, member: str, branch: str
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        with pytest.raises(ValueError, match="sync member|sync branch"):
+            write_sync_config(
+                vault,
+                SyncConfig(
+                    remote_url="ssh://host/repo",
+                    member=member,
+                    branch=branch,
+                ),
+            )
+
+    def test_manually_poisoned_member_config_fails_before_path_use(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        (vault.state_dir / sync_mod.SYNC_CONFIG_FILENAME).write_text(
+            '{"remote_url":"test://remote","member":"../../outside"}\n',
+            encoding="utf-8",
+        )
+        def no_op_runner(argv, cwd):  # type: ignore[no-untyped-def]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        result = push(vault, runner=no_op_runner)
+        assert result.ok is False
+        assert "invalid sync config" in result.detail
+        assert not (tmp_path / "outside").exists()
+
+    @pytest.mark.parametrize(
+        "remote_url",
+        [
+            "https://user:token@example.test/repo.git",
+            "https://token@example.test/repo.git",
+            "https://example.test/repo.git?token=secret",
+        ],
+    )
+    def test_remote_urls_cannot_embed_credentials(
+        self, tmp_path: Path, remote_url: str
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        with pytest.raises(ValueError, match="credentials|URL parameters"):
+            write_sync_config(vault, SyncConfig(remote_url=remote_url, member="alice"))
+
+    def test_git_error_never_echoes_the_remote_url(self, tmp_path: Path) -> None:
+        vault = _vault(tmp_path, "v")
+        remote = "https://example.test/private/repo.git"
+        write_sync_config(vault, SyncConfig(remote_url=remote, member="alice"))
+        (vault.root / "n.md").write_text("public", encoding="utf-8")
+
+        def failing_runner(argv, cwd):  # type: ignore[no-untyped-def]
+            if "push" in argv:
+                return subprocess.CompletedProcess(argv, 1, "", f"failed for {remote}")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        result = push(vault, runner=failing_runner)
+
+        assert result.ok is False
+        assert remote not in result.detail
+        assert "[REMOTE]" in result.detail
+
 
 class TestShareTree:
     def test_redaction_before_share(self, tmp_path: Path) -> None:
@@ -189,6 +259,137 @@ class TestPushPull:
         )
         assert "vault-sync" not in ls.stdout
 
+    def test_push_reredacts_tree_mutated_after_initial_scan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        write_sync_config(
+            vault,
+            SyncConfig(remote_url="test://remote", member="alice"),
+        )
+        (vault.root / "n.md").write_text("public", encoding="utf-8")
+        real_build = sync_mod.build_share_tree
+
+        def tainted_build(
+            build_vault: VaultConfig,
+            dest: Path,
+            config: SyncConfig,
+        ) -> sync_mod.ShareReport:
+            report = real_build(build_vault, dest, config)
+            staged = dest / "team" / config.member / "n.md"
+            staged.write_text(
+                "public <private>LATE_STAGE_SECRET</private>",
+                encoding="utf-8",
+            )
+            return report
+
+        observed_at_add: list[str] = []
+
+        def sink_spy(argv, cwd):  # type: ignore[no-untyped-def]
+            if list(argv)[:3] == ["git", "add", "--all"]:
+                observed_at_add.append(
+                    (cwd / "team" / "alice" / "n.md").read_text(
+                        encoding="utf-8"
+                    )
+                )
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        monkeypatch.setattr(sync_mod, "build_share_tree", tainted_build)
+
+        result = push(vault, runner=sink_spy)
+
+        assert result.ok, result.detail
+        assert observed_at_add == ["public [REDACTED]"]
+
+    def test_pull_redacts_untrusted_markdown_conflict_sidecar(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        write_sync_config(
+            vault,
+            SyncConfig(remote_url="test://remote", member="bob"),
+        )
+        repo = vault.state_dir / sync_mod.SYNC_REPO_DIR_NAME
+        (repo / ".git").mkdir(parents=True)
+        incoming = repo / "team" / "alice" / "n.md"
+        incoming.parent.mkdir(parents=True)
+        incoming.write_text(
+            "remote <private>CONFLICT_SECRET</private>",
+            encoding="utf-8",
+        )
+        local = vault.root / "team" / "alice" / "n.md"
+        local.parent.mkdir(parents=True)
+        local.write_text("local edit", encoding="utf-8")
+
+        def no_op_runner(argv, cwd):  # type: ignore[no-untyped-def]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        result = pull(vault, runner=no_op_runner)
+
+        assert result.ok, result.detail
+        sidecar = local.with_name("n.md.conflict")
+        text = sidecar.read_text(encoding="utf-8")
+        assert "CONFLICT_SECRET" not in text
+        assert text == "remote [REDACTED]"
+
+    @pytest.mark.skipif(
+        sync_mod.os.name == "nt", reason="symlink creation needs elevation"
+    )
+    def test_pull_rejects_remote_symlink_without_reading_target(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        write_sync_config(
+            vault,
+            SyncConfig(remote_url="test://remote", member="bob"),
+        )
+        repo = vault.state_dir / sync_mod.SYNC_REPO_DIR_NAME
+        (repo / ".git").mkdir(parents=True)
+        outside = tmp_path / "outside.md"
+        outside.write_text("OUTSIDE_SECRET", encoding="utf-8")
+        incoming = repo / "team" / "alice" / "n.md"
+        incoming.parent.mkdir(parents=True)
+        incoming.symlink_to(outside)
+
+        def no_op_runner(argv, cwd):  # type: ignore[no-untyped-def]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        result = pull(vault, runner=no_op_runner)
+        assert result.ok is False
+        assert "remote sync file rejected" in result.detail
+        assert not (vault.root / "team" / "alice" / "n.md").exists()
+
+    @pytest.mark.skipif(
+        sync_mod.os.name == "nt", reason="symlink creation needs elevation"
+    )
+    def test_conflict_sidecar_symlink_cannot_escape_vault(
+        self, tmp_path: Path
+    ) -> None:
+        vault = _vault(tmp_path, "v")
+        write_sync_config(
+            vault,
+            SyncConfig(remote_url="test://remote", member="bob"),
+        )
+        repo = vault.state_dir / sync_mod.SYNC_REPO_DIR_NAME
+        (repo / ".git").mkdir(parents=True)
+        incoming = repo / "team" / "alice" / "n.md"
+        incoming.parent.mkdir(parents=True)
+        incoming.write_text("remote", encoding="utf-8")
+        local = vault.root / "team" / "alice" / "n.md"
+        local.parent.mkdir(parents=True)
+        local.write_text("local", encoding="utf-8")
+        outside = tmp_path / "outside-conflict.md"
+        outside.write_text("unchanged", encoding="utf-8")
+        local.with_name("n.md.conflict").symlink_to(outside)
+
+        def no_op_runner(argv, cwd):  # type: ignore[no-untyped-def]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        result = pull(vault, runner=no_op_runner)
+        assert result.ok is False
+        assert "conflict sidecar rejected" in result.detail
+        assert outside.read_text(encoding="utf-8") == "unchanged"
+
 
 class TestEncryption:
     def test_encrypt_tree_runs_age_per_file(self, tmp_path: Path) -> None:
@@ -219,6 +420,50 @@ class TestEncryption:
 
         with pytest.raises(RuntimeError, match="age encryption failed"):
             sync_mod._encrypt_tree(dest, ("age1abc",), failing_runner)
+
+    def test_encrypt_reredacts_plaintext_at_age_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        dest = tmp_path / "tree"
+        dest.mkdir()
+        plain = dest / "x.md"
+        plain.write_text(
+            "public <private>AGE_SINK_SECRET</private>",
+            encoding="utf-8",
+        )
+        observed: list[str] = []
+
+        def age_spy(argv, cwd):  # type: ignore[no-untyped-def]
+            source = Path(argv[-1])
+            observed.append(source.read_text(encoding="utf-8"))
+            out = Path(argv[argv.index("-o") + 1])
+            out.write_text("CIPHERTEXT", encoding="utf-8")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        sync_mod._encrypt_tree(dest, ("age1abc",), age_spy)
+
+        assert observed == ["public [REDACTED]"]
+
+
+class TestFinalShareRedaction:
+    def test_rejects_symlink_in_untrusted_share_tree(self, tmp_path: Path) -> None:
+        root = tmp_path / "tree"
+        root.mkdir()
+        outside = tmp_path / "outside.md"
+        outside.write_text(
+            "outside <private>OUTSIDE_SECRET</private>",
+            encoding="utf-8",
+        )
+        link = root / "link.md"
+        try:
+            link.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation not permitted on this platform")
+
+        with pytest.raises(OSError, match="escapes root|stable regular file"):
+            sync_mod._redact_share_tree(root)
+
+        assert "OUTSIDE_SECRET" in outside.read_text(encoding="utf-8")
 
 
 class TestImportMarking:

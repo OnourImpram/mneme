@@ -4,8 +4,9 @@ The ``claims`` table lives in the same SQLite file as the FTS5 index
 (``vault.fts5_db``).  It is fully rebuildable from vault markdown; deleting
 it and running ``index_claims`` restores all data.
 
-Re-indexing is idempotent: every upsert uses ``ON CONFLICT(claim_id) DO UPDATE``
-so running twice leaves row counts unchanged.
+Re-indexing is idempotent: every upsert uses
+``ON CONFLICT(scope, claim_id) DO UPDATE`` so running twice leaves row counts
+unchanged while equal claim IDs remain isolated across scopes.
 
 Supersession pass
 -----------------
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ..privacy import redact
+from ..scope import persisted_scope
 from ..vault.frontmatter import load_yaml_block
 from .claim import _to_utc_iso, claim_from_note
 
@@ -42,6 +44,50 @@ _DEFAULT_EXCLUDE: tuple[str, ...] = (
     "/.mneme/",
 )
 
+_CLAIMS_TABLE_SQL = """
+    CREATE TABLE claims (
+        claim_id          TEXT NOT NULL,
+        path              TEXT NOT NULL,
+        statement         TEXT NOT NULL,
+        statement_normalized TEXT NOT NULL,
+        valid_from        TEXT,
+        valid_to          TEXT,
+        observed_at       TEXT NOT NULL,
+        supersedes        TEXT,
+        superseded_by     TEXT,
+        claim_key         TEXT,
+        confidence_label  TEXT NOT NULL,
+        trust             TEXT NOT NULL,
+        content_hash      TEXT NOT NULL,
+        scope             TEXT NOT NULL DEFAULT 'default',
+        indexed_at        TEXT NOT NULL,
+        PRIMARY KEY (scope, claim_id)
+    )
+"""
+
+_CLAIMS_COLUMNS = (
+    "claim_id, path, statement, statement_normalized, valid_from, valid_to, "
+    "observed_at, supersedes, superseded_by, claim_key, confidence_label, "
+    "trust, content_hash, scope, indexed_at"
+)
+
+_LEGACY_CLAIMS_COLUMNS = (
+    "claim_id",
+    "path",
+    "statement",
+    "statement_normalized",
+    "valid_from",
+    "valid_to",
+    "observed_at",
+    "supersedes",
+    "superseded_by",
+    "claim_key",
+    "confidence_label",
+    "trust",
+    "content_hash",
+    "indexed_at",
+)
+
 
 @dataclass
 class ClaimIndexStats:
@@ -56,33 +102,68 @@ class ClaimIndexStats:
 def ensure_temporal_schema(conn: sqlite3.Connection) -> None:
     """Create the ``claims`` table and supporting indexes if they do not exist.
 
-    Safe to call on a database that already has the table; all DDL statements
-    are ``IF NOT EXISTS``.
+    Existing pre-scope tables are migrated additively. Their rows become
+    ``default`` scope, preserving rebuildable derived state without exposing
+    it to every concrete scope.
     """
+    table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='claims'"
+    ).fetchone()
+    if table_exists is None:
+        conn.execute(_CLAIMS_TABLE_SQL)
+    else:
+        info = conn.execute("PRAGMA table_info(claims)").fetchall()
+        primary_key = [
+            str(row[1]) for row in sorted(info, key=lambda row: int(row[5])) if row[5]
+        ]
+        if primary_key != ["scope", "claim_id"]:
+            old_columns = {str(row[1]) for row in info}
+            select_columns = list(_LEGACY_CLAIMS_COLUMNS)
+            if "scope" in old_columns:
+                select_columns.append("scope")
+            legacy_rows = conn.execute(
+                f"SELECT {', '.join(select_columns)} FROM claims"
+            ).fetchall()
+            migrated_rows: list[tuple[object, ...]] = []
+            for row in legacy_rows:
+                scope = persisted_scope(row[14] if len(row) == 15 else None)
+                migrated_rows.append(
+                    (
+                        row[0],
+                        redact(str(row[1])),
+                        redact(str(row[2])),
+                        redact(str(row[3])),
+                        row[4],
+                        row[5],
+                        row[6],
+                        row[7],
+                        row[8],
+                        redact(str(row[9])) if row[9] is not None else None,
+                        row[10],
+                        redact(str(row[11])),
+                        row[12],
+                        scope,
+                        row[13],
+                    )
+                )
+            conn.execute("ALTER TABLE claims RENAME TO claims_scope_migration")
+            conn.execute(_CLAIMS_TABLE_SQL)
+            conn.executemany(
+                f"INSERT INTO claims ({_CLAIMS_COLUMNS}) VALUES ({', '.join('?' * 15)})",
+                migrated_rows,
+            )
+            conn.execute("DROP TABLE claims_scope_migration")
+
     conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS claims (
-            claim_id          TEXT PRIMARY KEY,
-            path              TEXT NOT NULL,
-            statement         TEXT NOT NULL,
-            statement_normalized TEXT NOT NULL,
-            valid_from        TEXT,
-            valid_to          TEXT,
-            observed_at       TEXT NOT NULL,
-            supersedes        TEXT,
-            superseded_by     TEXT,
-            claim_key         TEXT,
-            confidence_label  TEXT NOT NULL,
-            trust             TEXT NOT NULL,
-            content_hash      TEXT NOT NULL,
-            indexed_at        TEXT NOT NULL
-        );
-
         CREATE INDEX IF NOT EXISTS idx_claims_claim_key
             ON claims(claim_key);
 
         CREATE INDEX IF NOT EXISTS idx_claims_validity
             ON claims(valid_from, valid_to);
+
+        CREATE INDEX IF NOT EXISTS idx_claims_scope
+            ON claims(scope);
         """
     )
 
@@ -154,6 +235,12 @@ def index_claims(
     vault_root_resolved = vault_root.resolve()
     now_iso = datetime.now(UTC).isoformat()
 
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS _mneme_live_claims "
+        "(scope TEXT NOT NULL, claim_id TEXT NOT NULL, PRIMARY KEY (scope, claim_id))"
+    )
+    conn.execute("DELETE FROM _mneme_live_claims")
+
     paths = sorted(vault_root.rglob("*.md"))
     stats.total_seen = len(paths)
 
@@ -194,14 +281,22 @@ def index_claims(
             continue
 
         conn.execute(
+            "INSERT OR IGNORE INTO _mneme_live_claims(scope, claim_id) VALUES (?, ?)",
+            (claim.scope, claim.claim_id),
+        )
+        conn.execute(
+            "DELETE FROM claims WHERE claim_id=? AND path=? AND scope<>?",
+            (claim.claim_id, claim.path, claim.scope),
+        )
+        conn.execute(
             """
             INSERT INTO claims
                 (claim_id, path, statement, statement_normalized,
                  valid_from, valid_to, observed_at,
                  supersedes, superseded_by, claim_key,
-                 confidence_label, trust, content_hash, indexed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
-            ON CONFLICT(claim_id) DO UPDATE SET
+                 confidence_label, trust, content_hash, scope, indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope, claim_id) DO UPDATE SET
                 path=excluded.path,
                 statement=excluded.statement,
                 statement_normalized=excluded.statement_normalized,
@@ -213,6 +308,7 @@ def index_claims(
                 confidence_label=excluded.confidence_label,
                 trust=excluded.trust,
                 content_hash=excluded.content_hash,
+                scope=excluded.scope,
                 indexed_at=excluded.indexed_at
             """,
             (
@@ -228,21 +324,35 @@ def index_claims(
                 claim.confidence_label.value,
                 claim.trust,
                 claim.content_hash,
+                claim.scope,
                 now_iso,
             ),
         )
         stats.indexed += 1
 
+    conn.execute(
+        """
+        DELETE FROM claims
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM _mneme_live_claims AS live
+            WHERE live.scope = claims.scope
+              AND live.claim_id = claims.claim_id
+        )
+        """
+    )
+
     # --- Supersession pass ---
     # For every claim with supersedes set, update the target's superseded_by.
     # Never deletes the target row; never mutates the target's core fields.
+    conn.execute("UPDATE claims SET superseded_by=NULL")
     rows = conn.execute(
-        "SELECT claim_id, supersedes FROM claims WHERE supersedes IS NOT NULL"
+        "SELECT claim_id, supersedes, scope FROM claims WHERE supersedes IS NOT NULL"
     ).fetchall()
-    for superseder_id, target_id in rows:
+    for superseder_id, target_id, scope in rows:
         conn.execute(
-            "UPDATE claims SET superseded_by=? WHERE claim_id=?",
-            (superseder_id, target_id),
+            "UPDATE claims SET superseded_by=? WHERE claim_id=? AND scope=?",
+            (superseder_id, target_id, scope),
         )
 
     conn.commit()

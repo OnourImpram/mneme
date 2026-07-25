@@ -68,6 +68,8 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
     try:
         if state_path.exists():
             state = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                state = {}
         else:
             state = {}
     except (OSError, json.JSONDecodeError):
@@ -81,6 +83,7 @@ def handle(event: dict[str, Any], vault: VaultConfig | None) -> None:
         atomic_write_text(
             state_path,
             json.dumps(state, indent=2, ensure_ascii=False) + "\n",
+            vault_root=vault.root,
         )
     except OSError as exc:
         sys.stderr.write(f"[mneme:PreCompact] write failed: {exc}\n")

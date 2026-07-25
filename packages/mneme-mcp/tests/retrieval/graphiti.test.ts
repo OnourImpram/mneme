@@ -25,12 +25,18 @@ import {
 	closeDriver,
 	createDriverFromVault,
 	expandTopicNeighborhood,
+	graphitiGroupId,
 	isKgActive,
+	type Neo4jDriverLike,
+	queryTimelineForSubject,
 	readCredentials,
 	timelineForSubject,
-	type Neo4jDriverLike,
 } from "../../src/retrieval/graphiti.js";
 import { VaultConfig } from "../../src/vault/config.js";
+
+const CLINICAL_GROUP_ID =
+	"mneme-98569e7e9080addd9e387d4674b33830a6c516ea67a150b1f2aae304e17f7b06";
+const FREELANCE_GROUP_ID = graphitiGroupId("freelance");
 
 function makeVault(prefix: string): VaultConfig {
 	const root = mkdtempSync(join(tmpdir(), `mneme-graphiti-${prefix}-`));
@@ -81,33 +87,34 @@ function makeFakeDriver(
 	return driver;
 }
 
-/**
- * Fake driver that simulates Neo4j scope filtering by inspecting params.scope.
- *
- * Records carry an internal `scope` field used only for filtering. When
- * params.scope is set, only records whose scope equals params.scope OR whose
- * scope is null are returned (the OR-NULL migration leg). This mirrors the
- * Cypher clause: `AND (e.scope = $scope OR e.scope IS NULL)`.
- */
+/** Simulate the production scope and Graphiti group_id predicates. */
 function makeScopeFilteringDriver(
-	records: Array<{ scope?: string | null } & Record<string, unknown>>,
+	records: Array<
+		{ scope?: string | null; group_id?: string | null } & Record<
+			string,
+			unknown
+		>
+	>,
 ): Neo4jDriverLike {
 	return {
 		session() {
 			return {
 				run: async (_query: string, params?: Record<string, unknown>) => {
-					const requestedScope = params?.scope as string | undefined;
+					const requestedGroup = params?.groupId as string | undefined;
 					const filtered =
-						requestedScope !== undefined
-							? records.filter(
-									(r) => r.scope === requestedScope || r.scope === null,
-								)
+						requestedGroup !== undefined
+							? records.filter((record) => {
+									if (record.group_id === requestedGroup) return true;
+									return (
+										requestedGroup === "mneme-temporal" &&
+										(record.group_id == null || record.group_id === "")
+									);
+								})
 							: records;
 					return {
 						records: filtered.map((row) => ({
 							keys: Object.keys(row),
-							get: (k: string) =>
-								Object.prototype.hasOwnProperty.call(row, k) ? row[k] : null,
+							get: (k: string) => (Object.hasOwn(row, k) ? row[k] : null),
 						})),
 					};
 				},
@@ -115,6 +122,37 @@ function makeScopeFilteringDriver(
 			};
 		},
 		close: async () => undefined,
+	};
+}
+
+function makeCapturingDriver(
+	records: Array<Record<string, unknown>> = [],
+	throwOnRun = false,
+): {
+	driver: Neo4jDriverLike;
+	calls: Array<{ query: string; params: Record<string, unknown> }>;
+} {
+	const calls: Array<{ query: string; params: Record<string, unknown> }> = [];
+	return {
+		calls,
+		driver: {
+			session() {
+				return {
+					run: async (query: string, params = {}) => {
+						calls.push({ query, params });
+						if (throwOnRun) throw new Error("query failed");
+						return {
+							records: records.map((row) => ({
+								keys: Object.keys(row),
+								get: (key: string) => row[key] ?? null,
+							})),
+						};
+					},
+					close: async () => undefined,
+				};
+			},
+			close: async () => undefined,
+		},
 	};
 }
 
@@ -223,6 +261,27 @@ describe("createDriverFromVault", () => {
 	});
 });
 
+describe("graphitiGroupId", () => {
+	it("preserves the historical default group", () => {
+		expect(graphitiGroupId("default")).toBe("mneme-temporal");
+	});
+
+	it("derives a stable group for non-default scopes", () => {
+		expect(graphitiGroupId("clinical")).toBe(CLINICAL_GROUP_ID);
+	});
+
+	it("keeps arbitrary printable scopes within Graphiti's identifier grammar", () => {
+		expect(graphitiGroupId("Clinical / İstanbul")).toBe(
+			"mneme-ef48898e4bef242fbe5c13e4c00230a74c085f094ae2a6e0ed8ef25cc6308a25",
+		);
+		expect(graphitiGroupId("Clinical / İstanbul")).toMatch(/^[A-Za-z0-9_-]+$/);
+	});
+
+	it("rejects the wildcard as a write group", () => {
+		expect(() => graphitiGroupId("*")).toThrow("cross-scope read marker");
+	});
+});
+
 describe("expandTopicNeighborhood", () => {
 	it("maps records onto GraphHit entries (S3b: entity/summary are fenced)", async () => {
 		const driver = makeFakeDriver([
@@ -300,6 +359,54 @@ describe("timelineForSubject", () => {
 		const driver = makeFakeDriver([]);
 		expect(await timelineForSubject(driver, "")).toEqual([]);
 	});
+
+	it("builds overlap and transaction-time predicates deterministically", async () => {
+		const { driver, calls } = makeCapturingDriver();
+		const result = await queryTimelineForSubject(driver, "Mneme", {
+			validFrom: "2026-01-01T00:00:00.000Z",
+			validToExclusive: "2026-02-01T00:00:00.000Z",
+			asOf: "2026-03-01T00:00:00.000Z",
+			scope: "clinical",
+		});
+		expect(result).toMatchObject({
+			facts: [],
+			asOfApplied: true,
+			querySucceeded: true,
+		});
+		expect(calls).toHaveLength(1);
+		const call = calls[0];
+		expect(call?.query).toContain("r.invalid_at > datetime($validFrom)");
+		expect(call?.query).toContain("r.valid_at < datetime($validToExclusive)");
+		expect(call?.query).toContain("r.created_at IS NOT NULL");
+		expect(call?.query).toContain("r.expired_at > datetime($asOf)");
+		expect(call?.query).toContain("r.group_id = $groupId");
+		expect(call?.query).not.toContain("r.scope = $scope");
+		expect(call?.query).toContain("datetime({epochMillis: 0})");
+		expect(call?.query).toContain("coalesce(r.fact, '') ASC");
+		expect(call?.query).not.toContain("datetime() ASC");
+		expect(call?.params).toMatchObject({ groupId: CLINICAL_GROUP_ID });
+		expect(call?.params).not.toHaveProperty("scope");
+	});
+
+	it("marks as_of unapplied when the graph query fails", async () => {
+		const { driver } = makeCapturingDriver([], true);
+		const result = await queryTimelineForSubject(driver, "Mneme", {
+			asOf: "2026-03-01T00:00:00.000Z",
+		});
+		expect(result).toEqual({
+			facts: [],
+			asOfApplied: false,
+			querySucceeded: false,
+		});
+	});
+
+	it("defaults to the current non-expired transaction snapshot", async () => {
+		const { driver, calls } = makeCapturingDriver();
+		await queryTimelineForSubject(driver, "Mneme");
+		expect(calls[0]?.query).toContain("r.expired_at IS NULL");
+		expect(calls[0]?.params).toMatchObject({ groupId: "mneme-temporal" });
+		expect(calls[0]?.params).not.toHaveProperty("scope");
+	});
 });
 
 describe("closeDriver", () => {
@@ -328,78 +435,191 @@ describe("closeDriver", () => {
 // ---------------------------------------------------------------------------
 
 describe("expandTopicNeighborhood scope filtering", () => {
-	it("scope='clinical' returns clinical and null-scope entities; excludes freelance", async () => {
-		const driver = makeScopeFilteringDriver([
-			{
-				entity: "ClinicalEntity",
-				summary: "clinical summary",
-				source_doc: null,
-				scope: "clinical",
-			},
-			{
-				entity: "FreelanceEntity",
-				summary: "freelance summary",
-				source_doc: null,
-				scope: "freelance",
-			},
-			{
-				entity: "LegacyEntity",
-				summary: "legacy no-scope summary",
-				source_doc: null,
-				scope: null,
-			},
-		]);
-		const hits = await expandTopicNeighborhood(driver, "entity", "clinical");
-		// clinical-scoped entity is returned
-		expect(hits.some((h) => h.entity.includes("ClinicalEntity"))).toBe(true);
-		// freelance-scoped entity is excluded
-		expect(hits.some((h) => h.entity.includes("FreelanceEntity"))).toBe(false);
-		// null-scope entity IS returned (OR-NULL migration leg)
-		expect(hits.some((h) => h.entity.includes("LegacyEntity"))).toBe(true);
-		expect(hits).toHaveLength(2);
+	const records = [
+		{
+			entity: "ClinicalEntity",
+			summary: "clinical",
+			group_id: CLINICAL_GROUP_ID,
+		},
+		{
+			entity: "FreelanceEntity",
+			summary: "freelance",
+			group_id: FREELANCE_GROUP_ID,
+		},
+		{
+			entity: "GroupedClinical",
+			summary: "group",
+			group_id: CLINICAL_GROUP_ID,
+		},
+		{ entity: "DefaultGroup", summary: "default", group_id: "mneme-temporal" },
+		{ entity: "LegacyEntity", summary: "legacy", scope: null, group_id: null },
+		{
+			entity: "LegacyScopedEntity",
+			summary: "legacy scoped",
+			scope: "clinical",
+			group_id: null,
+		},
+	];
+
+	it("a non-default scope excludes legacy and foreign entities", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"clinical",
+		);
+		expect(hits.some((hit) => hit.entity.includes("ClinicalEntity"))).toBe(
+			true,
+		);
+		expect(hits.some((hit) => hit.entity.includes("GroupedClinical"))).toBe(
+			true,
+		);
+		expect(hits.some((hit) => hit.entity.includes("FreelanceEntity"))).toBe(
+			false,
+		);
+		expect(hits.some((hit) => hit.entity.includes("LegacyEntity"))).toBe(false);
+		expect(hits.some((hit) => hit.entity.includes("LegacyScopedEntity"))).toBe(
+			false,
+		);
+	});
+
+	it("default owns legacy unscoped entities", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"default",
+		);
+		expect(hits.some((hit) => hit.entity.includes("DefaultGroup"))).toBe(true);
+		expect(hits.some((hit) => hit.entity.includes("LegacyEntity"))).toBe(true);
+		expect(hits.some((hit) => hit.entity.includes("LegacyScopedEntity"))).toBe(
+			true,
+		);
+		expect(hits.some((hit) => hit.entity.includes("ClinicalEntity"))).toBe(
+			false,
+		);
+	});
+
+	it("the explicit wildcard returns every scope", async () => {
+		const hits = await expandTopicNeighborhood(
+			makeScopeFilteringDriver(records),
+			"entity",
+			"*",
+		);
+		expect(hits).toHaveLength(records.length);
 	});
 });
 
 describe("timelineForSubject scope filtering", () => {
-	it("scope='clinical' returns clinical and null-scope facts; excludes freelance", async () => {
-		const driver = makeScopeFilteringDriver([
+	const records = [
+		{
+			subject: "ClinicalSubject",
+			fact: "clinical",
+			group_id: CLINICAL_GROUP_ID,
+		},
+		{
+			subject: "FreelanceSubject",
+			fact: "freelance",
+			group_id: FREELANCE_GROUP_ID,
+		},
+		{ subject: "GroupedClinical", fact: "group", group_id: CLINICAL_GROUP_ID },
+		{ subject: "DefaultGroup", fact: "default", group_id: "mneme-temporal" },
+		{ subject: "LegacySubject", fact: "legacy", scope: null, group_id: null },
+		{
+			subject: "LegacyScopedSubject",
+			fact: "legacy scoped",
+			scope: "clinical",
+			group_id: null,
+		},
+	];
+
+	it("a non-default scope excludes legacy and foreign facts", async () => {
+		const facts = await timelineForSubject(
+			makeScopeFilteringDriver(records),
+			"Subject",
+			{ scope: "clinical" },
+		);
+		expect(facts.some((fact) => fact.subject.includes("ClinicalSubject"))).toBe(
+			true,
+		);
+		expect(facts.some((fact) => fact.subject.includes("GroupedClinical"))).toBe(
+			true,
+		);
+		expect(
+			facts.some((fact) => fact.subject.includes("FreelanceSubject")),
+		).toBe(false);
+		expect(facts.some((fact) => fact.subject.includes("LegacySubject"))).toBe(
+			false,
+		);
+		expect(
+			facts.some((fact) => fact.subject.includes("LegacyScopedSubject")),
+		).toBe(false);
+	});
+
+	it("default owns the historical and unscoped graph", async () => {
+		const facts = await timelineForSubject(
+			makeScopeFilteringDriver(records),
+			"Subject",
+			{ scope: "default" },
+		);
+		expect(facts.some((fact) => fact.subject.includes("DefaultGroup"))).toBe(
+			true,
+		);
+		expect(facts.some((fact) => fact.subject.includes("LegacySubject"))).toBe(
+			true,
+		);
+		expect(
+			facts.some((fact) => fact.subject.includes("LegacyScopedSubject")),
+		).toBe(true);
+		expect(facts.some((fact) => fact.subject.includes("ClinicalSubject"))).toBe(
+			false,
+		);
+	});
+
+	it("the explicit wildcard returns every graph scope", async () => {
+		const facts = await timelineForSubject(
+			makeScopeFilteringDriver(records),
+			"Subject",
+			{ scope: "*" },
+		);
+		expect(facts).toHaveLength(records.length);
+	});
+});
+
+describe("Graphiti privacy boundary", () => {
+	it("redacts neighborhood provider parameters and returned metadata", async () => {
+		const secret = "GRAPH_QUERY_CANARY";
+		const { driver, calls } = makeCapturingDriver([
 			{
-				subject: "ClinicalSubject",
-				fact: "clinical fact",
-				object: "X",
-				valid_at: "2026-01-01T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-01T12:00:00Z",
-				scope: "clinical",
-			},
-			{
-				subject: "FreelanceSubject",
-				fact: "freelance fact",
-				object: "Y",
-				valid_at: "2026-01-02T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-02T12:00:00Z",
-				scope: "freelance",
-			},
-			{
-				subject: "LegacySubject",
-				fact: "legacy null-scope fact",
-				object: "Z",
-				valid_at: "2026-01-03T00:00:00Z",
-				invalid_at: null,
-				reference_time: "2026-01-03T12:00:00Z",
-				scope: null,
+				entity: `<private>${secret}</private>`,
+				summary: `<private>${secret}</private>`,
+				source_doc: `<private>${secret}</private>`,
 			},
 		]);
-		const facts = await timelineForSubject(driver, "Subject", {
-			scope: "clinical",
-		});
-		// clinical fact is returned
-		expect(facts.some((f) => f.subject.includes("ClinicalSubject"))).toBe(true);
-		// freelance fact is excluded
-		expect(facts.some((f) => f.subject.includes("FreelanceSubject"))).toBe(false);
-		// null-scope fact IS returned (OR-NULL migration leg)
-		expect(facts.some((f) => f.subject.includes("LegacySubject"))).toBe(true);
-		expect(facts).toHaveLength(2);
+		const hits = await expandTopicNeighborhood(
+			driver,
+			`topic <private>${secret}</private>`,
+		);
+
+		expect(JSON.stringify(calls[0]?.params)).not.toContain(secret);
+		expect(JSON.stringify(hits)).not.toContain(secret);
+	});
+
+	it("redacts timeline provider parameters and every returned string", async () => {
+		const secret = "GRAPH_TIMELINE_CANARY";
+		const { driver, calls } = makeCapturingDriver([
+			{
+				subject: `<private>${secret}</private>`,
+				fact: `<private>${secret}</private>`,
+				object: `<private>${secret}</private>`,
+				valid_at: `<private>${secret}</private>`,
+				group_id: `<private>${secret}</private>`,
+			},
+		]);
+		const result = await queryTimelineForSubject(
+			driver,
+			`subject <private>${secret}</private>`,
+		);
+
+		expect(JSON.stringify(calls[0]?.params)).not.toContain(secret);
+		expect(JSON.stringify(result)).not.toContain(secret);
 	});
 });

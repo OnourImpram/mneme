@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import mneme_core.memory_apply as memory_apply_module
 from mneme_core.approval import EditCategory, approve, propose
 from mneme_core.audit_chain import append_chain_record, verify_chain
 from mneme_core.memory_apply import (
@@ -101,7 +102,9 @@ class TestApplyEdit:
         )
         result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
         assert result.applied is True
-        assert (vault.root / "notes/fact.md").read_text(encoding="utf-8") == "A fact."
+        written = (vault.root / "notes/fact.md").read_text(encoding="utf-8")
+        assert 'scope: "default"' in written
+        assert written.endswith("A fact.")
 
     def test_refused_without_policy_file(self, vault: VaultConfig) -> None:
         proposal = propose(
@@ -162,7 +165,13 @@ class TestApplyEdit:
         day = datetime.now(UTC).strftime("%Y-%m-%d")
         report = verify_chain(vault.state_dir, day)
         assert report.valid is True
-        assert report.records == 3
+        assert report.records == 6
+        chain_file = vault.state_dir / "audit" / f"{day}.jsonl"
+        phases = [
+            json.loads(line)["phase"]
+            for line in chain_file.read_text(encoding="utf-8").splitlines()
+        ]
+        assert phases == ["prepare", "commit"] * 3
 
     def test_tampered_chain_detected(self, vault: VaultConfig) -> None:
         append_chain_record(vault.state_dir, {"kind": "memory_edit", "relative_path": "a.md"})
@@ -175,6 +184,72 @@ class TestApplyEdit:
         report = verify_chain(vault.state_dir, day)
         assert report.valid is False
         assert report.first_break_line == 1
+
+    def test_autonomous_apply_fails_closed_when_prepare_audit_fails(
+        self,
+        vault: VaultConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _allow_all(vault)
+        proposal = propose(
+            action="create",
+            target_path="notes/no-audit.md",
+            content="must not persist",
+            category=EditCategory.EPHEMERAL,
+        )
+        monkeypatch.setattr(
+            memory_apply_module,
+            "append_chain_record",
+            lambda *_args, **_kwargs: False,
+        )
+
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+
+        assert result.applied is False
+        assert "audit unavailable" in result.reason
+        assert not (vault.root / "notes/no-audit.md").exists()
+        assert result.change_id is not None
+        journal = json.loads(
+            (
+                vault.state_dir / "rollback" / f"{result.change_id}.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert journal["status"] == "audit-failed"
+
+    def test_autonomous_apply_restores_prior_state_when_commit_audit_fails(
+        self,
+        vault: VaultConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _allow_all(vault)
+        target = vault.root / "notes/existing.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original", encoding="utf-8")
+        proposal = propose(
+            action="update",
+            target_path="notes/existing.md",
+            content="replacement",
+            category=EditCategory.EPHEMERAL,
+        )
+        outcomes = iter((True, False, True))
+        monkeypatch.setattr(
+            memory_apply_module,
+            "append_chain_record",
+            lambda *_args, **_kwargs: next(outcomes),
+        )
+
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+
+        assert result.applied is False
+        assert "prior state restored" in result.reason
+        assert target.read_text(encoding="utf-8") == "original"
+        assert result.change_id is not None
+        journal = json.loads(
+            (
+                vault.state_dir / "rollback" / f"{result.change_id}.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert journal["status"] == "failed-restored"
 
 
 class TestRollback:
@@ -201,10 +276,29 @@ class TestRollback:
         target.write_text("original", encoding="utf-8")
         result = self._apply(vault, "notes/exist.md", "replaced", action="update")
         assert result.applied and result.change_id
-        assert target.read_text(encoding="utf-8") == "replaced"
+        assert target.read_text(encoding="utf-8").endswith("replaced")
         rb = rollback_change(vault, result.change_id)
         assert rb.applied is True
         assert target.read_text(encoding="utf-8") == "original"
+
+    def test_scope_mismatch_refuses_cross_scope_update(
+        self, vault: VaultConfig
+    ) -> None:
+        _allow_all(vault)
+        target = vault.root / "notes/clinical.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('---\nscope: "clinical"\n---\n\nold', encoding="utf-8")
+        proposal = propose(
+            action="update",
+            target_path="notes/clinical.md",
+            content="new",
+            category=EditCategory.EPHEMERAL,
+            scope="default",
+        )
+        result = apply_edit(vault, proposal, AutoApproveClass.TYPO_FIX)
+        assert result.applied is False
+        assert "outside the proposal scope" in result.reason
+        assert target.read_text(encoding="utf-8").endswith("old")
 
     def test_double_rollback_refused(self, vault: VaultConfig) -> None:
         result = self._apply(vault, "notes/x.md", "x")
@@ -212,6 +306,34 @@ class TestRollback:
         assert rollback_change(vault, result.change_id).applied is True
         again = rollback_change(vault, result.change_id)
         assert again.applied is False
+
+    def test_rollback_refuses_to_overwrite_a_newer_edit(self, vault: VaultConfig) -> None:
+        target = vault.root / "notes/cas.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original", encoding="utf-8")
+        result = self._apply(vault, "notes/cas.md", "applied", action="update")
+        assert result.applied and result.change_id
+        target.write_text("newer edit", encoding="utf-8")
+
+        rollback = rollback_change(vault, result.change_id)
+
+        assert rollback.applied is False
+        assert "hash differs" in rollback.reason
+        assert target.read_text(encoding="utf-8") == "newer edit"
+
+    def test_rollback_refuses_recreated_deleted_target(self, vault: VaultConfig) -> None:
+        target = vault.root / "notes/deleted.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("delete me", encoding="utf-8")
+        result = self._apply(vault, "notes/deleted.md", "", action="delete")
+        assert result.applied and result.change_id
+        target.write_text("replacement", encoding="utf-8")
+
+        rollback = rollback_change(vault, result.change_id)
+
+        assert rollback.applied is False
+        assert "recreated" in rollback.reason
+        assert target.read_text(encoding="utf-8") == "replacement"
 
     def test_unknown_change_id_refused(self, vault: VaultConfig) -> None:
         assert rollback_change(vault, "nope").applied is False

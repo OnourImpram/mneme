@@ -1,9 +1,9 @@
 {
   "name": "mneme",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Vault-native memory for Claude Code. Markdown is ground truth.",
   "author": "Onour Impram (OnourImpram)",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": "https://github.com/OnourImpram/mneme",
   "documentation": "https://github.com/OnourImpram/mneme/blob/main/docs/HOOKS.md",
   "hooks": {
@@ -47,7 +47,7 @@
   "engines": {
     "claude-code": ">=2.0.0",
     "python": ">=3.11",
-    "node": ">=20"
+    "node": ">=22"
   },
   "kill_switch": {
     "env": "MNEME_DISABLED",

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
+import mneme_core.cli as core_cli
 import pytest
 from click.testing import CliRunner
 
@@ -113,6 +115,75 @@ class TestCliDispatcher:
         assert report["profile"] == "lite"
         assert report["settings_exists"] is True
 
+    def test_doctor_verify_isolation_delegates_to_disposable_fixture(
+        self,
+        runner: CliRunner,
+        workspace: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            core_cli,
+            "verify_isolation_boundaries",
+            lambda: [
+                {
+                    "name": "isolation_scope",
+                    "status": "ok",
+                    "detail": "temporary fixture passed",
+                }
+            ],
+        )
+
+        res = runner.invoke(
+            cli,
+            [
+                "doctor",
+                "--vault",
+                str(workspace["vault"]),
+                "--settings",
+                str(workspace["settings"]),
+                "--verify-isolation",
+            ],
+        )
+
+        assert res.exit_code == 0, res.output
+        report = json.loads(res.output)
+        assert report["isolation"]["overall"] == "ok"
+        assert report["isolation"]["checks"][0]["name"] == "isolation_scope"
+
+    def test_doctor_verify_isolation_fails_closed(
+        self,
+        runner: CliRunner,
+        workspace: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            core_cli,
+            "verify_isolation_boundaries",
+            lambda: [
+                {
+                    "name": "isolation_redaction",
+                    "status": "fail",
+                    "detail": "temporary fixture failed",
+                }
+            ],
+        )
+
+        res = runner.invoke(
+            cli,
+            [
+                "doctor",
+                "--vault",
+                str(workspace["vault"]),
+                "--settings",
+                str(workspace["settings"]),
+                "--verify-isolation",
+            ],
+        )
+
+        assert res.exit_code == 1
+        report = json.loads(res.output)
+        assert report["isolation"]["overall"] == "fail"
+
     def test_install_dry_run_does_not_mutate(
         self, runner: CliRunner, workspace: dict[str, Path]
     ) -> None:
@@ -153,6 +224,81 @@ class TestCliDispatcher:
         )
         assert res.exit_code == 0, res.output
         assert "profile=standard" in res.output
+
+    def test_install_upgrade_profile_alias_persists_existing_vault_profile(
+        self, runner: CliRunner, workspace: dict[str, Path]
+    ) -> None:
+        first = runner.invoke(
+            cli,
+            [
+                "install",
+                "--profile",
+                "lite",
+                "--vault",
+                str(workspace["vault"]),
+                "--settings",
+                str(workspace["settings"]),
+                "--backup-dir",
+                str(workspace["backup"]),
+                "--skip-python",
+                "--skip-node",
+            ],
+        )
+        assert first.exit_code == 0, first.output
+        config_path = workspace["vault"] / ".mneme" / "config.toml"
+        with config_path.open("a", encoding="utf-8") as handle:
+            handle.write("# operator setting\n[retrieval]\nlocale = \"tr\"\n")
+
+        second = runner.invoke(
+            cli,
+            [
+                "install",
+                "--upgrade-profile",
+                "standard",
+                "--vault",
+                str(workspace["vault"]),
+                "--settings",
+                str(workspace["settings"]),
+                "--backup-dir",
+                str(workspace["backup"]),
+                "--skip-python",
+                "--skip-node",
+            ],
+        )
+
+        assert second.exit_code == 0, second.output
+        persisted = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        assert persisted["profile"] == "standard"
+        assert persisted["retrieval"]["locale"] == "tr"
+        assert "# operator setting" in config_path.read_text(encoding="utf-8")
+
+    def test_upgrade_command_persists_profile(
+        self, runner: CliRunner, workspace: dict[str, Path]
+    ) -> None:
+        marker = workspace["vault"] / ".mneme"
+        marker.mkdir(parents=True)
+        (marker / "config.toml").write_text(
+            'profile = "lite"\nschema_version = 1\n',
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            cli,
+            [
+                "upgrade",
+                "--profile",
+                "full",
+                "--vault",
+                str(workspace["vault"]),
+                "--skip-python",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        persisted = tomllib.loads(
+            (marker / "config.toml").read_text(encoding="utf-8")
+        )
+        assert persisted["profile"] == "full"
 
     def test_install_writes_hooks_and_mcp(
         self, runner: CliRunner, workspace: dict[str, Path]

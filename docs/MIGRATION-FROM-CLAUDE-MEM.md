@@ -20,6 +20,7 @@ This:
 5. Writes one markdown file per record with canonical mneme frontmatter and claude-mem provenance extras.
 6. Snapshots the source SQLite into `vault/imported/claude-mem/_archive/` (when `--archive copy`).
 7. Writes a `_manifest.json` per-run audit summary.
+8. Writes a hash-checked rollback manifest at `vault/.mneme/migrations/<run-id>/rollback.json`.
 
 ## Output Layout
 
@@ -35,6 +36,10 @@ vault/imported/claude-mem/
 │   └── claude-mem.db
 └── _manifest.json               per-run audit summary
 ```
+
+The migration result includes the rollback manifest path as `rollback_manifest` in
+`imported/claude-mem/_manifest.json`. The rollback manifest is kept under
+`.mneme/migrations/` so it remains separate from imported memory content.
 
 ## Idempotent Re-Run
 
@@ -164,4 +169,52 @@ All four pass on the seeded fixture. Real-data parity against an operator vault 
 
 ## Rollback
 
-The archive flag preserves the source SQLite file (in `copy` mode) or snapshots it before delete (in `move` mode). You can switch back to claude-mem at any time without data loss. The vault stays in place if you change your mind, since mneme never deletes original observations.
+Every non-dry migration creates a rollback manifest at:
+
+```text
+<vault>/.mneme/migrations/<run-id>/rollback.json
+```
+
+The normal rollback command is:
+
+```bash
+mneme-migrate rollback \
+  --vault ~/mneme-vault \
+  --manifest ~/mneme-vault/.mneme/migrations/<run-id>/rollback.json
+```
+
+Before restoring anything, mneme compares the current imported tree with the exact
+post-migration file hashes recorded in the manifest. If any migrated file was added,
+removed, or changed after the migration, rollback is refused and the vault is left
+untouched. The same exact-hash check applies to the archived source database before
+it can be restored.
+
+For `--archive preserve` and `--archive copy`, the command above restores the
+imported tree. For `--archive move`, source restoration is a separate destructive
+boundary and requires an explicit second confirmation:
+
+```bash
+mneme-migrate rollback \
+  --vault ~/mneme-vault \
+  --manifest ~/mneme-vault/.mneme/migrations/<run-id>/rollback.json \
+  --source ~/.claude-mem/claude-mem.db \
+  --confirm-source-restore
+```
+
+The migration itself still requires `--confirm-delete` when `--archive move` is
+selected. The `--source` value must resolve to the original path bound into the
+signed rollback manifest. `--confirm-delete` authorizes removal during migration.
+It does not authorize source restoration during rollback.
+
+Rollback is idempotent. Repeating a successful rollback returns an already rolled back
+result without changing the vault again. Manifests and snapshot paths must stay
+inside the selected vault. Unsafe paths, missing snapshot evidence, symlinked or
+unstable source parents, and hash mismatches fail closed. A prepared or incomplete
+migration is not treated as rollbackable.
+
+Mneme 3.6.0 stores the canonical source path in new signed rollback manifests.
+Older signed schema v2 manifests may contain only a lexical path alias, such as
+macOS `/var` for `/private/var`. Because that manifest does not bind a canonical
+restore target, automatic move finalization, interrupted recovery, and source
+restoration fail closed. The signed archive remains available for manual
+hash-verified recovery. Mneme does not infer or write to an unsigned destination.

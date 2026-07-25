@@ -32,8 +32,11 @@ Public API
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Sequence
 
+from ..privacy import redact
+from ..scope import concrete_scope_or_none
 from .claim import Claim, _to_utc_iso  # noqa: PLC2701
 from .extract import ClaimCandidate
 
@@ -41,7 +44,7 @@ from .extract import ClaimCandidate
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_GROUP_ID = "mneme-temporal"
+_DEFAULT_GROUP_ID = "mneme-temporal"
 _NAME_MAX_LEN = 60
 
 # ---------------------------------------------------------------------------
@@ -52,6 +55,25 @@ _NAME_MAX_LEN = 60
 def _truncate(text: str, max_len: int = _NAME_MAX_LEN) -> str:
     """Return at most *max_len* characters of *text*, no ellipsis added."""
     return text[:max_len]
+
+
+def group_id_for_scope(scope: str) -> str:
+    """Return the deterministic Graphiti group id for a concrete vault scope.
+
+    The historic ``mneme-temporal`` group remains the canonical default so
+    existing graphs do not require a rewrite. Non-default scopes use a
+    SHA-256-derived identifier containing only characters accepted by Graphiti.
+    ``*`` is a read capability, never a writable scope.
+    """
+    if scope == "*":
+        raise ValueError("'*' is a cross-scope read marker, not a writable scope")
+    normalized = concrete_scope_or_none(scope)
+    if normalized is None:
+        raise ValueError("scope must be a concrete valid identifier")
+    if normalized == "default":
+        return _DEFAULT_GROUP_ID
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return f"mneme-{digest}"
 
 
 def _reference_time_from_candidate(c: ClaimCandidate) -> str:
@@ -75,8 +97,8 @@ def episode_from_candidate(c: ClaimCandidate) -> dict[str, object]:
     """Serialise a :class:`~mneme_core.temporal.extract.ClaimCandidate` to a
     Graphiti episode dict.
 
-    The ``episode_body`` field carries the already-redacted statement from
-    the candidate; no additional redaction is applied here.
+    The statement and source path are redacted again at this final provider
+    boundary, even when an upstream producer already applied redaction.
 
     Parameters
     ----------
@@ -91,13 +113,15 @@ def episode_from_candidate(c: ClaimCandidate) -> dict[str, object]:
         ``episode_body``, ``reference_time``, ``source``,
         ``source_description``, ``group_id``, and ``confidence``.
     """
+    statement = redact(c.statement)
+    source_path = redact(c.source_path)
     return {
-        "name": _truncate(c.statement),
-        "episode_body": c.statement,
+        "name": _truncate(statement),
+        "episode_body": statement,
         "reference_time": _reference_time_from_candidate(c),
         "source": "mneme",
-        "source_description": c.source_path,
-        "group_id": _GROUP_ID,
+        "source_description": source_path,
+        "group_id": group_id_for_scope(c.scope),
         "confidence": c.confidence.value,
     }
 
@@ -142,13 +166,15 @@ def episode_from_claim(claim: Claim) -> dict[str, object]:
     """
     dt = claim.valid_from if claim.valid_from is not None else claim.observed_at
     reference_time = _to_utc_iso(dt) if dt is not None else ""
+    statement = redact(claim.statement)
+    source_path = redact(claim.path)
     return {
-        "name": _truncate(claim.statement),
-        "episode_body": claim.statement,
+        "name": _truncate(statement),
+        "episode_body": statement,
         "reference_time": reference_time,
         "source": "mneme",
-        "source_description": claim.path,
-        "group_id": _GROUP_ID,
+        "source_description": source_path,
+        "group_id": group_id_for_scope(claim.scope),
         "confidence": claim.confidence_label.value,
     }
 
@@ -157,4 +183,5 @@ __all__: Sequence[str] = [
     "episode_from_candidate",
     "episode_from_claim",
     "episodes_from_candidates",
+    "group_id_for_scope",
 ]

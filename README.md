@@ -20,7 +20,7 @@
 
 FTS5 retrieval, an RRF-capable experimental retrieval core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, and domain privacy modes.
 
-**Status**: 3.5.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
+**Status**: 3.6.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Why mneme
 
@@ -105,7 +105,7 @@ These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. 
 
 | Benchmark | Metric | Result |
 |---|---|---|
-| A. Retrieval quality | nDCG@5, RRF fused | **0.893** (FTS5 baseline 0.801, +9.2 points) |
+| A. Retrieval quality | nDCG@5, production FTS5 | **0.801** (Recall@10 1.00, MRR 0.734) |
 | B. Stop hook latency | p95 | **2 ms** (constraint budget 1000 ms) |
 | B. Retrieve latency | p95 | **3 ms** on indexed 500-doc corpus |
 | C. Shell output compression | reduction | **88 percent** on redundant Bash logs |
@@ -114,7 +114,7 @@ These come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. 
 | D. Migration tool | assertions | **4 of 4** pass (migrated, idempotent, dedup, redaction) |
 | E. Head-to-head adapter | mneme leg | nDCG@5 **0.831**, MRR **0.772** on 300-doc fixture |
 
-CI regression guards lock the path-scoped benchmark surface. Pull requests touching benchmarked code run the benchmark workflow. Any run that drops Benchmark A nDCG@5 by more than 0.02 or breaches the 1000 ms Stop hook p95 fails the build.
+CI regression guards lock the path-scoped benchmark surface. Pull requests touching benchmarked code run the benchmark workflow. Any run that drops production FTS5 Benchmark A nDCG@5 by more than 0.02 or breaches the 1000 ms Stop hook p95 fails the build. The BoW RRF condition is reported only as a lexical-surrogate ablation.
 
 ## Three-Tier Install
 
@@ -184,7 +184,7 @@ mneme merges only its own server entry and leaves every other server in the conf
 - 3 slash commands: `/mneme:prime`, `/mneme:recall`, `/mneme:migrate`.
 - 2 skills: `mneme-prime`, `mneme-search`.
 - 7-benchmark suite (`make bench-all`): retrieval quality (A), Stop/retrieve latency (B), adaptive-context cost (C), claude-mem migration (D), head-to-head adapter (E), LongMemEval (F), CCE compaction-recall (G).
-- One-command migration: `mneme-migrate migrate-from-claude-mem` with tri-state archive flag and idempotent re-run.
+- One-command migration: `mneme-migrate migrate-from-claude-mem` with tri-state archive flag, idempotent re-run, and a per-run hash-checked rollback manifest.
 - Adaptive Context Layer: `distill.shell_compress`, `distill.injection_dedup`, `distill.adaptive_topk`, `distill.compressed_format`, plus `mneme audit` for token reports and `mneme audit-log` for redaction audit entries.
 - Pattern memory: `mneme patterns {store, search, list, show, delete}` writing vault-markdown Signal/Action/Outcome documents.
 - Trajectory recorder: `mneme trajectory {start, step, end, show, list}` capturing per-session decision trails under `vault/trajectories/`.
@@ -224,7 +224,7 @@ See `docs/COMPETITIVE.md` for the full landscape and which tools may suit those 
 - `docs/MCP.md`: tool API reference with JSON schemas and example calls.
 - `docs/RELEASE.md`: GitHub tag, release, and metadata checklist.
 - `docs/COOKBOOK.md`: ten worked recipes with full Claude Code transcripts.
-- `docs/MIGRATION-FROM-CLAUDE-MEM.md`: one-command migration with tri-state archive walkthrough.
+- `docs/MIGRATION-FROM-CLAUDE-MEM.md`: one-command migration with tri-state archive and hash-checked rollback walkthrough.
 - `docs/BENCHMARKS.md`: methodology and the locked baseline numbers.
 - `docs/COMPETITIVE.md`: living landscape document (monthly refresh).
 - `docs/PRIVACY.md`: outbound network call audit and telemetry policy (zero by default).

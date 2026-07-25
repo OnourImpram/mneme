@@ -50,6 +50,7 @@ from .vault.config import VaultConfig
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_MAX_REFUSED_BODY_BYTES = 1_048_576
 
 
 def host_header_allowed(raw: str | None, allowed: frozenset[str]) -> bool:
@@ -238,7 +239,23 @@ class _ConsoleHandler(BaseHTTPRequestHandler):
     # Read-only contract: everything except GET is refused. The host
     # check still runs first so a rebound origin learns nothing, not
     # even the method policy.
+    def _discard_refused_body(self) -> None:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return
+        try:
+            length = int(raw_length)
+        except ValueError:
+            self.close_connection = True
+            return
+        if length < 0 or length > _MAX_REFUSED_BODY_BYTES:
+            self.close_connection = True
+            return
+        if length:
+            self.rfile.read(length)
+
     def _refuse(self) -> None:
+        self._discard_refused_body()
         if not self._host_ok():
             self._send(403, json.dumps({"error": "forbidden host header"}), "application/json")
             return

@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import json
 import shutil
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,9 +41,21 @@ from ..compression.ledger import (
     rollback_reservation,
     settle_reservation,
 )
+from ..privacy import redact
+from ..temporal.graphiti_export import group_id_for_scope
 from .episode_stage import KgConfig
 
 KG_LEDGER_KIND = "kg_add_episode"
+MAX_QUEUE_LINE_BYTES = 1_048_576
+MAX_CORRUPTION_DETAILS = 32
+
+
+@dataclass(frozen=True)
+class _QueueRead:
+    events: list[dict[str, Any]]
+    corrupt_line: int | None = None
+    corrupt_reason: str | None = None
+    read_error: bool = False
 
 
 def _log(config: KgConfig, record: dict[str, Any]) -> None:
@@ -61,21 +74,56 @@ def _find_queue_files(config: KgConfig) -> list[Path]:
     return sorted(host_dir.rglob("*-events.jsonl"))
 
 
-def _read_events(queue_file: Path) -> list[dict[str, Any]]:
+def _read_events(queue_file: Path) -> _QueueRead:
     events: list[dict[str, Any]] = []
     try:
-        with queue_file.open("r", encoding="utf-8") as fp:
-            for line in fp:
-                line = line.strip()
-                if not line:
+        with queue_file.open("rb") as fp:
+            line_number = 0
+            while True:
+                raw_line = fp.readline(MAX_QUEUE_LINE_BYTES + 1)
+                if not raw_line:
+                    break
+                line_number += 1
+                if not raw_line.strip():
                     continue
+                if len(raw_line) > MAX_QUEUE_LINE_BYTES:
+                    return _QueueRead(
+                        events,
+                        corrupt_line=line_number,
+                        corrupt_reason="line_too_large",
+                    )
+                if not raw_line.endswith(b"\n"):
+                    return _QueueRead(
+                        events,
+                        corrupt_line=line_number,
+                        corrupt_reason="unterminated_line",
+                    )
                 try:
-                    events.append(json.loads(line))
+                    line = raw_line.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    return _QueueRead(
+                        events,
+                        corrupt_line=line_number,
+                        corrupt_reason="invalid_utf8",
+                    )
+                try:
+                    event = json.loads(line)
                 except json.JSONDecodeError:
-                    continue
-    except OSError:
-        return []
-    return events
+                    return _QueueRead(
+                        events,
+                        corrupt_line=line_number,
+                        corrupt_reason="invalid_json",
+                    )
+                if not isinstance(event, dict):
+                    return _QueueRead(
+                        events,
+                        corrupt_line=line_number,
+                        corrupt_reason="record_not_object",
+                    )
+                events.append(event)
+    except (OSError, UnicodeError):
+        return _QueueRead(events, read_error=True)
+    return _QueueRead(events)
 
 
 def _archive_file(queue_file: Path, config: KgConfig) -> None:
@@ -121,10 +169,29 @@ def drain_dry_run(config: KgConfig) -> dict[str, Any]:
     files = _find_queue_files(config)
     total_events = 0
     seen_hashes: set[str] = set()
+    corrupt_files = 0
+    corrupt_records = 0
+    read_errors = 0
+    corrupt_details: list[dict[str, object]] = []
     for f in files:
-        events = _read_events(f)
-        total_events += len(events)
-        for e in events:
+        parsed = _read_events(f)
+        total_events += len(parsed.events)
+        if parsed.read_error:
+            read_errors += 1
+            if len(corrupt_details) < MAX_CORRUPTION_DETAILS:
+                corrupt_details.append({"file": f.name, "reason": "read_error"})
+        if parsed.corrupt_line is not None:
+            corrupt_files += 1
+            corrupt_records += 1
+            if len(corrupt_details) < MAX_CORRUPTION_DETAILS:
+                corrupt_details.append(
+                    {
+                        "file": f.name,
+                        "line": parsed.corrupt_line,
+                        "reason": parsed.corrupt_reason or "corrupt_record",
+                    }
+                )
+        for e in parsed.events:
             h = e.get("content_hash")
             if h:
                 seen_hashes.add(h)
@@ -133,6 +200,10 @@ def drain_dry_run(config: KgConfig) -> dict[str, Any]:
         "files_found": len(files),
         "total_events": total_events,
         "unique_events_by_hash": len(seen_hashes),
+        "corrupt_files": corrupt_files,
+        "corrupt_records": corrupt_records,
+        "read_errors": read_errors,
+        "corrupt_details": corrupt_details,
         "host": config.host,
     }
     _log(config, {"ts": datetime.now(UTC).isoformat(), **result})
@@ -223,6 +294,10 @@ def drain_live(
     added = 0
     failed = 0
     skipped_by_cap = 0
+    corrupt_files = 0
+    corrupt_records = 0
+    read_errors = 0
+    corrupt_details: list[dict[str, object]] = []
     cap = config.cost_cap_usd_monthly
 
     for f in files:
@@ -230,8 +305,25 @@ def drain_live(
         # succeeded so a failing file does not prevent archiving clean files.
         file_added = 0
         file_failed = 0
-        events = _read_events(f)
-        for e in events:
+        parsed = _read_events(f)
+        if parsed.read_error or parsed.corrupt_line is not None:
+            if parsed.read_error:
+                read_errors += 1
+                if len(corrupt_details) < MAX_CORRUPTION_DETAILS:
+                    corrupt_details.append({"file": f.name, "reason": "read_error"})
+            if parsed.corrupt_line is not None:
+                corrupt_files += 1
+                corrupt_records += 1
+                if len(corrupt_details) < MAX_CORRUPTION_DETAILS:
+                    corrupt_details.append(
+                        {
+                            "file": f.name,
+                            "line": parsed.corrupt_line,
+                            "reason": parsed.corrupt_reason or "corrupt_record",
+                        }
+                    )
+            continue
+        for e in parsed.events:
             reservation_id: str | None = None
             if cap is not None:
                 try:
@@ -251,7 +343,6 @@ def drain_live(
                 if not ok:
                     skipped_by_cap += 1
                     continue
-            text = _episode_text(e)
             ts = e.get("ts") or datetime.now(UTC).isoformat()
             try:
                 ref_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
@@ -260,13 +351,19 @@ def drain_live(
             try:
                 import asyncio  # noqa: WPS433 - keep CLI startup cheap
 
+                # Queue files are derived state and may have been modified after
+                # staging. Redact again at the final provider boundary.
+                provider_name = redact(str(e.get("event_id", "evt"))) or "evt"
+                provider_body = redact(_episode_text(e))
+                group_id = group_id_for_scope(str(e.get("scope") or "default"))
                 asyncio.run(
                     client.add_episode(
-                        name=str(e.get("event_id", "evt")),
-                        episode_body=text,
+                        name=provider_name,
+                        episode_body=provider_body,
                         source=EpisodeType.text,
                         source_description="mneme PostToolUse stage",
                         reference_time=ref_time,
+                        group_id=group_id,
                     )
                 )
                 file_added += 1
@@ -286,6 +383,10 @@ def drain_live(
         "episodes_added": added,
         "episodes_failed": failed,
         "skipped_by_cost_cap": skipped_by_cap,
+        "corrupt_files": corrupt_files,
+        "corrupt_records": corrupt_records,
+        "read_errors": read_errors,
+        "corrupt_details": corrupt_details,
         "host": config.host,
     }
     _log(config, {"ts": datetime.now(UTC).isoformat(), **result})

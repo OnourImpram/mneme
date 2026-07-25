@@ -12,7 +12,7 @@ the real dataset and the synthetic fixture can be parsed by one function.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 

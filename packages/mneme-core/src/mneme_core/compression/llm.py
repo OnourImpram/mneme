@@ -20,6 +20,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from ..privacy import redact
+
 DEFAULT_MODEL = "claude-sonnet-4-5"
 
 # Pricing per million tokens (USD). Operators override via
@@ -127,8 +129,11 @@ class AnthropicProvider:
             response = client.messages.create(
                 model=spec.model,
                 max_tokens=spec.max_tokens,
-                system=spec.system,
-                messages=[{"role": "user", "content": spec.payload}],
+                # Keep this final guard even though the built-in pipeline also
+                # redacts. AnthropicProvider is public and can be called by a
+                # different orchestrator with an untrusted LlmCallSpec.
+                system=redact(spec.system),
+                messages=[{"role": "user", "content": redact(spec.payload)}],
             )
         except Exception as exc:  # noqa: BLE001 - third-party surface
             raise LlmProviderError(f"Anthropic call failed: {exc}") from exc

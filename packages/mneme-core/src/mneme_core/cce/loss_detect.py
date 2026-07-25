@@ -19,13 +19,18 @@ Design constraints honored here:
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
+from ..scope import DEFAULT_SCOPE, scope_matches, valid_scope
 from .checkpoint import Checkpoint, WorkingSetItem, parse_markdown
 
 # Mirror the cap used by budget.py and session_summary so we never block
 # on a huge post-compaction transcript.
 _MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024
+_MAX_INDEX_BYTES = 16 * 1024 * 1024
+_MAX_CHECKPOINT_BYTES = 4 * 1024 * 1024
 
 # Number of characters from the start of each item's text used as the
 # lookup key.  Short enough to survive minor whitespace normalisation,
@@ -85,56 +90,115 @@ def detect_dropped(
     return tuple(dropped)
 
 
-def load_latest_checkpoint(vault_checkpoint_index: Path) -> Checkpoint | None:
-    """Load and parse the most recent checkpoint from the index.
+def _vault_root_from_index(index_path: Path) -> Path | None:
+    parent = index_path.parent
+    if parent.name != "checkpoints" or parent.parent.name != ".mneme":
+        return None
+    try:
+        return parent.parent.parent.resolve(strict=True)
+    except OSError:
+        return None
 
-    Reads the *last non-empty line* of the JSONL index file, resolves the
-    ``path`` field to the markdown document, and returns the parsed
-    :class:`~mneme_core.cce.checkpoint.Checkpoint`.
 
-    Returns ``None`` when the index is missing, empty, corrupt, or the
-    markdown file cannot be read.
+def _read_bounded_regular_file(path: Path, limit: int) -> str | None:
+    """Read a bounded regular file without following its final symlink."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, os.O_RDONLY | nofollow)
+    except OSError:
+        return None
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > limit:
+            return None
+        chunks: list[bytes] = []
+        remaining = limit + 1
+        while remaining > 0:
+            chunk = os.read(fd, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > limit:
+            return None
+        return payload.decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(fd)
 
-    Args:
-        vault_checkpoint_index: path to the CCE JSONL index
-            (``VaultConfig.checkpoint_index``).
+
+def _contained_checkpoint_path(root: Path, value: str) -> Path | None:
+    raw = Path(value)
+    candidate = raw if raw.is_absolute() else root / raw
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if not resolved.is_relative_to(root) or not resolved.is_file():
+        return None
+    return resolved
+
+
+def load_latest_checkpoint(
+    vault_checkpoint_index: Path,
+    scope: str = DEFAULT_SCOPE,
+) -> Checkpoint | None:
+    """Load the newest checkpoint visible in a validated read scope.
+
+    Legacy records without scope metadata belong only to ``default``. The
+    exact ``*`` selector is accepted only when supplied explicitly. Index and
+    checkpoint reads are bounded, vault-contained, and symlink safe.
     """
-    if not vault_checkpoint_index.is_file():
+    requested_scope = valid_scope(scope)
+    if requested_scope is None:
         return None
-
+    root = _vault_root_from_index(vault_checkpoint_index)
+    if root is None:
+        return None
     try:
-        raw = vault_checkpoint_index.read_text(encoding="utf-8")
+        resolved_index = vault_checkpoint_index.resolve(strict=True)
     except OSError:
         return None
+    if not resolved_index.is_relative_to(root):
+        return None
+    raw = _read_bounded_regular_file(resolved_index, _MAX_INDEX_BYTES)
+    if raw is None:
+        return None
 
-    last_line = ""
-    for line in raw.splitlines():
+    for line in reversed(raw.splitlines()):
         stripped = line.strip()
-        if stripped:
-            last_line = stripped
-
-    if not last_line:
-        return None
-
-    try:
-        record: dict[str, object] = json.loads(last_line)
-    except json.JSONDecodeError:
-        return None
-
-    doc_path_str = record.get("path")
-    if not isinstance(doc_path_str, str) or not doc_path_str:
-        return None
-
-    doc_path = Path(doc_path_str)
-    try:
-        md_text = doc_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
-    try:
-        return parse_markdown(md_text)
-    except Exception:  # noqa: BLE001
-        return None
+        if not stripped:
+            continue
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if not scope_matches(parsed.get("scope"), requested_scope):
+            continue
+        path_value = parsed.get("path")
+        if not isinstance(path_value, str) or not path_value:
+            continue
+        doc_path = _contained_checkpoint_path(root, path_value)
+        if doc_path is None:
+            continue
+        markdown = _read_bounded_regular_file(doc_path, _MAX_CHECKPOINT_BYTES)
+        if markdown is None:
+            continue
+        try:
+            checkpoint = parse_markdown(markdown)
+        except ValueError:
+            continue
+        if not scope_matches(checkpoint.scope, requested_scope):
+            continue
+        record_anchor = parsed.get("anchor")
+        if isinstance(record_anchor, str) and record_anchor != checkpoint.anchor:
+            continue
+        return checkpoint
+    return None
 
 
 # ---------------------------------------------------------------------------

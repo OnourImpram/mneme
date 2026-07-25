@@ -31,10 +31,12 @@ from pathlib import Path
 from typing import Any
 
 from ..privacy import redact_value as _privacy_redact_value
+from ..scope import DEFAULT_SCOPE, concrete_scope_or_none
 
 DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
     {"Edit", "Write", "Bash", "Task", "MultiEdit"}
 )
+MAX_STAGED_RECORD_BYTES = 1_048_576
 
 
 def _short_hostname() -> str:
@@ -81,7 +83,7 @@ class KgConfig:
     cost_cap_usd_monthly: float | None = None
     host: str = field(default_factory=_short_hostname)
     capture_tools: frozenset[str] = DEFAULT_CAPTURE_TOOLS
-
+    scope: str = DEFAULT_SCOPE
 
 
 def _resolve_tool_name(event: dict[str, Any]) -> str:
@@ -120,6 +122,7 @@ def kg_config_from_vault(
         cost_ledger=vault.kg_cost_ledger,
         cost_cap_usd_monthly=cost_cap_usd_monthly,
         capture_tools=capture_tools if capture_tools is not None else DEFAULT_CAPTURE_TOOLS,
+        scope=vault.default_scope(),
     )
 
 
@@ -137,10 +140,12 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
             return False
         if _resolve_tool_name(event) not in config.capture_tools:
             return False
+        scope = concrete_scope_or_none(config.scope)
+        if scope is None:
+            return False
 
         now = _now()
         out_dir = config.queue_dir / config.host / now.strftime("%Y-%m-%d")
-        out_dir.mkdir(parents=True, exist_ok=True)
         out_file = out_dir / f"{now.strftime('%H')}-events.jsonl"
 
         # Redact field-by-field before serialisation so that fail-closed
@@ -165,7 +170,10 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
             {"captured_at", "host", "content_hash", "ts", "pid", "event_id"}
         )
         canonical = {
-            k: v for k, v in redacted_event.items() if k not in _hash_exclude
+            "scope": scope,
+            "event": {
+                k: v for k, v in redacted_event.items() if k not in _hash_exclude
+            },
         }
         content_hash = hashlib.sha256(
             json.dumps(
@@ -177,14 +185,40 @@ def stage_event(event: dict[str, Any], config: KgConfig) -> bool:
             "event_id": f"{now.strftime('%H%M%S')}-{content_hash[:12]}",
             "ts": now.isoformat(),
             "host": config.host,
+            "scope": scope,
             "pid": os.getpid(),
             "content_hash": content_hash,
             "payload": json.loads(safe_blob),
             "staged_by": "mneme.kg.episode_stage",
             "schema_version": "1.0",
         }
-        with out_file.open("a", encoding="utf-8") as fp:
-            fp.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        line = (json.dumps(record, ensure_ascii=False, default=str) + "\n").encode(
+            "utf-8"
+        )
+        if len(line) > MAX_STAGED_RECORD_BYTES:
+            return False
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if out_file.is_file():
+            with out_file.open("rb") as fp:
+                fp.seek(0, os.SEEK_END)
+                if fp.tell() > 0:
+                    fp.seek(-1, os.SEEK_END)
+                    if fp.read(1) != b"\n":
+                        return False
+        with out_file.open("ab") as fp:
+            start = fp.tell()
+            try:
+                written = fp.write(line)
+                fp.flush()
+                if written != len(line):
+                    fp.seek(start)
+                    fp.truncate()
+                    return False
+            except OSError:
+                fp.seek(start)
+                fp.truncate()
+                return False
         return True
     except Exception:
         return False

@@ -36,7 +36,9 @@ jobs:
         run: mypy --strict src/
       - name: Run pytest with coverage
         working-directory: packages/mneme-core
-        run: pytest tests/ -v --cov=mneme_core --cov-report=term-missing
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-core
+        run: pytest tests/ -v --cov=mneme_core --cov-config=pyproject.toml --cov-report=term-missing
       - name: Install mneme-cc-plugin editable
         working-directory: packages/mneme-cc-plugin
         run: pip install -e ".[dev]"
@@ -48,7 +50,9 @@ jobs:
         run: mypy --strict src/
       - name: Run mneme-cc-plugin pytest
         working-directory: packages/mneme-cc-plugin
-        run: pytest tests/ -v --cov=mneme_cc_plugin --cov-branch --cov-report=term-missing
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-cc-plugin
+        run: pytest tests/ -v --cov=mneme_cc_plugin --cov-config=pyproject.toml --cov-branch --cov-report=term-missing
       - name: Install mneme-graph editable
         run: pip install -e "packages/mneme-graph[dev]"
       - name: Lint mneme-graph with ruff
@@ -56,7 +60,9 @@ jobs:
       - name: Type check mneme-graph with mypy strict
         run: mypy --strict packages/mneme-graph/mneme_graph
       - name: Run mneme-graph pytest with coverage
-        run: pytest packages/mneme-graph/tests -v
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-graph
+        run: pytest packages/mneme-graph/tests -v --cov-config=packages/mneme-graph/pyproject.toml
       - name: Install mneme-code editable
         run: pip install -e "packages/mneme-code[dev]"
       - name: Lint mneme-code with ruff
@@ -64,7 +70,9 @@ jobs:
       - name: Type check mneme-code with mypy strict
         run: mypy --strict packages/mneme-code/mneme_code
       - name: Run mneme-code pytest with coverage
-        run: pytest packages/mneme-code/tests -v
+        env:
+          COVERAGE_FILE: ${{ github.workspace }}/.coverage.mneme-code
+        run: pytest packages/mneme-code/tests -v --cov-config=packages/mneme-code/pyproject.toml
       - name: Run cross-package parity tests
         run: pytest tests/parity -q
 
@@ -87,8 +95,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build all packages
         run: pnpm -r build
-      - name: Run tests
-        run: pnpm -r test
+      - name: Run tests with 80 percent coverage gates
+        run: pnpm --filter mneme-mcp-server test:coverage
       - name: Lint
         run: pnpm -r lint
 
@@ -100,10 +108,25 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Tool validator unit tests
+        run: python -m unittest discover -s tools/tests -p 'test_*.py' -v
+      - name: Install pinned actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" actionlint
+      - name: Validate GitHub Actions workflows
+        run: ./actionlint -color
       - name: Version sources agree
         run: python tools/version_bump.py --check
       - name: Critical-path hook verifier
         run: python tools/spec_verify.py
+      - name: Claude plugin validator
+        run: python tools/validate_claude_plugin.py packages/mneme-cc-plugin
       - name: Codex plugin validator
         run: python tools/validate_codex_plugin.py packages/mneme-codex-plugin
       - name: Antigravity plugin validator
@@ -151,3 +174,23 @@ jobs:
       - name: Run Neo4j integration test
         working-directory: packages/mneme-core
         run: pytest tests/integration/test_kg_neo4j_integration.py -v --no-cov
+
+  benchmark-gate:
+    name: Seven-surface benchmark gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install benchmark runtime
+        working-directory: packages/mneme-core
+        run: pip install -e '.[dev]'
+      - name: Run deterministic release-candidate benchmarks
+        run: >-
+          python -m mneme_core.bench.gate all
+          --output "${{ runner.temp }}/mneme-3.6-benchmark-gate.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mneme-3.6-benchmark-gate
+          path: ${{ runner.temp }}/mneme-3.6-benchmark-gate.json

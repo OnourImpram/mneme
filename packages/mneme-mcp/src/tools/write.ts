@@ -20,6 +20,12 @@ import { appendAuditRecord } from "../audit.js";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
 import {
+	ConcreteScopeSchema,
+	classifyMarkdownScope,
+	concreteScopeOrNull,
+	DocumentScopeError,
+} from "../scope.js";
+import {
 	assertWithinVault,
 	atomicWriteText,
 	VaultPathError,
@@ -62,10 +68,10 @@ export const WriteInputSchema = z.object({
 		.min(1)
 		.max(2048)
 		.describe("H2 heading text without the leading markdown marker."),
-	content: z
-		.string()
-		.max(100000)
-		.describe("Markdown body for the section."),
+	content: z.string().max(100000).describe("Markdown body for the section."),
+	scope: ConcreteScopeSchema.describe(
+		"Concrete isolation scope for this write. Omit to use matching frontmatter on a new file or the configured default.",
+	).optional(),
 	/** When true, replaces an existing section with the same heading. */
 	replace: z
 		.boolean()
@@ -86,6 +92,7 @@ export interface WriteOutput {
 	operation: "added" | "replaced";
 	created_new_file: boolean;
 	redactions_applied: number;
+	scope: string;
 }
 
 export function writeTool(
@@ -110,12 +117,61 @@ export function writeTool(
 	const contentRed = redactString(args.content);
 	const fmRed = redactFrontmatter(args.frontmatter);
 	const totalRedactions = sectionRed.count + contentRed.count + fmRed.count;
+	const frontmatterScope = fmRed.value?.scope ?? fmRed.value?.project;
+	const requestedScope = concreteScopeOrNull(
+		args.scope ?? frontmatterScope ?? vault.defaultScope(),
+	);
+	if (requestedScope === null) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INVALID_ARGUMENT,
+				message: "Writes require a concrete valid scope; '*' is read-only.",
+			},
+		};
+	}
+	for (const key of ["scope", "project"] as const) {
+		const value = fmRed.value?.[key];
+		if (value === undefined) continue;
+		if (concreteScopeOrNull(value) !== requestedScope) {
+			return {
+				ok: false,
+				error: {
+					code: ERROR_CODES.INVALID_ARGUMENT,
+					message: `Frontmatter ${key} must match the requested concrete scope.`,
+				},
+			};
+		}
+	}
 
 	const headingLine = `## ${sectionRed.redacted}`;
 	let existing = "";
 	let createdNew = false;
 	if (existsSync(targetAbs)) {
 		existing = readFileSync(targetAbs, "utf8");
+		try {
+			const existingScope = classifyMarkdownScope(existing).scope;
+			if (existingScope !== requestedScope) {
+				return {
+					ok: false,
+					error: {
+						code: ERROR_CODES.INVALID_ARGUMENT,
+						message: "The target is outside the requested write scope.",
+					},
+				};
+			}
+		} catch (err) {
+			if (err instanceof DocumentScopeError) {
+				return {
+					ok: false,
+					error: {
+						code: ERROR_CODES.INVALID_ARGUMENT,
+						message: "The target scope metadata is malformed.",
+					},
+				};
+			}
+			throw err;
+		}
 	} else {
 		createdNew = true;
 		// M3: always stamp scope into new-file frontmatter so the indexer can
@@ -124,9 +180,7 @@ export function writeTool(
 		const fmForNew: Record<string, string | number> = {
 			...(fmRed.value ?? {}),
 		};
-		if (!("scope" in fmForNew)) {
-			fmForNew.scope = vault.defaultScope();
-		}
+		fmForNew.scope = requestedScope;
 		existing = serializeFrontmatter(fmForNew);
 	}
 
@@ -164,7 +218,7 @@ export function writeTool(
 	}
 
 	try {
-		atomicWriteText(targetAbs, finalContent);
+		atomicWriteText(targetAbs, finalContent, { vaultRoot: vault.root });
 	} catch (err) {
 		return {
 			ok: false,
@@ -191,6 +245,7 @@ export function writeTool(
 			operation,
 			created_new_file: createdNew,
 			redactions_applied: totalRedactions,
+			scope: requestedScope,
 		},
 	};
 }

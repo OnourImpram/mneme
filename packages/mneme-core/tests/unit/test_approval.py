@@ -92,6 +92,33 @@ class TestProposalIdIdentity:
         )
         assert a.proposal_id == b.proposal_id
 
+    def test_non_default_scopes_do_not_alias(self) -> None:
+        clinical = propose(
+            action="update",
+            target_path="core/x.md",
+            content="same",
+            category=EditCategory.EPHEMERAL,
+            scope="clinical",
+        )
+        research = propose(
+            action="update",
+            target_path="core/x.md",
+            content="same",
+            category=EditCategory.EPHEMERAL,
+            scope="research",
+        )
+        assert clinical.proposal_id != research.proposal_id
+
+    def test_wildcard_scope_is_never_a_durable_proposal(self) -> None:
+        with pytest.raises(ValueError, match="concrete"):
+            propose(
+                action="create",
+                target_path="notes/x.md",
+                content="x",
+                category=EditCategory.EPHEMERAL,
+                scope="*",
+            )
+
 
 # ---------------------------------------------------------------------------
 # requires_human_approval

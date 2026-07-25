@@ -302,6 +302,7 @@ class TestTemporalIntegration:
             "type": "claim",
             "supersedes": note_id,
             "claim_key": f"failure.{fix.failure_id}",
+            "created": fix.resolved_at.isoformat(timespec="microseconds"),
             "valid_from": fix.resolved_at.isoformat(timespec="microseconds"),
         }
         claim = claim_from_note(fix_fm, "# fix\n", path="code-fixes/x.md", content_hash="c" * 64)

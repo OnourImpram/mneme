@@ -135,6 +135,26 @@ class TestWriteEvent:
         files = list(config.telemetry_dir.rglob("session-sess-42.jsonl"))
         assert len(files) == 1
 
+    def test_host_and_session_cannot_escape_telemetry_root(
+        self, tmp_path: Path
+    ) -> None:
+        config = TelemetryConfig(
+            telemetry_dir=tmp_path / "telemetry",
+            audit_dir=tmp_path / "audit",
+            host="../../outside-host",
+        )
+        ok = write_event(
+            "hook",
+            "PostToolUse",
+            config,
+            session_id="../<private>outside-session</private>",
+        )
+        assert ok is True
+        files = list(config.telemetry_dir.rglob("*.jsonl"))
+        assert len(files) == 1
+        assert files[0].resolve().is_relative_to(config.telemetry_dir.resolve())
+        assert not (tmp_path / "outside-host").exists()
+
     def test_writes_record_with_required_fields(
         self, config: TelemetryConfig
     ) -> None:
@@ -207,6 +227,33 @@ class TestWriteEvent:
         assert rec["count"] == 42
         assert rec["flag"] is True
         assert rec["tags"] == ["a", "b"]
+
+    def test_nested_provider_metadata_redacted_at_write_sink(
+        self, config_with_credentials: TelemetryConfig
+    ) -> None:
+        write_event(
+            "llm_call",
+            "compress",
+            config_with_credentials,
+            provider={
+                "request": [
+                    "<private>NESTED_PRIVATE</private>",
+                    {"auth": "api_key=sk-nested-secret"},
+                ],
+                "<private>KEY_SECRET</private>": "public",
+            },
+        )
+        path = next(
+            config_with_credentials.telemetry_dir.rglob("token-ledger.jsonl")
+        )
+        raw = path.read_text(encoding="utf-8")
+        rec = json.loads(raw)
+
+        assert "NESTED_PRIVATE" not in raw
+        assert "sk-nested-secret" not in raw
+        assert "KEY_SECRET" not in raw
+        assert rec["provider"]["request"][0] == "[REDACTED]"
+        assert rec["provider"]["request"][1]["auth"] == "[CREDENTIAL-REDACTED]"
 
     def test_audit_log_written_on_redaction(
         self, config_with_credentials: TelemetryConfig

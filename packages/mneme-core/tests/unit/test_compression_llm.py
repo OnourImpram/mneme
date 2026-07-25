@@ -141,6 +141,38 @@ class TestAnthropicProviderImportPath:
         assert result.tokens_out == 42
         assert result.model == "claude-sonnet-4-5"
 
+    def test_redacts_spec_at_anthropic_client_boundary(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, Any] = {}
+        stub = types.ModuleType("anthropic")
+
+        class _ClientStub:
+            def __init__(self, **_kw: object) -> None:
+                self.messages = types.SimpleNamespace(create=self._ok)
+
+            def _ok(self, **kwargs: Any) -> Any:
+                captured.update(kwargs)
+                return types.SimpleNamespace(
+                    content=[types.SimpleNamespace(text="compressed")],
+                    usage=types.SimpleNamespace(input_tokens=1, output_tokens=1),
+                )
+
+        stub.Anthropic = _ClientStub  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "anthropic", stub)
+
+        AnthropicProvider().compress(
+            LlmCallSpec(
+                system="rules <private>SYSTEM_SECRET</private>",
+                payload="data <private>PAYLOAD_SECRET</private>",
+            )
+        )
+
+        outbound = str(captured)
+        assert "SYSTEM_SECRET" not in outbound
+        assert "PAYLOAD_SECRET" not in outbound
+        assert outbound.count("[REDACTED]") == 2
+
     def test_robust_to_missing_usage_fields(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

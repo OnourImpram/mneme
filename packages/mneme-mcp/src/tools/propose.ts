@@ -20,18 +20,187 @@
  * No LLM, no network.
  */
 
-import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	fstatSync,
+	fsyncSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES } from "../errors.js";
 import { redact } from "../privacy.js";
+import { ConcreteScopeSchema, concreteScopeOrNull } from "../scope.js";
 import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
 /** Same namespace bytes the Python engine uses (uuid.UUID("6ba7b810-...")). */
 const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
+const MAX_QUEUE_BYTES = 16 * 1024 * 1024;
+const MAX_QUEUE_LINES = 10_000;
+const MAX_QUEUE_RECORD_BYTES = 1024 * 1024;
+const QUEUE_LOCK_TIMEOUT_MS = 30_000;
+const QUEUE_LOCK_STALE_MS = 60_000;
+
+function errorCode(error: unknown): string | undefined {
+	return (error as NodeJS.ErrnoException).code;
+}
+
+function isContentionError(error: unknown): boolean {
+	const code = errorCode(error);
+	return code === "EEXIST" || code === "EACCES" || code === "EPERM";
+}
+
+function sleepSync(milliseconds: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function releaseOwnedLock(lockPath: string, token: string): void {
+	try {
+		if (readFileSync(lockPath, "utf-8") === token) unlinkSync(lockPath);
+	} catch {
+		// A stale-lock recovery may already have removed this exact lease.
+	}
+}
+
+function acquireQueueLock(queuePath: string, vaultRoot: string): () => void {
+	const lockPath = `${queuePath}.lock`;
+	const deadline = Date.now() + QUEUE_LOCK_TIMEOUT_MS;
+	const token = `${process.pid}:${randomBytes(16).toString("hex")}`;
+	const noFollow = constants.O_NOFOLLOW ?? 0;
+
+	while (true) {
+		let fd: number | null = null;
+		try {
+			assertWithinVault(vaultRoot, lockPath);
+			fd = openSync(
+				lockPath,
+				constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow,
+				0o600,
+			);
+			writeSync(fd, token, 0, "utf-8");
+			fsyncSync(fd);
+			closeSync(fd);
+			fd = null;
+			return () => releaseOwnedLock(lockPath, token);
+		} catch (error) {
+			if (fd !== null) closeSync(fd);
+			if (!isContentionError(error)) throw error;
+			try {
+				const lockStat = lstatSync(lockPath);
+				if (lockStat.isSymbolicLink()) {
+					throw new Error("proposal queue lock is not a regular file");
+				}
+				if (Date.now() - lockStat.mtimeMs > QUEUE_LOCK_STALE_MS) {
+					const quarantine = `${lockPath}.stale-${randomBytes(16).toString("hex")}`;
+					renameSync(lockPath, quarantine);
+					unlinkSync(quarantine);
+					continue;
+				}
+			} catch (staleError) {
+				const staleCode = errorCode(staleError);
+				if (staleCode !== "ENOENT") throw staleError;
+				continue;
+			}
+			if (Date.now() >= deadline) throw new Error("proposal queue is busy");
+			sleepSync(10);
+		}
+	}
+}
+
+function appendQueueRecord(
+	queuePath: string,
+	payload: Buffer,
+	vaultRoot: string,
+): void {
+	if (payload.byteLength > MAX_QUEUE_RECORD_BYTES) {
+		throw new Error("proposal queue record exceeds the configured size limit");
+	}
+	const release = acquireQueueLock(queuePath, vaultRoot);
+	try {
+		assertWithinVault(vaultRoot, queuePath);
+		const noFollow = constants.O_NOFOLLOW ?? 0;
+		let readFd: number | null = null;
+		try {
+			readFd = openSync(queuePath, constants.O_RDONLY | noFollow);
+			assertWithinVault(vaultRoot, queuePath);
+			const descriptorStat = fstatSync(readFd);
+			const pathStat = lstatSync(queuePath);
+			if (
+				!descriptorStat.isFile() ||
+				!pathStat.isFile() ||
+				pathStat.isSymbolicLink() ||
+				descriptorStat.dev !== pathStat.dev ||
+				descriptorStat.ino !== pathStat.ino
+			) {
+				throw new Error("proposal queue is not a stable regular file");
+			}
+			if (descriptorStat.size + payload.byteLength > MAX_QUEUE_BYTES) {
+				throw new Error("proposal queue exceeds the configured size limit");
+			}
+			const existing = readFileSync(readFd);
+			let lineCount = 0;
+			for (const byte of existing) if (byte === 0x0a) lineCount += 1;
+			if (lineCount >= MAX_QUEUE_LINES) {
+				throw new Error("proposal queue exceeds the configured line limit");
+			}
+		} catch (error) {
+			if (errorCode(error) !== "ENOENT") throw error;
+		} finally {
+			if (readFd !== null) closeSync(readFd);
+		}
+
+		const fd = openSync(
+			queuePath,
+			constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | noFollow,
+			0o600,
+		);
+		try {
+			assertWithinVault(vaultRoot, queuePath);
+			const queueStat = fstatSync(fd);
+			const queuePathStat = lstatSync(queuePath);
+			if (
+				!queueStat.isFile() ||
+				!queuePathStat.isFile() ||
+				queuePathStat.isSymbolicLink() ||
+				queueStat.dev !== queuePathStat.dev ||
+				queueStat.ino !== queuePathStat.ino
+			) {
+				throw new Error("proposal queue is not a stable regular file");
+			}
+			if (queueStat.size + payload.byteLength > MAX_QUEUE_BYTES) {
+				throw new Error("proposal queue exceeds the configured size limit");
+			}
+			let offset = 0;
+			while (offset < payload.byteLength) {
+				const written = writeSync(
+					fd,
+					payload,
+					offset,
+					payload.byteLength - offset,
+				);
+				if (written <= 0)
+					throw new Error("proposal queue write made no progress");
+				offset += written;
+			}
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+	} finally {
+		release();
+	}
+}
 
 export const ProposeInputSchema = z.object({
 	action: z
@@ -72,11 +241,9 @@ export const ProposeInputSchema = z.object({
 	 * Scope to stamp on the proposal record. Omit to use config.defaultScope().
 	 * Stored in the JSONL record for the Python drain to apply on write.
 	 */
-	scope: z
-		.string()
-		.max(256)
-		.describe("Scope stamped on the proposal. Omit for the configured default scope.")
-		.optional(),
+	scope: ConcreteScopeSchema.describe(
+		"Scope stamped on the proposal. Omit for the configured default scope.",
+	).optional(),
 });
 
 export type ProposeInput = z.infer<typeof ProposeInputSchema>;
@@ -89,6 +256,7 @@ export interface ProposeOutput {
 	auto_eligible: boolean;
 	queue: string;
 	redactions_applied: number;
+	scope: string;
 	note: string;
 }
 
@@ -142,15 +310,22 @@ export function proposeTool(
 		throw err;
 	}
 
+	const scope = concreteScopeOrNull(args.scope ?? vault.defaultScope());
+	if (scope === null) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INVALID_ARGUMENT,
+				message: "Proposal scope must be a concrete valid identifier.",
+			},
+		};
+	}
 	const { text: redacted, count: redactions } = redact(args.content);
 	const category = args.category.toUpperCase();
 	const trust = "agent";
-	const seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
+	let seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
+	if (scope !== "default") seed = `${seed}\x00${scope}`;
 	const proposalId = uuid5(UUID5_NAMESPACE, seed);
-
-	// Resolve scope from caller arg or vault default. Not part of the uuid5
-	// seed so the proposal_id stays byte-compatible with the Python engine.
-	const scope = args.scope ?? vault.defaultScope();
 
 	const record = {
 		proposal_id: proposalId,
@@ -167,16 +342,20 @@ export function proposeTool(
 
 	const queuePath = join(vault.stateDir, "proposals", "pending.jsonl");
 	try {
+		assertWithinVault(vault.root, queuePath);
 		mkdirSync(dirname(queuePath), { recursive: true });
-		appendFileSync(queuePath, `${JSON.stringify(record)}\n`, "utf-8");
-	} catch (err) {
+		assertWithinVault(vault.root, queuePath);
+		appendQueueRecord(
+			queuePath,
+			Buffer.from(`${JSON.stringify(record)}\n`, "utf-8"),
+			vault.root,
+		);
+	} catch {
 		return {
 			ok: false,
 			error: {
 				code: ERROR_CODES.IO_ERROR,
-				message: `Could not queue proposal: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
+				message: "Could not queue proposal safely.",
 			},
 		};
 	}
@@ -196,6 +375,7 @@ export function proposeTool(
 			auto_eligible: autoEligible,
 			queue: "proposals/pending.jsonl",
 			redactions_applied: redactions,
+			scope,
 			note: autoEligible
 				? "Eligible for autonomous apply at the next policy drain."
 				: "Will be held for the human approval flow at the next drain.",

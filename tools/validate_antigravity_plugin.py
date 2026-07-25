@@ -24,11 +24,24 @@ SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 # Valid hook event names in the Antigravity / Claude-Code-compatible schema.
 VALID_HOOK_EVENTS = {"SessionStart", "PostToolUse", "Stop", "PreCompact"}
+EXPECTED_HOOK_COMMANDS = {
+    "SessionStart": "mneme hook session-start",
+    "PostToolUse": "mneme hook post-tool-use",
+    "Stop": "mneme hook stop",
+    "PreCompact": "mneme hook pre-compact",
+}
+EXPECTED_SKILLS = {"mneme-prime", "mneme-search"}
 
 # Every hook command must route through the shared mneme hook dispatcher.
 _HOOK_CMD_RE = re.compile(r"^mneme hook (session-start|post-tool-use|stop|pre-compact)$")
 
-REQUIRED_MANIFEST_FIELDS = {"name", "version", "description", "mcpServers"}
+REQUIRED_MANIFEST_FIELDS = {
+    "name",
+    "version",
+    "description",
+    "license",
+    "mcpServers",
+}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -60,12 +73,17 @@ def _validate_manifest(plugin_root: Path, errors: list[str]) -> None:
     missing = sorted(REQUIRED_MANIFEST_FIELDS - set(manifest))
     errors.extend(f"gemini-extension.json missing required field: {k}" for k in missing)
 
-    _string(manifest, "name", errors)
+    if _string(manifest, "name", errors) != "mneme":
+        errors.append("name must be mneme")
     version = _string(manifest, "version", errors)
     if version is not None and SEMVER_RE.fullmatch(version) is None:
         errors.append("version must be strict MAJOR.MINOR.PATCH semver")
 
     _string(manifest, "description", errors)
+    if manifest.get("license") != "Apache-2.0":
+        errors.append("license must be Apache-2.0")
+    if manifest.get("contextFileName") != "GEMINI.md":
+        errors.append("contextFileName must be GEMINI.md")
 
     mcp = manifest.get("mcpServers")
     if not isinstance(mcp, dict):
@@ -78,8 +96,10 @@ def _validate_manifest(plugin_root: Path, errors: list[str]) -> None:
             if not isinstance(server, dict):
                 errors.append("mcpServers.mneme must be an object")
             else:
-                if not isinstance(server.get("command"), str) or not server["command"].strip():
-                    errors.append("mcpServers.mneme.command must be a non-empty string")
+                if server.get("command") != "mneme-mcp":
+                    errors.append("mcpServers.mneme.command must be mneme-mcp")
+                if set(server) - {"command", "env"}:
+                    errors.append("mcpServers.mneme contains unsupported fields")
                 env = server.get("env")
                 if env is not None:
                     if not isinstance(env, dict):
@@ -104,26 +124,33 @@ def _validate_hooks(plugin_root: Path, errors: list[str]) -> None:
         errors.append("hooks/hooks.json: top-level 'hooks' must be an object")
         return
 
-    unknown_events = sorted(set(hooks_map) - VALID_HOOK_EVENTS)
-    errors.extend(f"hooks/hooks.json: unknown event name '{e}'" for e in unknown_events)
+    if set(hooks_map) != VALID_HOOK_EVENTS:
+        errors.append(
+            "hooks/hooks.json must declare exactly "
+            f"{sorted(VALID_HOOK_EVENTS)}"
+        )
 
     for event, handlers in hooks_map.items():
-        if not isinstance(handlers, list):
-            errors.append(f"hooks/hooks.json: {event} must be an array")
+        if not isinstance(handlers, list) or len(handlers) != 1:
+            errors.append(f"hooks/hooks.json: {event} must contain one handler group")
             continue
-        for h in handlers:
-            if not isinstance(h, dict):
-                continue
-            inner = h.get("hooks") or []
-            for entry in inner:
-                if not isinstance(entry, dict):
-                    continue
-                cmd = entry.get("command", "")
-                if not _HOOK_CMD_RE.match(cmd):
-                    errors.append(
-                        f"hooks/hooks.json: {event} command {cmd!r} does not match "
-                        f"'mneme hook <event>' pattern"
-                    )
+        handler = handlers[0]
+        inner = handler.get("hooks") if isinstance(handler, dict) else None
+        if not isinstance(inner, list) or len(inner) != 1:
+            errors.append(f"hooks/hooks.json: {event} must contain one command handler")
+            continue
+        entry = inner[0]
+        cmd = entry.get("command", "") if isinstance(entry, dict) else ""
+        if not _HOOK_CMD_RE.fullmatch(cmd):
+            errors.append(
+                f"hooks/hooks.json: {event} command {cmd!r} does not match "
+                "'mneme hook <event>' pattern"
+            )
+        if cmd != EXPECTED_HOOK_COMMANDS.get(event):
+            errors.append(
+                f"hooks/hooks.json: {event} must run "
+                f"{EXPECTED_HOOK_COMMANDS.get(event)}"
+            )
 
 
 def _validate_skills(plugin_root: Path, errors: list[str]) -> None:
@@ -132,8 +159,8 @@ def _validate_skills(plugin_root: Path, errors: list[str]) -> None:
         errors.append("skills directory is missing")
         return
     skill_dirs = sorted(p for p in skills_root.iterdir() if p.is_dir())
-    if not skill_dirs:
-        errors.append("skills directory contains no skill subdirectories")
+    if {path.name for path in skill_dirs} != EXPECTED_SKILLS:
+        errors.append(f"skills must equal {sorted(EXPECTED_SKILLS)}")
     for skill_dir in skill_dirs:
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():

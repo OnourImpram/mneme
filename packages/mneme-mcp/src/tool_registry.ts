@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { type VaultConfig } from "./vault/config.js";
 import {
 	CheckpointListInputSchema,
 	checkpointListTool,
@@ -15,6 +14,7 @@ import {
 	workingSetLoadTool,
 } from "./tools/working_set_load.js";
 import { WriteInputSchema, writeTool } from "./tools/write.js";
+import type { VaultConfig } from "./vault/config.js";
 
 export interface ToolDefinition {
 	name: string;
@@ -23,12 +23,7 @@ export interface ToolDefinition {
 	handler: (args: unknown, vault: VaultConfig) => unknown | Promise<unknown>;
 }
 
-/**
- * Convert the same Zod schema used by the runtime handler into the JSON Schema
- * advertised through MCP tools/list. Keeping a single schema authority prevents
- * clients from seeing a narrower or otherwise different contract than the one
- * the server actually validates.
- */
+/** Build the Draft 7 client contract from the authoritative runtime schema. */
 export function toMcpInputSchema(
 	schema: z.ZodTypeAny,
 ): Record<string, unknown> {
@@ -111,9 +106,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
 	{
 		name: "mneme_checkpoint_list",
 		description:
-			"List recent Context Continuity Engine checkpoints from the append-only " +
-			"checkpoint index, newest first. Missing checkpoint state returns an empty " +
-			"list so callers can discover anchors safely.",
+			"List recent Context Continuity Engine checkpoints from the active scope, " +
+			"newest first. Pass scope='*' explicitly for a cross-scope read. Missing " +
+			"checkpoint state returns an empty list.",
 		zodSchema: CheckpointListInputSchema,
 		handler: (args, vault) =>
 			checkpointListTool(CheckpointListInputSchema.parse(args), vault),
@@ -122,8 +117,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
 		name: "mneme_working_set_load",
 		description:
 			"Load salience-ranked working-set items from a Context Continuity Engine " +
-			"checkpoint for cross-agent handoff or just-in-time context injection. " +
-			"Unknown anchors return a structured not-found result.",
+			"checkpoint in the active scope. Unknown and out-of-scope anchors return " +
+			"the same neutral not-found result. Pass scope='*' explicitly for a " +
+			"cross-scope read.",
 		zodSchema: WorkingSetLoadInputSchema,
 		handler: (args, vault) =>
 			workingSetLoadTool(WorkingSetLoadInputSchema.parse(args), vault),

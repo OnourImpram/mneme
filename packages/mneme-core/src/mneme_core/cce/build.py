@@ -31,9 +31,11 @@ from ..distill.session_summary import (
     _iter_session_records,
 )
 from ..privacy import redact
+from ..scope import concrete_scope_or_none
 from ..vault.atomic_write import atomic_write_text
 from ..vault.config import VaultConfig
 from .checkpoint import (
+    CURRENT_CHECKPOINT_SCHEMA_VERSION,
     Checkpoint,
     WorkingSetItem,
     append_index,
@@ -68,6 +70,8 @@ def build_checkpoint(
     session_id: str,
     transcript_path: str,
     prev_anchor: str | None,
+    *,
+    scope: str | None = None,
 ) -> Checkpoint:
     """Build a Checkpoint from deterministic working-set extraction.
 
@@ -76,10 +80,15 @@ def build_checkpoint(
         session_id: the Claude Code session identifier.
         transcript_path: path to the JSONL transcript for this session.
         prev_anchor: anchor string of the previous checkpoint, or None.
+        scope: concrete scope to stamp on the checkpoint. When omitted, uses
+            the default scope resolved by ``VaultConfig``.
 
     Returns:
         A fully populated, privacy-redacted Checkpoint ready for writing.
     """
+    resolved_scope = concrete_scope_or_none(vault.default_scope() if scope is None else scope)
+    if resolved_scope is None:
+        raise ValueError("checkpoint scope must be a bounded concrete scope")
     config = read_config(vault.cce_config_path)
     created = datetime.now(UTC).isoformat()
     anchor = make_anchor(created, session_id)
@@ -118,6 +127,8 @@ def build_checkpoint(
         session_id=session_id,
         prev_anchor=prev_anchor,
         items=tuple(items),
+        schema_version=CURRENT_CHECKPOINT_SCHEMA_VERSION,
+        scope=resolved_scope,
     )
 
 
@@ -131,13 +142,14 @@ def write_checkpoint(vault: VaultConfig, cp: Checkpoint) -> Path:
     Returns:
         Path of the written markdown file.
     """
+    rendered = render_markdown(cp)
     config = read_config(vault.cce_config_path)
     date_str = cp.created[:10]  # YYYY-MM-DD
     filename = f"{date_str}-{cp.anchor}.md"
     doc_path = vault.checkpoints_dir / filename
 
     vault.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(doc_path, render_markdown(cp))
+    atomic_write_text(doc_path, rendered)
     append_index(vault.checkpoint_index, cp, doc_path)
 
     _prune_checkpoints(vault, config.max_checkpoints)
