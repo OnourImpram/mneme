@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-code"
-version = "3.6.0"
+version = "3.6.1"
 description = "Deterministic Python code-failure memory layer for mneme: redact-before-store, provenance-labelled FailureMemory, vault-ready markdown output."
 readme = "README.md"
 requires-python = ">=3.11"

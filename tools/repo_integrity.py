@@ -68,7 +68,7 @@ EXPECTED_COVERAGE_FILES = {
     "packages/mneme-graph/pyproject.toml": ".coverage.mneme-graph",
     "packages/mneme-code/pyproject.toml": ".coverage.mneme-code",
 }
-IMMUTABLE_MCP_NAME = "io.github.TheGoatPsy/mneme"
+IMMUTABLE_MCP_NAME = "io.github.OnourImpram/mneme"
 IMMUTABLE_MCP_NAME_LOCATIONS = {
     "packages/mneme-mcp/package.json": 1,
     "server.json": 1,

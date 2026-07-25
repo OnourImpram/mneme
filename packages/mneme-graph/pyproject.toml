@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-graph"
-version = "3.6.0"
+version = "3.6.1"
 description = "Local code knowledge graph for mneme: tree-sitter extraction, atomic GraphStore, confidence-labelled nodes."
 readme = "README.md"
 requires-python = ">=3.11"

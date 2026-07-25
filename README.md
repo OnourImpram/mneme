@@ -20,7 +20,7 @@
 
 FTS5 retrieval, an RRF-capable experimental retrieval core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, and domain privacy modes.
 
-**Status**: 3.6.0 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
+**Status**: 3.6.1 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Why mneme
 

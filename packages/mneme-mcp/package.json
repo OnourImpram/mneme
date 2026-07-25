@@ -1,7 +1,7 @@
 {
   "name": "mneme-mcp-server",
-  "version": "3.6.0",
-  "mcpName": "io.github.TheGoatPsy/mneme",
+  "version": "3.6.1",
+  "mcpName": "io.github.OnourImpram/mneme",
   "description": "MCP server for mneme: 9 tools for vault-native memory in Claude Code and MCP-compatible clients.",
   "type": "module",
   "main": "dist/index.js",
