@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.6.2] - 2026-07-26
+
+### Changed
+
+- The display name is now `mneme Record`. `server.json` has carried it since the identity change, but the 3.6.1 tag was cut before that commit landed, so the MCP Registry kept serving `title: "mneme"`. This release publishes the name the registry actually shows. The registry `name` is unchanged, so no second entry is created, and package names, the CLI, and the config directory are untouched. `CITATION.cff` deliberately remains `mneme`: the academic surface is bound to a DOI and an ORCID where the bare word cannot collide.
+- The README now opens with the problem the tool solves instead of the backends it does not use, and documents all nine MCP tools under a `## Tools` heading so directory listings can detect them. The scope-and-limits disclosures did not shrink; they moved below the first screen.
+- The 3.6.1 entry was corrected to record that 3.5.0 was the last version published under the retired `io.github.TheGoatPsy` namespace.
+- Seven npm dependencies updated.
+
 ## [3.6.1] - 2026-07-25
 
 ### Changed
