@@ -2,7 +2,7 @@
   <img src="assets/mneme-banner.jpg" alt="mneme — vault-native memory for Claude Code" width="100%">
 </p>
 
-# mneme
+# mneme Record
 
 > Vault-native memory for Claude Code. Markdown is ground truth.
 
