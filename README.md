@@ -16,31 +16,87 @@
   <a href="https://doi.org/10.5281/zenodo.20674727"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20674727.svg" alt="DOI"></a>
 </p>
 
-<p align="center"><code>pipx install mneme-cc-plugin &amp;&amp; mneme install</code></p>
+Every session starts from zero. You re-explain the same architecture, the same constraints, the same decision you already settled yesterday, and the tools that promise to fix it mostly store your conversation history in opaque SQLite blobs and call an LLM every time you finish a session. The record of your own work ends up somewhere you cannot read, cannot grep, and cannot take with you.
 
-FTS5 retrieval, an RRF-capable experimental retrieval core, built-in temporal claim lifecycle with memory blame, gated knowledge-graph enrichment, zero LLM cost on Stop, token-aware adaptive context budget, agent security firewall, and domain privacy modes.
+mneme records what happened in each Claude Code session as plain markdown files in a directory you own (the vault) and indexes them with SQLite FTS5. The next session opens with a preflight block — today's headings, a git status summary, and the five most recently modified session documents — and the agent queries the index on demand through `mneme_search`.
+
+Here is the file the Stop hook writes. The frontmatter, heading, and summary shape come from `packages/mneme-cc-plugin/src/mneme_cc_plugin/hooks/stop.py` and `packages/mneme-core/src/mneme_core/distill/templates/summary-en.md`; the contents below are illustrative.
+
+```markdown
+---
+id: session-2026-07-24
+type: session
+created: 2026-07-24T09:12:41.087213+00:00
+schema_version: 1
+---
+# Sessions 2026-07-24
+
+## 09:12 session a3f19c2e
+transcript: `~/.claude/projects/mneme/a3f19c2e.jsonl`
+
+**Session intent**: make the retrieval guard fail on the negative probe too
+
+**Files touched**
+
+- `benchmarks/retrieval/regression_guard.py`
+- `benchmarks/retrieval/baseline.json`
+
+**Tool activity** (34 events, 08:41:02 → 09:12:38)
+
+- Edit: 11
+- Bash: 9
+- Read: 8
+
+*Deterministic extractive summary (zero-LLM). Edit freely — this file is yours.*
+```
+
+```bash
+pipx install mneme-cc-plugin && mneme install
+```
+
+That installs the plugin and registers the lifecycle hooks; `mneme doctor` verifies the result, and profiles and per-client installs are under [Three-Tier Install](#three-tier-install). Claude Code registers six hook events; Codex and Antigravity map four. Any other MCP client (Kimi, Qwen, Cline, Cursor) gets the nine MCP tools through the open adapter, with no lifecycle hooks and no automatic capture.
+
+- **What it stores is a file you can open.** When a session has actually changed something in the vault, the Stop hook appends a timestamped `## HH:MM session` block to `vault/sessions/YYYY-MM-DD.md` with `type: session` frontmatter, written atomically under a cross-process lock; `mneme index rebuild` reconstructs the FTS5 index over every markdown file in the vault, so the database is derived state you can delete.
+- **Closing a session costs nothing and takes 2 ms.** "No LLM call on the critical path" is enforced in CI rather than promised in prose. `tools/spec_verify.py` parses all six lifecycle hook modules and fails the build on any import of seven network-capable roots (`anthropic`, `openai`, `requests`, `httpx`, `urllib.request`, `urllib3`, `aiohttp`), and `packages/mneme-cc-plugin/tests/integration/test_c3_no_network.py` re-checks the full transitive import closure of the three hot-path hooks at runtime, where a static scan cannot see. The Stop-hook proxy benchmark measures 2 ms at p95 over 100 sessions against a 1000 ms ceiling: `benchmarks/latency/p95_guard.py` enforces that ceiling inside the same path-scoped benchmark workflow described below, and `packages/mneme-cc-plugin/tests/unit/test_stop_performance.py` re-checks it over 100 real Stop calls on every CI run, which carries no path filter.
+- **Search quality cannot silently degrade.** A pull request that drops production-FTS5 nDCG@5 more than 0.02 below the locked baseline (0.8006, reported as 0.801), drops Recall@10 more than 0.05 below 1.00, or fails the out-of-vocabulary negative probe fails the build — `benchmarks/retrieval/regression_guard.py`, run by `.github/workflows/bench.yml` on every pull request and every push to `main` that touches `packages/mneme-core`, `packages/mneme-mcp`, `benchmarks/`, or the workflow file itself.
+
+## Scope and limits
+
+Those numbers come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SEED=42`. Benchmark A uses a 500-document corpus. Benchmark E uses its default 300-document, 30-query fixture. Reproduce with `make bench-all`. Both figures above — the 0.801 and the 2 ms — carry the note that governs every figure in this README:
+
+> **Note:** All figures below are deterministic regression anchors computed on a seeded synthetic corpus; they are not real-world quality measurements (see ADR-012).
+
+**Retrieval claims follow the reachable path.** The production `mneme_search` path is FTS5 BM25. The Python core contains an experimental feature-hashed lexical-vector backend and an RRF fusion protocol used by unit tests and synthetic benchmarks, but that backend is not wired into the MCP server or installer. Full-profile summarize and timeline can add gated local Graphiti and Neo4j fields. A true semantic embedding backend remains roadmap.
+
+**Privacy and network.** Inline `<private>` tag redaction at staging write with SHA256 audit log. Zero outbound network calls except opted-in compression LLM and optional local Neo4j. Compression happens in the background, opt-in, with a cost cap.
+
+**Temporal reasoning.** The deterministic claim lifecycle (valid-from/to, supersedes, as-of queries, contradiction detection, `temporal blame` provenance time-travel) is built in on every profile — pure SQLite, no extra dependency. Graphiti export and LLM claim extraction remain optional and never run on the Stop or critical path.
+
+**Context Continuity Engine (opt-in).** Checkpoints are plain markdown in the vault, zero-LLM, default off.
+
+**Obsidian is fully optional.** A vault is simply a plain directory of markdown files. mneme requires no specific editor, no external application, and no Obsidian installation. You can work with your vault using `grep`, `git`, VS Code, or any text editor. The term "vault" is borrowed convention for a self-contained markdown directory, not a dependency on any particular tool. Because the vault is plain markdown, a user who already uses Obsidian can point it at the same directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes. The two tools coexist cleanly: mneme stores all derived state (indexes, staging, audit logs) inside a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing, so neither tool disturbs the other. Obsidian is a convenient viewer and navigator for vault content. It is not part of mneme's capture, indexing, or retrieval path, and it must not be treated as an installation prerequisite.
+
+The full shipped / gated / roadmap ledger is in [Implementation Status](#implementation-status); the capabilities mneme does not ship at all are listed under [What 2.0 Does Not Ship Yet](#what-20-does-not-ship-yet).
 
 **Status**: 3.6.1 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
-## Why mneme
+## Tools
 
-Most Claude Code memory plugins store your conversation history in opaque SQLite blobs and call an LLM every time you finish a session. mneme takes the opposite stance.
+The MCP server registers nine tools. Every client that speaks MCP gets all nine; lifecycle hooks
+and automatic capture are a separate layer that only Claude Code, Codex, and Antigravity provide.
+The authoritative list is `packages/mneme-mcp/src/tool_registry.ts`.
 
-- **Markdown is ground truth.** Your vault is a directory of plain `.md` files you can `git diff`, `grep`, edit, and back up.
-- **No LLM on the critical path.** The Stop hook appends deterministically. Compression happens in the background, opt-in, with a cost cap.
-- **Retrieval claims follow the reachable path.** The production `mneme_search` path is FTS5 BM25. The Python core contains an experimental feature-hashed lexical-vector backend and an RRF fusion protocol used by unit tests and synthetic benchmarks, but that backend is not wired into the MCP server or installer. Full-profile summarize and timeline can add gated local Graphiti and Neo4j fields. A true semantic embedding backend remains roadmap.
-- **Token-efficient by architecture.** Shell output compression, injection deduplication, adaptive top-k, and three injection format levels save 40 to 60 percent on session token consumption.
-- **Privacy by default.** Inline `<private>` tag redaction at staging write with SHA256 audit log. Zero outbound network calls except opted-in compression LLM and optional local Neo4j.
-- **Temporal reasoning.** The deterministic claim lifecycle (valid-from/to, supersedes, as-of queries, contradiction detection, `temporal blame` provenance time-travel) is built in on every profile — pure SQLite, no extra dependency. Graphiti export and LLM claim extraction remain optional and never run on the Stop or critical path.
-- **Pattern and trajectory memory.** First-class vault-markdown primitives for Signal/Action/Outcome patterns and per-session step recorders, queryable via the same retrieval pipeline.
-- **Agent security and domain modes.** A capability firewall, data-flow taint tracking, and a human-approval gate for durable edits ship in 2.0. Domain privacy modes (clinical, security-review) block external extraction and artifact upload at the config layer. A mode can never weaken built-in privacy guarantees or disable redaction.
-- **Context Continuity Engine (opt-in).** Proactive working-set checkpoints at configurable fill thresholds make compaction loss recoverable: after a compaction event the engine detects what the host summary dropped and re-injects only those items, salience-ranked, within a token budget. Checkpoints are plain markdown in the vault, zero-LLM, default off.
-
-### On vaults and Obsidian
-
-A vault is simply a plain directory of markdown files. mneme requires no specific editor, no external application, and no Obsidian installation. You can work with your vault using `grep`, `git`, VS Code, or any text editor. The term "vault" is borrowed convention for a self-contained markdown directory, not a dependency on any particular tool.
-
-Obsidian is fully optional. Because the vault is plain markdown, a user who already uses Obsidian can point it at the same directory and get rendered notes, backlinks, and graph-view navigation over the wikilinks mneme writes. The two tools coexist cleanly: mneme stores all derived state (indexes, staging, audit logs) inside a `.mneme` directory that Obsidian ignores as a dot folder, and mneme's indexer excludes the `.obsidian` settings folder from indexing, so neither tool disturbs the other. Obsidian is a convenient viewer and navigator for vault content. It is not part of mneme's capture, indexing, or retrieval path, and it must not be treated as an installation prerequisite.
+| Tool | What it does |
+|---|---|
+| `mneme_search` | FTS5 BM25 retrieval over the vault with Turkish casefold normalization, plus date, memory-type, and scope filters. Returns ranked hits and EvidenceCards carrying content hashes, trust, confidence, and the backend that actually ran. |
+| `mneme_recall` | Retrieves indexed documents by session identifier, date range, and scope. Returns paths, titles, modification times, memory types, and optionally the full markdown body. |
+| `mneme_write` | Atomically appends or replaces a markdown section in a vault file. Enforces vault path containment and redacts private spans before storage. |
+| `mneme_summarize` | Groups FTS5 matches for a topic by vault directory within optional date and scope filters. Graphiti enrichment appears only when that optional local graph integration is configured. |
+| `mneme_timeline` | Returns scope-restricted references for a subject in chronological order. Graphiti facts and bi-temporal filtering appear only when the optional local graph integration is available. |
+| `mneme_prime` | Builds a token-budgeted preflight context bundle from recent sessions and topic-relevant matches. A caller session identifier enables per-session injection deduplication and full, keypoints, or reference formatting. |
+| `mneme_propose` | Queues a redacted memory-edit proposal for the policy drain. The server does not apply the edit directly; durable categories always require human approval. |
+| `mneme_checkpoint_list` | Lists recent Context Continuity Engine checkpoints from the active scope, newest first. Missing checkpoint state returns an empty list. |
+| `mneme_working_set_load` | Loads salience-ranked working-set items from a Context Continuity Engine checkpoint. Unknown and out-of-scope anchors return the same neutral not-found result. |
 
 ## How mneme compares
 
