@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet.
 
+## [3.6.3] - 2026-07-27
+
+### Fixed
+
+- The audit lock retry is now bounded. A contended lock could be retried without a ceiling, so a holder that never released left the retry loop spinning instead of surfacing the contention. The retry now gives up and reports, and `migration_rollback` releases on the failure path it previously left held.
+
+### Security
+
+- Patched seventeen advisories the lockfile was pinning open. These were transitive pins in `pnpm-lock.yaml`, not direct dependencies, which is why they survived earlier dependency passes.
+
 ## [3.6.2] - 2026-07-26
 
 ### Changed

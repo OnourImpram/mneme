@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-core"
-version = "3.6.2"
+version = "3.6.3"
 description = "Vault-native memory engine for Claude Code. FTS5 BM25, RRF-ready retrieval, gated Graphiti KG, and adaptive context tooling."
 readme = "README.md"
 requires-python = ">=3.11"

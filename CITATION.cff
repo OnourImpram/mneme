@@ -14,8 +14,8 @@ authors:
 repository-code: "https://github.com/OnourImpram/mneme"
 url: "https://github.com/OnourImpram/mneme"
 license: Apache-2.0
-version: 3.6.2
-date-released: "2026-07-25"
+version: 3.6.3
+date-released: "2026-07-27"
 doi: "10.5281/zenodo.20674727"
 keywords:
   - claude-code

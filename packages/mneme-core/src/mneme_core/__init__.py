@@ -1,4 +1,4 @@
 """mneme-core: vault-native memory engine for Claude Code."""
 
-__version__ = "3.6.2"
+__version__ = "3.6.3"
 __all__ = ["__version__"]
