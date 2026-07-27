@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" href="assets/favicon.png">
-<title>mneme 3.6.0 RC — Accountable, vault-native memory for Claude Code and any MCP client</title>
-<meta name="description" content="Mneme 3.6.0 release candidate has passed its engineering gates. Accountable, vault-native memory for Claude Code and any MCP client. Human review, merge, tag, and package publication remain separate gates.">
-<meta property="og:title" content="mneme 3.6.0 RC — Accountable, vault-native memory for Claude Code">
-<meta property="og:description" content="The Mneme 3.6.0 release candidate has passed its engineering gates and is ready for human review. Local-first, Apache-2.0 licensed, with Markdown ground truth.">
+<title>mneme 3.6.2 — Accountable, vault-native memory for Claude Code and any MCP client</title>
+<meta name="description" content="Mneme 3.6.2 is published on PyPI, npm, and the MCP Registry. Accountable, vault-native memory for Claude Code and any MCP client. Markdown stays the source of truth and no model runs on the Stop path.">
+<meta property="og:title" content="mneme 3.6.2 — Accountable, vault-native memory for Claude Code">
+<meta property="og:description" content="Mneme 3.6.2 is published on PyPI, npm, and the MCP Registry. Local-first, Apache-2.0 licensed, with Markdown ground truth.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#f7f7f4">
 <link rel="canonical" href="https://onourimpram.github.io/mneme/">
@@ -17,8 +17,8 @@
 <meta property="og:image:height" content="640">
 <meta property="og:image:alt" content="mneme accountable vault-native memory for Claude Code and any MCP client">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="mneme 3.6.0 RC — Accountable, vault-native memory for Claude Code">
-<meta name="twitter:description" content="The Mneme 3.6.0 release candidate has passed its engineering gates and is ready for human review.">
+<meta name="twitter:title" content="mneme 3.6.2 — Accountable, vault-native memory for Claude Code">
+<meta name="twitter:description" content="Mneme 3.6.2 is published on PyPI, npm, and the MCP Registry. Markdown stays the source of truth.">
 <meta name="twitter:image" content="https://onourimpram.github.io/mneme/mneme-og.png">
 <meta name="twitter:image:alt" content="mneme accountable vault-native memory for Claude Code and any MCP client">
 
@@ -44,8 +44,8 @@
     "https://pypi.org/project/mneme-cc-plugin/",
     "https://www.npmjs.com/package/mneme-mcp-server"
   ],
-  "softwareVersion": "3.6.0 release candidate",
-  "description": "The Mneme 3.6.0 release candidate has passed its engineering gates and is ready for human review. Merge, tag, and package publication have not happened yet."
+  "softwareVersion": "3.6.2",
+  "description": "Mneme 3.6.2 is published on PyPI, npm, and the MCP Registry. Accountable, vault-native memory for Claude Code and any MCP client, with Markdown as the source of truth."
 }
 </script>
 
@@ -360,7 +360,7 @@ nav{
 }
 
 /* ============================================================
-   RELEASE CANDIDATE — verified state without implying publication
+   RELEASE — the shipped version and how to check it
    ============================================================ */
 .release{background:var(--paper-2);padding:clamp(48px,6vw,76px) 0}
 .release-grid{display:grid;grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr);gap:clamp(36px,6vw,76px);align-items:start}
@@ -517,7 +517,7 @@ table.cmp tbody tr:hover td:first-child{background:var(--paper-2)}
   table.cmp.boundary tbody td:first-child{position:static;background:var(--paper-2);font-family:var(--font-mono);font-size:0.75rem}
   table.cmp.boundary tbody td:nth-child(2)::before,table.cmp.boundary tbody td:nth-child(3)::before{
     display:block;margin-bottom:4px;font-family:var(--font-mono);font-size:0.65rem;font-weight:500;color:var(--ink-3);text-transform:uppercase}
-  table.cmp.boundary tbody td:nth-child(2)::before{content:'3.6.0 candidate'}
+  table.cmp.boundary tbody td:nth-child(2)::before{content:'3.6.2'}
   table.cmp.boundary tbody td:nth-child(3)::before{content:'Evidence boundary'}
 }
 
@@ -688,12 +688,12 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
     <a class="brand" href="#top">
       <img class="brand-mark" src="assets/favicon.png" width="28" height="28" alt="" decoding="async">
       <span class="brand-name">mneme</span>
-      <span class="brand-ver">3.6 RC</span>
+      <span class="brand-ver">3.6.2</span>
     </a>
     <ul class="nav-links">
       <li><a href="#how">How it works</a></li>
       <li><a href="#install">Install</a></li>
-      <li><a href="#release">3.6 candidate</a></li>
+      <li><a href="#release">3.6.2</a></li>
       <li><a href="#benchmarks">Benchmarks</a></li>
       <li><a href="#compare">Boundaries</a></li>
       <li><a href="#modules">Modules</a></li>
@@ -714,7 +714,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
 <div class="mobile" id="mobile">
   <a href="#how">How it works</a>
   <a href="#install">Install</a>
-  <a href="#release">3.6 candidate</a>
+  <a href="#release">3.6.2</a>
   <a href="#benchmarks">Benchmarks</a>
   <a href="#compare">Boundaries</a>
   <a href="#modules">Modules</a>
@@ -733,7 +733,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="hero-copy">
         <div class="hero-eyebrow">
           <span class="dot" aria-hidden="true"></span>
-          3.6.0 release candidate · all engineering gates passed · Apache-2.0
+          3.6.2 published · PyPI, npm, MCP Registry · Apache-2.0
         </div>
         <h1>Memory you can <span class="key">audit</span>,<br>not just <span class="muted">trust</span>.</h1>
         <p class="hero-sub">Accountable, vault-native memory for Claude Code and any MCP client.
@@ -753,7 +753,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.5v-1.8c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
               View on GitHub
             </a>
-            <span class="hero-fit"><a href="https://github.com/OnourImpram/mneme/pull/36" target="_blank" rel="noopener">Review the 3.6 candidate →</a></span>
+            <span class="hero-fit"><a href="https://github.com/OnourImpram/mneme/releases/tag/v3.6.2" target="_blank" rel="noopener">What shipped in 3.6.2 →</a></span>
           </div>
         </div>
         <div class="pills">
@@ -815,7 +815,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
           </div>
           <div class="ledger-foot">
             <span class="note"><b>mneme rebuild --all</b> · regenerated from source</span>
-            <span class="note">3.6 RC Stop p95 <b>4.70 ms</b></span>
+            <span class="note">3.6 Stop p95 <b>4.70 ms</b></span>
           </div>
         </div>
       </div>
@@ -899,24 +899,24 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
   <div class="meander flip" aria-hidden="true"></div>
 </section>
 
-<!-- ===================== RELEASE CANDIDATE ===================== -->
+<!-- ===================== RELEASE ===================== -->
 <section class="release" id="release">
   <div class="wrap release-grid">
     <div class="release-copy">
-      <div class="release-state"><span class="dot" aria-hidden="true"></span>Release candidate · not published</div>
-      <h2>3.6.0 is ready for human review</h2>
-      <p>Ten engineering loops closed the scope, temporal, lifecycle, packaging, and release-provenance gaps. The candidate is green at its reviewed SHA. Merge, tag, and package publication remain separate human-controlled gates.</p>
+      <div class="release-state"><span class="dot" aria-hidden="true"></span>Published · PyPI, npm, MCP Registry</div>
+      <h2>3.6.2 is the version you install</h2>
+      <p>Ten engineering loops closed the scope, temporal, lifecycle, packaging, and release-provenance gaps, and 3.6.0 shipped on 25 July. Publication then took two more tags to finish honestly: renaming the GitHub account had invalidated the PyPI trusted-publisher claims and left the registry pointing at the old namespace. 3.6.1 moved the registry entry, 3.6.2 moved the name it displays, and the four Python distributions were reissued the same day.</p>
       <div class="release-links">
-        <a href="https://github.com/OnourImpram/mneme/pull/36" target="_blank" rel="noopener">Open PR 36 →</a>
-        <a href="https://github.com/OnourImpram/mneme/blob/44b31c494724ce5ec573de0c6431c9155b427535/docs/releases/3.6.0.md" target="_blank" rel="noopener">Release notes →</a>
-        <a href="https://github.com/OnourImpram/mneme/blob/44b31c494724ce5ec573de0c6431c9155b427535/docs/UPGRADING.md" target="_blank" rel="noopener">Upgrade guide →</a>
+        <a href="https://github.com/OnourImpram/mneme/releases/tag/v3.6.2" target="_blank" rel="noopener">3.6.2 release notes →</a>
+        <a href="https://github.com/OnourImpram/mneme/releases/tag/v3.6.0" target="_blank" rel="noopener">What the engine changed →</a>
+        <a href="https://github.com/OnourImpram/mneme/blob/main/docs/UPGRADING.md" target="_blank" rel="noopener">Upgrade guide →</a>
       </div>
     </div>
     <dl class="release-facts">
       <div class="release-fact"><dt>Isolation</dt><dd><b>Concrete scopes fail closed.</b> Cross-scope reads require an explicit <span class="mono">scope: "*"</span>. Durable writes reject the wildcard.</dd></div>
       <div class="release-fact"><dt>Temporal</dt><dd><b>One deterministic planner</b> applies valid time and transaction time across claim and graph-enabled paths.</dd></div>
       <div class="release-fact"><dt>Compatibility</dt><dd><b>Markdown stays unchanged.</b> Legacy unscoped indexes require <span class="mono">mneme index rebuild</span> before concrete-scope reads.</dd></div>
-      <div class="release-fact"><dt>Verification</dt><dd><b>19 required checks passed</b> across Python 3.11–3.14, Node 22 and 24, Linux, macOS, Windows, CodeQL, benchmarks, packages, and the release dry run.</dd></div>
+      <div class="release-fact"><dt>Verification</dt><dd><b>30 required checks green</b> at the released tag: three operating systems on Node 22 and 24 and Python 3.11 through 3.14, CodeQL, six benchmarks, and Neo4j knowledge-graph integration.</dd></div>
     </dl>
   </div>
 </section>
@@ -1060,10 +1060,10 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
   <div class="wrap">
     <div class="led-head"><span class="led-mark">§ performance</span><span class="led-rule"></span></div>
     <h2>Benchmarks</h2>
-    <p class="lead">Reproducible 3.6.0 release-candidate regression anchors measured on a seeded synthetic corpus. Not real-world or cross-product superiority claims.</p>
+    <p class="lead">Reproducible 3.6.x regression anchors measured on a seeded synthetic corpus. Not real-world or cross-product superiority claims.</p>
     <div class="bench-panel reveal">
       <div class="bench-top">
-        <span class="t"><b>3.6 RC benchmark gate</b> — production FTS5 · seed 42 · 500 documents</span>
+        <span class="t"><b>3.6 benchmark gate</b> — production FTS5 · seed 42 · 500 documents</span>
         <span class="t mono">make bench-release</span>
       </div>
       <div class="bench-grid">
@@ -1104,7 +1104,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
         <div class="bex"><div class="n tnum">7 / 7</div><div class="d">Release benchmark surfaces passed, including strict LongMemEval and LoCoMo schema fixtures</div></div>
       </div>
       <div class="bench-mig">
-        <div class="mh">3.6 release-candidate verification</div>
+        <div class="mh">3.6 release verification</div>
         <div class="mig-list">
           <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Python 3.11 through 3.14</div>
           <div class="m"><span class="chk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span> Node 22 and 24</div>
@@ -1122,13 +1122,13 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
   <div class="wrap">
     <div class="led-head"><span class="led-mark">§ product boundary</span><span class="led-rule"></span></div>
     <h2>Know the boundary before you install</h2>
-    <p class="cmp-intro">Mneme separates the open-source default, explicit opt-in surfaces, and capabilities that are not shipped. The 3.6.0 candidate makes no semantic-model, managed-cloud, or market-leadership claim.</p>
+    <p class="cmp-intro">Mneme separates the open-source default, explicit opt-in surfaces, and capabilities that are not shipped. Shipped 3.6.2 makes no semantic-model, managed-cloud, or market-leadership claim.</p>
     <div class="cmp-scroll reveal">
       <table class="cmp boundary">
         <thead>
           <tr>
             <th scope="col">Surface</th>
-            <th scope="col" class="mn">3.6.0 candidate</th>
+            <th scope="col" class="mn">3.6.2</th>
             <th scope="col">Evidence boundary</th>
           </tr>
         </thead>
@@ -1136,7 +1136,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
           <tr><td>Open-source default</td><td class="mn">Markdown ground truth, scoped FTS5 BM25, deterministic Stop and summaries, temporal claims</td><td>No model download, cloud account, or network call on the Stop path</td></tr>
           <tr><td>Explicit opt-in</td><td class="mn">LLM compression, CCE, connectors, Graphiti with Neo4j, age-encrypted git sync</td><td>External providers and graph services run only when configured by the operator</td></tr>
           <tr><td>Retrieval experiment</td><td class="mn">Feature-hashed lexical vectors and RRF are available to tests and the benchmark harness</td><td>Not wired into production MCP search. Not semantic or dense retrieval</td></tr>
-          <tr><td>Not shipped in the base package</td><td class="mn">Real semantic model, managed Mneme cloud, multi-user ACL dashboard</td><td>These remain outside the 3.6.0 candidate surface</td></tr>
+          <tr><td>Not shipped in the base package</td><td class="mn">Real semantic model, managed Mneme cloud, multi-user ACL dashboard</td><td>These remain outside the shipped 3.6.2 surface</td></tr>
         </tbody>
       </table>
     </div>
@@ -1156,7 +1156,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="mod"><div class="mod-h"><h3>Domain Privacy Modes</h3></div><p>Clinical and security-review modes that enforce stricter redaction policies and block external extraction at the config layer — not overrideable by user config.</p><div class="mod-tags"><span class="mtag">clinical</span><span class="mtag">sec-review</span><span class="mtag off">opt-in</span></div></div>
       <div class="mod"><div class="mod-h"><h3>Agent-Security Layer</h3></div><p>Capability firewall, taint tracking, and human-approval gate. Ships with a poisoned-vault benchmark for regression testing security controls.</p><div class="mod-tags"><span class="mtag">taint tracking</span><span class="mtag">built-in</span><span class="mtag">local</span></div></div>
       <div class="mod"><div class="mod-h"><h3>Audit Console &amp; Web Explorer</h3></div><p>Read-only audit surface in two forms: a static offline HTML report, and a loopback-only web explorer (mneme-console --serve) with graph, claims, changes, and audit-chain views. GET-only, refuses non-loopback binds.</p><div class="mod-tags"><span class="mtag">HTML</span><span class="mtag">offline</span><span class="mtag off">opt-in</span></div></div>
-      <div class="mod"><div class="mod-h"><h3>Retrieval Experiment (RRF)</h3></div><p>A feature-hashed lexical-vector backend exercises the Reciprocal Rank Fusion protocol in tests and synthetic benchmarks. Production MCP search remains FTS5. No semantic model or installed dense-search path ships in 3.6.0.</p><div class="mod-tags"><span class="mtag">lexical</span><span class="mtag">RRF</span><span class="mtag off">experimental</span></div></div>
+      <div class="mod"><div class="mod-h"><h3>Retrieval Experiment (RRF)</h3></div><p>A feature-hashed lexical-vector backend exercises the Reciprocal Rank Fusion protocol in tests and synthetic benchmarks. Production MCP search remains FTS5. No semantic model or installed dense-search path ships in 3.6.2.</p><div class="mod-tags"><span class="mtag">lexical</span><span class="mtag">RRF</span><span class="mtag off">experimental</span></div></div>
       <div class="mod"><div class="mod-h"><h3>Context Continuity Engine</h3></div><p>Proactive working-set checkpoints at configurable context-fill thresholds make compaction loss recoverable. After a compaction the engine detects what the host summary dropped and re-injects only those items, salience-ranked, within a token budget. Checkpoints are plain markdown in the vault. Zero-LLM, default off.</p><div class="mod-tags"><span class="mtag">checkpoints</span><span class="mtag">zero-LLM</span><span class="mtag off">opt-in</span></div></div>
       <div class="mod"><div class="mod-h"><h3>Temporal Extraction</h3></div><p>The deterministic claim lifecycle — valid-from/to, supersedes, as-of queries, and memory blame provenance — is built in on every profile. This module adds optional LLM claim extraction and Graphiti export for knowledge-graph timelines.</p><div class="mod-tags"><span class="mtag">Graphiti</span><span class="mtag">local</span><span class="mtag off">opt-in</span></div></div>
       <div class="mod"><div class="mod-h"><h3>Obsidian &amp; GitHub Connectors</h3></div><p>Sync vault structure from Obsidian and ingest GitHub issue and PR context. Both connectors are opt-in and off by default — no data leaves your machine unless you enable them.</p><div class="mod-tags"><span class="mtag">Obsidian</span><span class="mtag">GitHub</span><span class="mtag off">opt-in</span></div></div>
@@ -1174,7 +1174,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div>
         <h2>On the MCP Registry</h2>
         <p class="lead lead--spaced">Discovery from a single, ownership-verified source — not a random GitHub link.</p>
-        <p>mneme is listed on the official MCP Registry — the canonical, project-maintained directory of Model Context Protocol servers. Any MCP client can discover and install mneme from a single verified source. Releases through 3.5.0 remain published under the account's previous name; the current entry resolves under OnourImpram.</p>
+        <p>mneme is listed on the official MCP Registry — the canonical, project-maintained directory of Model Context Protocol servers. Any MCP client can discover and install mneme from a single verified source. The registry answers the bare word &ldquo;mneme&rdquo; with more than one project, so since 3.6.2 this entry displays as <b>mneme Record</b>. Releases through 3.5.0 remain frozen under the account&rsquo;s previous name; the current entry resolves under OnourImpram.</p>
         <a class="btn btn-ghost reg-btn" href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener">Visit MCP Registry →</a>
       </div>
       <div class="reg-card reveal">
@@ -1225,11 +1225,11 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq3">What is the performance overhead?<span class="ic" aria-hidden="true"></span></button>
-        <div class="faq-a" id="faq3" hidden>The 3.6.0 candidate Stop proxy p95 is 4.70 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. Heavy processing — indexing, optional compression, and graph updates — stays off the synchronous critical path of your Claude Code session.</div>
+        <div class="faq-a" id="faq3" hidden>The 3.6 Stop proxy p95 is 4.70 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. Heavy processing — indexing, optional compression, and graph updates — stays off the synchronous critical path of your Claude Code session.</div>
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq4">Is it production-ready?<span class="ic" aria-hidden="true"></span></button>
-        <div class="faq-a" id="faq4" hidden>Mneme 3.6.0 is the current engineering release candidate and the primary version presented on this site. It has passed its gates and remains under human review in PR 36. The published PyPI and npm packages remain at 3.5.0 until merge, tag, and package publication are approved.</div>
+        <div class="faq-a" id="faq4" hidden>It is published and it is small. 3.6.2 is on PyPI (<span class="mono">mneme-core</span>, <span class="mono">mneme-cc-plugin</span>, <span class="mono">mneme-graph</span>, <span class="mono">mneme-code</span>), on npm as <span class="mono">mneme-mcp-server</span>, and on the MCP Registry, with 30 required checks green at the tag across three operating systems. What it does not have is scale evidence: this is a single-maintainer project, the benchmarks above are seeded synthetic corpora rather than production traces, and the boundary table is the honest list of what is not shipped. The design decision that makes it safe to try is that your Markdown vault stays authoritative — everything mneme derives is rebuildable, so uninstalling costs you nothing but the index.</div>
       </div>
     </div>
   </div>
@@ -1261,7 +1261,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
         <h3>Registry &amp; Docs</h3>
         <ul>
           <li><a href="https://registry.modelcontextprotocol.io" target="_blank" rel="noopener">MCP Registry</a></li>
-          <li><a href="https://github.com/OnourImpram/mneme/pull/36" target="_blank" rel="noopener">3.6.0 release candidate</a></li>
+          <li><a href="https://github.com/OnourImpram/mneme/releases/tag/v3.6.2" target="_blank" rel="noopener">3.6.2 release notes</a></li>
           <li><a href="https://github.com/OnourImpram/mneme/blob/44b31c494724ce5ec573de0c6431c9155b427535/docs/COMPETITIVE.md" target="_blank" rel="noopener">Capability evidence</a></li>
           <li><a href="#benchmarks">Benchmarks</a></li>
           <li><a href="#faq">FAQ</a></li>
