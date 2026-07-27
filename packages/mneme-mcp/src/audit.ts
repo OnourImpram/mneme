@@ -191,23 +191,35 @@ function acquireLock(lockPath: string): () => void {
 			}
 			if (!isContentionError(error)) throw error;
 
-			if (!existsSync(lockPath)) continue;
-			try {
-				const stat = statSync(lockPath);
-				if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-					rmSync(lockPath, { force: true });
-					continue;
-				}
-			} catch (statError) {
-				if (errorCode(statError) === "ENOENT") continue;
-				// Access errors are contention on Windows. Wait until timeout.
-			}
-
+			// Check the deadline before deciding to retry, not only on the
+			// contended path. Three of the retries below used to skip this
+			// check and loop straight back into openSync, so a lock that another
+			// process kept creating and deleting could spin this loop without
+			// bound and without ever reaching its own timeout.
 			if (performance.now() >= deadline) {
 				throw new Error(
 					`Could not acquire audit lock at ${lockPath} within ${LOCK_TIMEOUT_MS}ms`,
 				);
 			}
+
+			if (existsSync(lockPath)) {
+				try {
+					const stat = statSync(lockPath);
+					if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+						rmSync(lockPath, { force: true });
+					}
+				} catch (statError) {
+					if (errorCode(statError) !== "ENOENT") {
+						// Access errors are contention on Windows. Wait until timeout.
+					}
+				}
+			}
+
+			// Sleep on every retry, including the ones that follow a vanished or
+			// cleared lock. Those paths used to retry with no delay at all, which
+			// on a loaded machine burns a core until the deadline and starves the
+			// very process holding the lock. LOCK_POLL_MS is 10 ms, so paying it
+			// on the uncontended path costs nothing measurable.
 			sleepSync(LOCK_POLL_MS);
 		}
 	}
