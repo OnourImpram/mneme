@@ -78,7 +78,7 @@ Those numbers come from the in-repo benchmark suite, seeded with `MNEME_BENCH_SE
 
 The full shipped / gated / roadmap ledger is in [Implementation Status](#implementation-status); the capabilities mneme does not ship at all are listed under [What 2.0 Does Not Ship Yet](#what-20-does-not-ship-yet).
 
-**Status**: 3.6.2 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
+**Status**: 3.6.3 public release. Package, plugin, runtime, citation, and documentation version sources are kept in lockstep by `tools/version_bump.py` (18 sources including this line, verified in CI), so no single declared version can drift. Upgrading from an earlier line: [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Tools
 
