@@ -16,7 +16,25 @@ url: "https://github.com/OnourImpram/mneme"
 license: Apache-2.0
 version: 3.6.3
 date-released: "2026-07-27"
-doi: "10.5281/zenodo.20674727"
+doi: "10.5281/zenodo.21631389"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21631389"
+    description: >-
+      Concept DOI. Resolves to the most recent archived version.
+  - type: doi
+    value: "10.5281/zenodo.21631390"
+    description: >-
+      Version DOI for 3.6.3.
+  - type: doi
+    value: "10.5281/zenodo.20674727"
+    description: >-
+      Concept DOI of the earlier archive series, which ends at 3.1.0. Zenodo
+      opened a new series rather than continuing this one when the GitHub
+      archiving hook was re-enabled, so it is recorded here rather than
+      dropped: anything that already cites it still resolves, but it will not
+      advance past 3.1.0. Releases from 3.6.3 onward are archived under
+      10.5281/zenodo.21631389.
 keywords:
   - claude-code
   - codex
