@@ -34,6 +34,9 @@ const SEAL_VERSION = 1;
 const LOCK_POLL_MS = 10;
 const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 10_000;
+// Consecutive no-delay retries allowed while the lock file is free. Bounds the
+// fast acquisition path so it cannot become a spin loop.
+const LOCK_MAX_SPINS = 32;
 const KEY_READ_TIMEOUT_MS = 500;
 const SEAL_DOMAIN = Buffer.from("mneme-audit-seal-v1\0", "utf8");
 const LOWER_HEX_HMAC = /^[0-9a-f]{64}$/;
@@ -162,6 +165,7 @@ function removeOwnedLock(lockPath: string, token: Buffer): void {
 function acquireLock(lockPath: string): () => void {
 	mkdirSync(dirname(lockPath), { recursive: true });
 	const deadline = performance.now() + LOCK_TIMEOUT_MS;
+	let spins = 0;
 	const token = Buffer.from(
 		`${process.pid}:${randomBytes(8).toString("hex")}`,
 		"ascii",
@@ -191,23 +195,46 @@ function acquireLock(lockPath: string): () => void {
 			}
 			if (!isContentionError(error)) throw error;
 
-			if (!existsSync(lockPath)) continue;
-			try {
-				const stat = statSync(lockPath);
-				if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-					rmSync(lockPath, { force: true });
-					continue;
-				}
-			} catch (statError) {
-				if (errorCode(statError) === "ENOENT") continue;
-				// Access errors are contention on Windows. Wait until timeout.
-			}
-
+			// Check the deadline before deciding to retry, not only on the
+			// contended path. Three of the retries below used to skip this
+			// check and loop straight back into openSync, so a lock that another
+			// process kept creating and deleting could spin this loop without
+			// bound and without ever reaching its own timeout.
 			if (performance.now() >= deadline) {
 				throw new Error(
 					`Could not acquire audit lock at ${lockPath} within ${LOCK_TIMEOUT_MS}ms`,
 				);
 			}
+
+			// The lock being gone means it is worth grabbing right now, so these
+			// paths retry without sleeping. Sleeping here instead would hand the
+			// lock to whichever process happens to poll next, which is how a
+			// waiter starves while the file sits free.
+			let free = true;
+			if (existsSync(lockPath)) {
+				free = false;
+				try {
+					const stat = statSync(lockPath);
+					if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+						rmSync(lockPath, { force: true });
+						free = true;
+					}
+				} catch (statError) {
+					if (errorCode(statError) === "ENOENT") free = true;
+					// Access errors are contention on Windows. Wait until timeout.
+				}
+			}
+
+			// Bound the fast path. A lock another process keeps creating and
+			// deleting used to spin this loop with no delay at all, burning a
+			// core and starving the very process holding it — which is what made
+			// unrelated tests on the same runner time out. After a short burst,
+			// fall back to polling.
+			if (free && spins < LOCK_MAX_SPINS) {
+				spins += 1;
+				continue;
+			}
+			spins = 0;
 			sleepSync(LOCK_POLL_MS);
 		}
 	}

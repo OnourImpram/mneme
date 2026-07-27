@@ -1046,6 +1046,13 @@ function acquireMigrationLock(vault: VaultConfig): () => void {
 			if (!["EEXIST", "EACCES", "EPERM"].includes(errorCode(error) ?? "")) {
 				throw error;
 			}
+			// Same guard as acquireLock in audit.ts: the retries below reach
+			// `continue` without passing the deadline check at the bottom of
+			// this loop, so a lock that keeps appearing and vanishing could spin
+			// here past its own timeout. Checking first bounds every path.
+			if (performance.now() >= deadline) {
+				throw new Error("could not acquire the migration operation lock");
+			}
 			try {
 				const stat = lstatSync(lockPath);
 				const lockBytes = readBoundedRegularFile(lockPath, 4096);
