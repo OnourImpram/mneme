@@ -34,7 +34,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -350,7 +350,26 @@ def _default_backup_dir() -> Path:
     return Path.home() / ".claude" / "mneme-backups"
 
 
-def _default_vault_root() -> Path:
+def _default_vault_root(env: Mapping[str, str] | None = None) -> Path:
+    """The vault to use when the caller passed no ``--vault``.
+
+    ``MNEME_VAULT`` sits at the top of mneme's documented resolution order,
+    and every other surface honours it: ``VaultConfig.resolve``, the hook
+    library, and the MCP server. This helper did not. On a machine whose
+    vault is set by the environment, ``mneme doctor`` therefore reported
+    ``~/mneme-vault`` with ``vault_marker_exists: false`` — describing a
+    directory the operator neither had nor used, while the rest of the
+    system worked against the real one. A diagnostic that disagrees with
+    the thing it diagnoses is worse than no diagnostic.
+
+    Since install, upgrade, uninstall, and doctor all resolve the implicit
+    vault through here, they stay in agreement about which vault that is.
+    With no environment override, the historical default is unchanged.
+    """
+    environment = os.environ if env is None else env
+    configured = environment.get("MNEME_VAULT")
+    if configured:
+        return Path(configured).expanduser()
     return Path.home() / "mneme-vault"
 
 
