@@ -1,8 +1,9 @@
 """Staging capture layer for the PostToolUse hook.
 
-Captures tool events on the critical path with no LLM call. Applies
-``<private>...</private>`` redaction (constraint C4), writes a privacy
-audit entry per redaction, enforces a configurable rolling size cap
+Captures tool events on the critical path with no LLM call. Elides the
+whole-file ``tool_response.originalFile`` payload down to a digest,
+applies ``<private>...</private>`` redaction (constraint C4), writes a
+privacy audit entry per redaction, enforces a configurable rolling size cap
 (default 100 MB) by archiving the oldest files, and writes the event
 to a per-minute JSONL file.
 
@@ -16,9 +17,9 @@ Public API:
   tool names that should be captured.
 - ``capture_event(event, config)``: filter, redact, hash, write. Returns
   True if the event was written, False otherwise.
-- ``redact_private(event, ...)``, ``enforce_size_cap(...)``,
-  ``compute_content_hash(...)``: lower-level helpers exposed for tests
-  and downstream consumers.
+- ``redact_private(event, ...)``, ``summarize_bulky_response_fields(event)``,
+  ``enforce_size_cap(...)``, ``compute_content_hash(...)``: lower-level
+  helpers exposed for tests and downstream consumers.
 """
 
 from __future__ import annotations
@@ -46,6 +47,14 @@ DEFAULT_CAPTURE_TOOLS: frozenset[str] = frozenset(
 )
 DEFAULT_SIZE_CAP_BYTES: int = 100 * 1024 * 1024  # 100 MB
 _SIZE_COUNTER_NAME: str = "size_counter.json"
+
+# Edit/Write tool responses carry ``originalFile``: the *entire* pre-edit file
+# content, duplicated into staging on every single edit. Nothing reads it —
+# ``structuredPatch`` plus ``oldString``/``newString`` already describe the
+# change — so it is pure ballast, and on a real backlog it measured as the
+# largest single string field in ``tool_response``.
+BULKY_RESPONSE_FIELD: str = "originalFile"
+OMITTED_RESPONSE_FIELD: str = "originalFileOmitted"
 
 
 def _short_hostname() -> str:
@@ -164,6 +173,40 @@ def _redact_value(
             for i, item in enumerate(value)
         ]
     return value
+
+
+def summarize_bulky_response_fields(event: dict[str, Any]) -> bool:
+    """Replace ``tool_response.originalFile`` with a digest and a byte count.
+
+    Mutates ``event`` in place and returns True when a substitution happened.
+    The content is dropped; what remains is::
+
+        "originalFileOmitted": {"sha256_16": "<16 hex>", "bytes": <int>}
+
+    which is enough to tell whether two events saw the same file version, and
+    to size what was elided, without storing the file itself.
+
+    Runs *before* redaction, deliberately. Redaction only neutralises
+    ``<private>`` spans and would otherwise have to walk the whole file body
+    on the critical path; dropping the field first is both cheaper and
+    strictly more private. The consequence is that no privacy-audit record is
+    emitted for this field — correct, because the field never reaches disk.
+
+    A non-string value is left untouched: this collapses one known payload
+    shape, it is not a general pruner.
+    """
+    resp = event.get("tool_response")
+    if not isinstance(resp, dict):
+        return False
+    value = resp.get(BULKY_RESPONSE_FIELD)
+    if not isinstance(value, str):
+        return False
+    del resp[BULKY_RESPONSE_FIELD]
+    resp[OMITTED_RESPONSE_FIELD] = {
+        "sha256_16": _sha256_first16(value),
+        "bytes": len(value.encode("utf-8")),
+    }
+    return True
 
 
 def redact_private(event: dict[str, Any], config: StagingConfig) -> dict[str, Any]:
@@ -324,6 +367,12 @@ def capture_event(event: dict[str, Any], config: StagingConfig) -> bool:
             return False
         if _resolve_tool_name(event) not in config.capture_tools:
             return False
+
+        # Nested in its own guard: shrinking the payload is an optimisation,
+        # never a reason to lose the event. If it fails the raw field is kept
+        # and capture proceeds exactly as before.
+        with contextlib.suppress(Exception):
+            summarize_bulky_response_fields(event)
 
         event = redact_private(event, config)
         written_bytes = _write_event(event, config)

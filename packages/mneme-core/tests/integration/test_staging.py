@@ -8,13 +8,16 @@ from pathlib import Path
 import pytest
 
 from mneme_core.compression.staging import (
+    BULKY_RESPONSE_FIELD,
     DEFAULT_CAPTURE_TOOLS,
     DEFAULT_SIZE_CAP_BYTES,
+    OMITTED_RESPONSE_FIELD,
     StagingConfig,
     capture_event,
     compute_content_hash,
     enforce_size_cap,
     redact_private,
+    summarize_bulky_response_fields,
 )
 
 
@@ -25,6 +28,100 @@ def config(tmp_path: Path) -> StagingConfig:
         audit_dir=tmp_path / "audit",
         host="testhost",
     )
+
+
+def _edit_event(original: str = "line one\nline two\n") -> dict[str, object]:
+    """An Edit event shaped like the real Claude Code PostToolUse payload."""
+    return {
+        "tool_name": "Edit",
+        "tool_input": {"file_path": "notes.md"},
+        "tool_response": {
+            "filePath": "notes.md",
+            "oldString": "line one",
+            "newString": "line 1",
+            BULKY_RESPONSE_FIELD: original,
+            "userModified": False,
+        },
+    }
+
+
+class TestBulkyResponseElision:
+    """``tool_response.originalFile`` is the whole pre-edit file. Nothing
+    reads it, so it is replaced by a digest — without breaking capture."""
+
+    def test_content_is_replaced_by_digest_and_size(self) -> None:
+        event = _edit_event("alpha\nbeta\n")
+        assert summarize_bulky_response_fields(event) is True
+        resp = event["tool_response"]
+        assert isinstance(resp, dict)
+        assert BULKY_RESPONSE_FIELD not in resp
+        omitted = resp[OMITTED_RESPONSE_FIELD]
+        assert len(omitted["sha256_16"]) == 16
+        assert omitted["bytes"] == len(b"alpha\nbeta\n")
+
+    def test_digest_is_stable_and_discriminating(self) -> None:
+        a, b = _edit_event("same"), _edit_event("same")
+        c = _edit_event("different")
+        for e in (a, b, c):
+            summarize_bulky_response_fields(e)
+
+        def digest(e: dict[str, object]) -> str:
+            resp = e["tool_response"]
+            assert isinstance(resp, dict)
+            return str(resp[OMITTED_RESPONSE_FIELD]["sha256_16"])
+
+        assert digest(a) == digest(b)
+        assert digest(a) != digest(c)
+
+    def test_no_op_when_field_absent(self) -> None:
+        event = {"tool_name": "Bash", "tool_response": {"stdout": "ok"}}
+        assert summarize_bulky_response_fields(event) is False
+        assert event["tool_response"] == {"stdout": "ok"}
+
+    def test_no_op_when_response_is_not_a_dict(self) -> None:
+        event = {"tool_name": "Edit", "tool_response": "plain string"}
+        assert summarize_bulky_response_fields(event) is False
+
+    def test_non_string_value_is_left_alone(self) -> None:
+        event = {"tool_name": "Edit", "tool_response": {BULKY_RESPONSE_FIELD: 42}}
+        assert summarize_bulky_response_fields(event) is False
+        resp = event["tool_response"]
+        assert isinstance(resp, dict)
+        assert resp[BULKY_RESPONSE_FIELD] == 42
+
+    def test_capture_still_stages_the_event(self, config: StagingConfig) -> None:
+        """The elision must not cost us the event: same record, minus ballast."""
+        body = "x" * 5000
+        assert capture_event(_edit_event(body), config) is True
+        files = list(config.staging_dir.rglob("*-events.jsonl"))
+        assert len(files) == 1
+        rec = json.loads(files[0].read_text(encoding="utf-8").strip())
+        # Still a complete, identifiable record.
+        assert rec["tool_name"] == "Edit"
+        assert rec["tool_response"]["filePath"] == "notes.md"
+        assert rec["tool_response"]["oldString"] == "line one"
+        assert rec["content_hash"] and rec["captured_at"]
+        # Ballast gone, digest present.
+        assert BULKY_RESPONSE_FIELD not in rec["tool_response"]
+        assert rec["tool_response"][OMITTED_RESPONSE_FIELD]["bytes"] == 5000
+
+    def test_file_body_does_not_reach_disk(self, config: StagingConfig) -> None:
+        needle = "SENTINEL-BODY-NOT-STAGED"
+        assert capture_event(_edit_event(f"a\n{needle}\nb\n"), config) is True
+        files = list(config.staging_dir.rglob("*-events.jsonl"))
+        raw = files[0].read_text(encoding="utf-8")
+        assert needle not in raw
+        # Positive control: the same channel does carry other response text,
+        # so the absence above is elision and not a dead assertion.
+        assert "line one" in raw
+
+    def test_staged_bytes_drop_substantially(self, config: StagingConfig) -> None:
+        big = "y" * 40_000
+        assert capture_event(_edit_event(big), config) is True
+        staged = sum(
+            f.stat().st_size for f in config.staging_dir.rglob("*-events.jsonl")
+        )
+        assert staged < 2_000
 
 
 class TestCaptureEvent:
