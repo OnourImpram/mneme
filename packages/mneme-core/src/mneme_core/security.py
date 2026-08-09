@@ -5,8 +5,8 @@ This is a *detection* tool, complementary to the redaction kernel
 derived store) and the MCP injection neutraliser. ``scan_text`` / ``scan_vault``
 walk the markdown ground truth and surface:
 
-  * secret-like material (API keys, tokens, private-key headers) sitting in a
-    note. A match inside a ``<private>...</private>`` wrapper is downgraded
+  * secret-like material (API keys, tokens, JWTs, private-key headers) sitting
+    in a note. A match inside a ``<private>...</private>`` wrapper is downgraded
     (it is already marked for redaction); an unwrapped match is high severity.
   * prompt-injection phrasing (instruction-override text, fake role/tool tags)
     that a retrieved memory could use to subvert an agent.
@@ -40,6 +40,20 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"(?i)\b(?:api[_-]?key|secret|token|password|passwd|access[_-]?key)\b"
             r"\s*[:=]\s*['\"]?[A-Za-z0-9_\-/+]{16,}"
         ),
+    ),
+    # Structural JWT: three dot-separated base64url segments. A bearer token
+    # pasted into a note carries no assignment keyword, so `assigned_secret`
+    # misses it; this detector matches on shape alone.
+    #
+    # The first segment is anchored on `eyJ` — the base64url encoding of the
+    # `{"` that opens every JOSE header — because an unanchored three-segment
+    # match would fire on ordinary dotted text (`module.sub-module.name`) in
+    # markdown prose. Two-segment strings never match: the third segment is
+    # required. No trailing `\b`: base64url may end in `-`, where `\b` would
+    # demand a following word character and drop a real match.
+    (
+        "jwt",
+        re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     ),
 )
 
