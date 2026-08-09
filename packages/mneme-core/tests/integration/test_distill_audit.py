@@ -14,6 +14,11 @@ from mneme_core.distill.injection_dedup import (
     mark_injected,
     save_tracker,
 )
+from mneme_core.distill.shell_compress import (
+    COMPRESS_MIN_BYTES,
+    DEFAULT_MAX_CHARS,
+    compress_shell_output,
+)
 from mneme_core.vault.config import VaultConfig
 
 
@@ -22,6 +27,40 @@ def vault(tmp_path: Path) -> VaultConfig:
     v = VaultConfig.from_path(tmp_path)
     (v.root / ".mneme").mkdir(parents=True, exist_ok=True)
     return v
+
+
+def _verbose_shell_output() -> str:
+    """Shell output carrying the redundancy shell_compress exists to remove.
+
+    Every line is distinct, so the saving comes from stripping ANSI escapes
+    and trailing whitespace rather than from folding repeats away entirely.
+    That matters for the negative-control arm: the compressed form has to
+    stay above the capture path's minimum size, or it would be skipped as
+    too small and the control would prove nothing.
+
+    Kept deliberately under ``DEFAULT_MAX_CHARS`` so no part of the measured
+    reduction is max-chars truncation.
+    """
+    lines = [f"\x1b[32mPASS\x1b[0m test_case_{i:03d} ok   " for i in range(150)]
+    return "\n".join(lines) + "\n"
+
+
+def _write_staged_bash(vault: VaultConfig, stdout: str, name: str) -> Path:
+    """Write one staging JSONL holding a single Bash record."""
+    out_dir = vault.staging_dir / "testhost" / "2026-01-01"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / name
+    record = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "pytest"},
+        "tool_response": {"stdout": stdout, "interrupted": False},
+    }
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    return path
+
+
+def _shell_advice(report: AuditReport) -> list[str]:
+    return [r for r in report.recommendations if "shell_compress" in r]
 
 
 class TestEmptyVault:
@@ -97,6 +136,109 @@ class TestCliEntry:
         payload = json.loads(result.output)
         assert "vault_root" in payload
         assert "recommendations" in payload
+
+
+class TestStagingCounts:
+    """Live and archived are disjoint, and together they are the directory."""
+
+    def test_counts_reconcile_with_the_filesystem(self, vault: VaultConfig) -> None:
+        live_dir = vault.staging_dir / "testhost" / "2026-01-01"
+        live_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir = vault.staging_dir / "archive" / "testhost" / "2025-12-01"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(2):
+            (live_dir / f"{i:02d}-00-events.jsonl").write_text(
+                "x" * 100, encoding="utf-8"
+            )
+        for i in range(7):
+            (archive_dir / f"{i:02d}-00-events.jsonl").write_text(
+                "y" * 50, encoding="utf-8"
+            )
+
+        report = build_report(vault)
+
+        # Measured straight off disk, then compared to what the audit claims.
+        on_disk = list(vault.staging_dir.rglob("*.jsonl"))
+        assert len(on_disk) == 9
+        assert report.staging_files == 2
+        assert report.staging_bytes == 200
+        assert report.staging_archived_files == 7
+        assert report.staging_archived_bytes == 350
+        assert report.staging_total_files == len(on_disk)
+        assert report.staging_total_bytes == sum(
+            f.stat().st_size for f in on_disk
+        )
+
+    def test_live_and_archived_are_disjoint(self, vault: VaultConfig) -> None:
+        report_before = build_report(vault)
+        assert report_before.staging_total_files == 0
+        _write_staged_bash(vault, "short", "00-00-events.jsonl")
+        report = build_report(vault)
+        assert report.staging_files == 1
+        assert report.staging_archived_files == 0
+        assert (
+            report.staging_files + report.staging_archived_files
+            == report.staging_total_files
+        )
+
+
+class TestShellCompressionAdvice:
+    """The advice fires on measured headroom, and only on measured headroom."""
+
+    def test_fires_when_staged_output_is_uncompressed(
+        self, vault: VaultConfig
+    ) -> None:
+        raw = _verbose_shell_output()
+        # Guard the fixture: below the truncation ceiling, so the reduction
+        # reported here is real compression and not a chopped tail.
+        assert len(raw) < DEFAULT_MAX_CHARS
+        _write_staged_bash(vault, raw, "00-00-events.jsonl")
+        report = build_report(vault)
+        assert report.staging_sampled_files == 1
+        assert report.shell_payload_bytes > 0
+        advice = _shell_advice(report)
+        assert advice, report.recommendations
+        assert "Wire it into your PostToolUse capture." in advice[0]
+
+    def test_silent_when_capture_already_compressed(
+        self, vault: VaultConfig
+    ) -> None:
+        """Negative control for the arm above: same fixture, pre-compressed.
+
+        This is the case the old unconditional text got wrong — it told
+        operators to wire in compression their hook was already applying.
+        """
+        already = compress_shell_output(_verbose_shell_output()).compressed_text
+        # Still large enough that the capture contract would compress it, so
+        # silence below means "measured, no headroom" and not "skipped".
+        assert len(already.encode("utf-8")) >= COMPRESS_MIN_BYTES
+        _write_staged_bash(vault, already, "00-00-events.jsonl")
+        report = build_report(vault)
+        assert report.staging_sampled_files == 1
+        assert report.shell_payload_bytes > 0  # the payload was measured
+        assert _shell_advice(report) == []  # and found to have no headroom
+
+    def test_silent_when_nothing_was_sampled(self, vault: VaultConfig) -> None:
+        # A large backlog of non-Bash records: no shell output to judge.
+        out_dir = vault.staging_dir / "testhost" / "2026-01-01"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        record = {"tool_name": "Edit", "tool_response": {"filePath": "a.md"}}
+        (out_dir / "00-00-events.jsonl").write_text(
+            (json.dumps(record) + "\n") * 2000, encoding="utf-8"
+        )
+        report = build_report(vault)
+        assert report.staging_bytes > 100_000  # old gate would have fired here
+        assert report.shell_payload_bytes == 0
+        assert _shell_advice(report) == []
+
+    def test_below_threshold_output_is_not_counted(
+        self, vault: VaultConfig
+    ) -> None:
+        """Mirrors the capture contract: tiny outputs are not compressed."""
+        _write_staged_bash(vault, "ok\n", "00-00-events.jsonl")
+        report = build_report(vault)
+        assert report.shell_payload_bytes == 0
+        assert _shell_advice(report) == []
 
 
 class TestRecommendations:

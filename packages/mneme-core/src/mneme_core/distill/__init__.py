@@ -45,13 +45,20 @@ from .injection_dedup import (
     save_tracker,
 )
 from .shell_compress import (
+    COMPRESS_MIN_BYTES,
     DEFAULT_MAX_CHARS,
+    SHELL_OUTPUT_KEYS,
+    SHELL_TOOL_NAME,
     CompressionStats,
     ShellCompressOpts,
     compress_shell_output,
+    iter_compressible_outputs,
 )
 
 __all__ = [
+    "COMPRESS_MIN_BYTES",
+    "SHELL_OUTPUT_KEYS",
+    "SHELL_TOOL_NAME",
     "DEFAULT_MAX_CHARS",
     "DEFAULT_HIGH_USAGE_THRESHOLD",
     "DEFAULT_LOW_USAGE_THRESHOLD",
@@ -65,6 +72,7 @@ __all__ = [
     "TopKPolicy",
     "adaptive_topk",
     "compress_shell_output",
+    "iter_compressible_outputs",
     "has_injected",
     "load_tracker",
     "mark_injected",

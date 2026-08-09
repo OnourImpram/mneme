@@ -4,8 +4,10 @@ Reads the telemetry JSONL written by ``mneme_core.telemetry.writer``
 and the staging directory, then reports:
 
 * Tokens-per-tool-call distribution (count + median + p95).
-* Total compressed-shell-output savings (bytes saved by
-  ``distill.shell_compress`` based on a heuristic estimate).
+* Staging volume, split into the live backlog and the archive so the two
+  add up to what the directory actually holds.
+* Remaining compressed-shell-output headroom, sampled from the newest
+  staged records and measured on the payloads the capture path compresses.
 * Injection-dedup hit rate (from any present trackers under
   ``vault/.mneme/injection-tracker/``).
 * Top recommendations (actionable, with concrete next steps).
@@ -28,12 +30,32 @@ import click
 
 from ..vault.config import VaultConfig, VaultNotFoundError
 from .injection_dedup import TRACKER_SUBDIR
-from .shell_compress import compress_shell_output
+from .shell_compress import compress_shell_output, iter_compressible_outputs
+
+# How many of the newest live staging files to open when measuring shell
+# compression headroom. Small on purpose: the CLI is run interactively.
+_SAMPLE_FILES = 5
+
+# Minimum recoverable fraction of sampled shell-output bytes before the
+# report says anything about compression. Below this the backlog is already
+# near-minimal and the only honest advice is none.
+_SHELL_HEADROOM_FLOOR = 0.10
 
 
 @dataclass
 class AuditReport:
-    """Structured output. Serialized to JSON for the CLI surface."""
+    """Structured output. Serialized to JSON for the CLI surface.
+
+    ``staging_files`` and ``staging_bytes`` count the *live* backlog only:
+    the JSONL the size cap governs and the compression pipeline still has
+    to drain. Files that ``enforce_size_cap`` already rolled into
+    ``staging/archive/`` are excluded — they are still on disk but no
+    longer in play. On a busy vault the archive dominates, so those two
+    numbers land several times below what a directory listing shows. That
+    is the intended scope, not an undercount, and the archive and total
+    counters below are published alongside them so the reader can see the
+    whole tree reconcile: live + archived == total == filesystem.
+    """
 
     vault_root: str
     telemetry_records: int = 0
@@ -44,7 +66,17 @@ class AuditReport:
     p95_tokens_in: float = 0.0
     staging_files: int = 0
     staging_bytes: int = 0
-    staging_estimated_compressed_bytes: int = 0
+    staging_archived_files: int = 0
+    staging_archived_bytes: int = 0
+    staging_total_files: int = 0
+    staging_total_bytes: int = 0
+    # Shell-output headroom, measured on the payloads the capture path
+    # actually compresses (see distill.shell_compress) rather than on raw
+    # JSONL bytes. ``sampled_files`` is published so the estimate can be
+    # weighed rather than taken on faith: zero means nothing was measured.
+    staging_sampled_files: int = 0
+    shell_payload_bytes: int = 0
+    shell_payload_compressed_bytes: int = 0
     injection_tracker_sessions: int = 0
     injection_hits_total: int = 0
     injection_skips_total: int = 0
@@ -91,40 +123,78 @@ def _percentile(values: list[float], p: float) -> float:
     return sorted_vals[index]
 
 
-def _staging_stats(vault: VaultConfig) -> tuple[int, int, int]:
-    """Return (file_count, total_bytes, estimated_compressed_bytes)."""
-    if not vault.staging_dir.exists():
-        return (0, 0, 0)
-    files = [
-        f
-        for f in vault.staging_dir.rglob("*.jsonl")
-        if "archive" not in f.parts
-    ]
-    total = 0
-    sample_estimate = 0
-    sample_taken = 0
-    for f in files:
+@dataclass
+class _StagingStats:
+    """Internal carrier for the staging half of the report."""
+
+    live_files: int = 0
+    live_bytes: int = 0
+    archived_files: int = 0
+    archived_bytes: int = 0
+    sampled_files: int = 0
+    payload_bytes: int = 0
+    payload_compressed_bytes: int = 0
+
+
+def _sample_shell_payloads(files: list[Path], stats: _StagingStats) -> None:
+    """Measure compression headroom on the newest staged records.
+
+    The question this answers is "is shell output being compressed *now*",
+    so the sample is taken from the most recently written files rather than
+    from wherever the directory walk happened to start.
+
+    Headroom is measured against the payloads ``iter_compressible_outputs``
+    identifies — the same contract the capture path applies — not against
+    raw JSONL bytes. Compressing a JSONL file as if it were shell output
+    mostly measures the max-chars truncation of a long single-line JSON
+    record, which is not a saving anyone can collect.
+    """
+    newest = sorted(files, key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in newest[:_SAMPLE_FILES]:
         try:
-            stat = f.stat()
+            text = f.read_text(encoding="utf-8")
         except OSError:
             continue
-        total += stat.st_size
-        if sample_taken < 5:
-            try:
-                text = f.read_text(encoding="utf-8")
-            except OSError:
+        stats.sampled_files += 1
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
                 continue
-            stats = compress_shell_output(text)
-            sample_estimate += stats.compressed_bytes
-            sample_taken += 1
-    estimated_total = (
-        int(total * (sample_estimate / max(1, sum(
-            f.stat().st_size for f in files[:5] if f.exists()
-        ))))
-        if sample_taken > 0 and total > 0
-        else total
-    )
-    return (len(files), total, estimated_total)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            for _key, value in iter_compressible_outputs(rec):
+                result = compress_shell_output(value)
+                stats.payload_bytes += result.original_bytes
+                stats.payload_compressed_bytes += min(
+                    result.compressed_bytes, result.original_bytes
+                )
+
+
+def _staging_stats(vault: VaultConfig) -> _StagingStats:
+    """Split the staging tree into the live backlog and the archive."""
+    stats = _StagingStats()
+    if not vault.staging_dir.exists():
+        return stats
+    live: list[Path] = []
+    for f in vault.staging_dir.rglob("*.jsonl"):
+        try:
+            size = f.stat().st_size
+        except OSError:
+            continue
+        if "archive" in f.parts:
+            stats.archived_files += 1
+            stats.archived_bytes += size
+            continue
+        live.append(f)
+        stats.live_files += 1
+        stats.live_bytes += size
+    if live:
+        _sample_shell_payloads(live, stats)
+    return stats
 
 
 def _injection_tracker_stats(vault: VaultConfig) -> tuple[int, int, int]:
@@ -150,18 +220,24 @@ def _injection_tracker_stats(vault: VaultConfig) -> tuple[int, int, int]:
 
 def _build_recommendations(report: AuditReport) -> list[str]:
     out: list[str] = []
-    if report.staging_bytes > 100_000:
-        savings = report.staging_bytes - report.staging_estimated_compressed_bytes
-        ratio = (
-            report.staging_estimated_compressed_bytes / report.staging_bytes
-            if report.staging_bytes
-            else 1.0
-        )
-        out.append(
-            f"distill.shell_compress projects ~{savings // 1024} KB savings "
-            f"({(1 - ratio) * 100:.0f}% reduction) against the current staging "
-            "backlog. Wire it into your PostToolUse capture."
-        )
+    # "Wire shell compression into your PostToolUse capture" used to be
+    # emitted on backlog size alone, so it kept firing at operators whose
+    # hook had been compressing all along — advice they had already taken,
+    # which is how a report loses its reader. Speak only when the staged
+    # payloads still hold recoverable headroom. Because compression is
+    # idempotent, an already-compressed backlog measures near zero here and
+    # this stays silent; nothing sampled also stays silent, since no
+    # measurement is no finding.
+    if report.shell_payload_bytes > 0:
+        savings = report.shell_payload_bytes - report.shell_payload_compressed_bytes
+        reduction = savings / report.shell_payload_bytes
+        if reduction >= _SHELL_HEADROOM_FLOOR:
+            out.append(
+                f"distill.shell_compress projects ~{savings // 1024} KB savings "
+                f"({reduction * 100:.0f}% reduction) across the shell output in "
+                f"the {report.staging_sampled_files} most recent staging files. "
+                "Wire it into your PostToolUse capture."
+            )
     if report.injection_tracker_sessions == 0:
         out.append(
             "No injection-tracker state present. Enable distill.injection_dedup "
@@ -211,10 +287,16 @@ def build_report(vault: VaultConfig) -> AuditReport:
     if tokens_in_vals:
         report.median_tokens_in = float(statistics.median(tokens_in_vals))
         report.p95_tokens_in = _percentile(tokens_in_vals, 0.95)
-    file_count, total_bytes, est_bytes = _staging_stats(vault)
-    report.staging_files = file_count
-    report.staging_bytes = total_bytes
-    report.staging_estimated_compressed_bytes = est_bytes
+    staging = _staging_stats(vault)
+    report.staging_files = staging.live_files
+    report.staging_bytes = staging.live_bytes
+    report.staging_archived_files = staging.archived_files
+    report.staging_archived_bytes = staging.archived_bytes
+    report.staging_total_files = staging.live_files + staging.archived_files
+    report.staging_total_bytes = staging.live_bytes + staging.archived_bytes
+    report.staging_sampled_files = staging.sampled_files
+    report.shell_payload_bytes = staging.payload_bytes
+    report.shell_payload_compressed_bytes = staging.payload_compressed_bytes
     sessions, hits, skips = _injection_tracker_stats(vault)
     report.injection_tracker_sessions = sessions
     report.injection_hits_total = hits
