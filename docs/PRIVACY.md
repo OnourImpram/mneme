@@ -72,6 +72,8 @@ mneme enforces redaction at the earliest possible point in the data pipeline (st
 - FTS5 index
 - Vault session markdown at `vault/sessions/YYYY-MM-DD.md`
 
+**Whole-file elision**: before redaction runs, PostToolUse drops `tool_response.originalFile` — the complete pre-edit copy of the file that Edit and Write tool responses carry — and replaces it with `originalFileOmitted: {sha256_16, bytes}`. Nothing in mneme reads that field, so storing it bought nothing and duplicated an entire file into staging on every edit. The digest still tells you whether two events saw the same file version. Less content stored means less content to redact.
+
 **Audit trail**: PostToolUse staging and telemetry redactions write a SHA256-derived hash of the original content to `vault/.mneme/audit/YYYY-MM-DD.jsonl`. The audit log lets the user verify that redaction fired without storing the redacted content itself. The MCP `mneme_write` tool also redacts `<private>` text before writing and returns `redactions_applied`; it does not persist a separate audit entry in v1.0.
 
 **Verification**: `packages/mneme-core/tests/integration/test_staging.py` and `packages/mneme-core/tests/integration/test_telemetry.py` assert recursive `<private>` redaction across downstream stores and audit-log entry creation. These run in CI on every PR per constitutional principle C4.
