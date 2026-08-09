@@ -12,6 +12,16 @@ AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 GH_TOKEN = "ghp_1234567890abcdefghijklmnopqrstuvwxyz"
 PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----"
 
+# Synthetic JWT. Assembled from base64url of literal placeholder JSON so the
+# fixture is inert by construction — it is not, and never was, a credential:
+#   header    -> {"alg":"HS256","typ":"JWT"}
+#   payload   -> {"sub":"synthetic-fixture"}
+#   signature -> the ASCII text "synthetic-signature-not-real"
+JWT_HEADER = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+JWT_PAYLOAD = "eyJzdWIiOiJzeW50aGV0aWMtZml4dHVyZSJ9"
+JWT_SIGNATURE = "c3ludGhldGljLXNpZ25hdHVyZS1ub3QtcmVhbA"
+SYNTHETIC_JWT = f"{JWT_HEADER}.{JWT_PAYLOAD}.{JWT_SIGNATURE}"
+
 
 def _detectors(findings: list[Finding]) -> set[str]:
     return {f.detector for f in findings}
@@ -49,6 +59,41 @@ class TestSecretDetection:
     def test_unwrapped_secret_is_high(self) -> None:
         findings = scan_text(f"oops {AWS_KEY}")
         assert any(f.severity == "high" for f in findings if f.kind == "secret")
+
+
+class TestJwtDetection:
+    """Structural JWT detector: three dot-separated base64url segments."""
+
+    def test_detects_bare_jwt(self) -> None:
+        # No assignment keyword, so only the structural detector can catch it.
+        assert "jwt" in _detectors(scan_text(f"Authorization: Bearer {SYNTHETIC_JWT}"))
+
+    def test_detects_jwt_standing_alone_on_a_line(self) -> None:
+        assert "jwt" in _detectors(scan_text(SYNTHETIC_JWT))
+
+    def test_two_segment_lookalike_is_not_flagged(self) -> None:
+        # Same header and payload, no signature segment. The variable name is
+        # deliberately keyword-free so `assigned_secret` cannot fire either and
+        # the negative result is attributable to the JWT detector alone.
+        line = f"encoded_pair = {JWT_HEADER}.{JWT_PAYLOAD}"
+        assert scan_text(line) == []
+
+    def test_dotted_prose_is_not_flagged(self) -> None:
+        # Three dot-separated base64url-legal words: the shape a naive
+        # structural pattern would false-positive on.
+        assert scan_text("see mneme-core.distill.shell-compress for details") == []
+
+    def test_jwt_evidence_is_masked(self) -> None:
+        findings = [f for f in scan_text(SYNTHETIC_JWT) if f.detector == "jwt"]
+        assert findings
+        for f in findings:
+            assert JWT_SIGNATURE not in f.evidence
+            assert "masked" in f.evidence
+
+    def test_private_wrapper_downgrades_jwt(self) -> None:
+        findings = scan_text(f"<private>{SYNTHETIC_JWT}</private>")
+        sev = {f.severity for f in findings if f.detector == "jwt"}
+        assert sev == {"low"}
 
 
 class TestInjectionDetection:
