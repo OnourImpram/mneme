@@ -115,6 +115,75 @@ class TestCliDispatcher:
         assert report["profile"] == "lite"
         assert report["settings_exists"] is True
 
+    def test_doctor_honours_mneme_vault_env(
+        self,
+        runner: CliRunner,
+        workspace: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """MNEME_VAULT is top of the resolution order; doctor must report it."""
+        env_vault = tmp_path / "env-vault"
+        (env_vault / ".mneme").mkdir(parents=True)
+        monkeypatch.setenv("MNEME_VAULT", str(env_vault))
+
+        res = runner.invoke(
+            cli,
+            ["doctor", "--settings", str(workspace["settings"])],
+        )
+
+        assert res.exit_code == 0, res.output
+        report = json.loads(res.output)
+        assert Path(report["vault_root"]) == env_vault.resolve()
+        assert report["vault_marker_exists"] is True
+
+    def test_doctor_falls_back_to_home_default_without_env(
+        self,
+        runner: CliRunner,
+        workspace: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Negative control: with no override the historical default stands."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.delenv("MNEME_VAULT", raising=False)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+        res = runner.invoke(
+            cli,
+            ["doctor", "--settings", str(workspace["settings"])],
+        )
+
+        assert res.exit_code == 0, res.output
+        report = json.loads(res.output)
+        assert Path(report["vault_root"]) == (fake_home / "mneme-vault").resolve()
+
+    def test_doctor_vault_flag_still_wins_over_env(
+        self,
+        runner: CliRunner,
+        workspace: dict[str, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """An explicit --vault is the operator speaking; it outranks the env."""
+        env_vault = tmp_path / "env-vault"
+        (env_vault / ".mneme").mkdir(parents=True)
+        monkeypatch.setenv("MNEME_VAULT", str(env_vault))
+
+        res = runner.invoke(
+            cli,
+            [
+                "doctor",
+                "--vault", str(workspace["vault"]),
+                "--settings", str(workspace["settings"]),
+            ],
+        )
+
+        assert res.exit_code == 0, res.output
+        report = json.loads(res.output)
+        assert Path(report["vault_root"]) == workspace["vault"].resolve()
+
     def test_doctor_verify_isolation_delegates_to_disposable_fixture(
         self,
         runner: CliRunner,
