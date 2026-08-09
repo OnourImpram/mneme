@@ -34,11 +34,51 @@ hook latency on a given event.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any
 
 DEFAULT_MAX_CHARS = 8_000
 DEFAULT_FOLD_LISTINGS_THRESHOLD = 20
 DEFAULT_FOLD_STACK_THRESHOLD = 3
+
+# --- What the capture path actually compresses -------------------------------
+# These three constants define the compression contract. The PostToolUse hook
+# applies them when staging an event; ``mneme audit`` applies them when asking
+# whether compression is already in effect. They live here so the writer and
+# the auditor cannot drift apart and start disagreeing about what is
+# compressible.
+SHELL_TOOL_NAME = "Bash"
+SHELL_OUTPUT_KEYS: tuple[str, ...] = (
+    "stdout",
+    "stderr",
+    "output",
+    "result",
+    "text",
+    "content",
+)
+COMPRESS_MIN_BYTES = 256
+
+
+def iter_compressible_outputs(event: dict[str, Any]) -> Iterator[tuple[str, str]]:
+    """Yield ``(key, value)`` for each tool_response string this path compresses.
+
+    Applies the whole contract — tool name, known output keys, and the minimum
+    size below which compression is not worth the hook latency — so callers
+    never re-derive it. Yields nothing for any event outside the contract.
+    """
+    if event.get("tool_name") != SHELL_TOOL_NAME:
+        return
+    resp = event.get("tool_response")
+    if not isinstance(resp, dict):
+        return
+    for key in SHELL_OUTPUT_KEYS:
+        value = resp.get(key)
+        if not isinstance(value, str):
+            continue
+        if len(value.encode("utf-8")) < COMPRESS_MIN_BYTES:
+            continue
+        yield key, value
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # Loose directory-entry detector. Matches `ls -la`-ish lines:
