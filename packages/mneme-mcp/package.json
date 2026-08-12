@@ -45,7 +45,7 @@
   "homepage": "https://github.com/OnourImpram/mneme#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
