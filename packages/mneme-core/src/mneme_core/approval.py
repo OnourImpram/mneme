@@ -8,7 +8,7 @@ while still PENDING.  A REJECTED proposal can never be applied.
 
 All user-supplied content is passed through :func:`mneme_core.privacy.redact`
 before being stored in the proposal.  Proposal IDs are deterministic
-(``uuid.uuid5``) so re-proposing identical inputs yields the same ID.
+(SHA-256-backed UUIDv8) so re-proposing identical inputs yields the same ID.
 
 Pure, deterministic, no IO, no network, no clock.
 """
@@ -16,6 +16,7 @@ Pure, deterministic, no IO, no network, no clock.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -27,7 +28,8 @@ from .scope import DEFAULT_SCOPE, concrete_scope_or_none
 # Enumerations
 # ---------------------------------------------------------------------------
 
-_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # NAMESPACE_URL
+# Stable namespace bytes retained from the original proposal-ID scheme.
+_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
 
 class ProposalStatus(str, Enum):  # noqa: UP042
@@ -83,8 +85,9 @@ class MemoryProposal:
     Attributes
     ----------
     proposal_id:
-        Deterministic ``uuid5`` derived from ``action``, ``target_path``, and
-        the *redacted* content.  Identical inputs always produce the same ID.
+        Deterministic SHA-256-backed UUIDv8 derived from the proposal identity
+        fields, including the *redacted* content.  Identical inputs always
+        produce the same ID.
     action:
         ``"create"`` | ``"update"`` | ``"delete"``.
     target_path:
@@ -132,9 +135,10 @@ def propose(
     """Create a new :class:`MemoryProposal` in PENDING status.
 
     Content is redacted via :func:`~mneme_core.privacy.redact` before being
-    stored.  The ``proposal_id`` is a deterministic ``uuid5`` derived from
-    ``action + NUL + target_path + NUL + redacted_content`` so that identical
-    inputs always yield the same proposal ID.
+    stored.  The ``proposal_id`` is a deterministic RFC 9562 UUIDv8 derived
+    from the first 16 bytes of the SHA-256 digest over the stable namespace
+    bytes and NUL-joined proposal identity fields.  Identical inputs always
+    yield the same proposal ID.
     """
     concrete_scope = concrete_scope_or_none(scope)
     if concrete_scope is None:
@@ -147,7 +151,11 @@ def propose(
     seed = f"{action}\x00{target_path}\x00{category.value}\x00{trust}\x00{redacted}"
     if concrete_scope != DEFAULT_SCOPE:
         seed = f"{seed}\x00{concrete_scope}"
-    proposal_id = str(uuid.uuid5(_NAMESPACE, seed))
+    digest = hashlib.sha256(_NAMESPACE.bytes + seed.encode("utf-8")).digest()
+    uuid_bytes = bytearray(digest[:16])
+    uuid_bytes[6] = (uuid_bytes[6] & 0x0F) | 0x80  # RFC 9562 version 8
+    uuid_bytes[8] = (uuid_bytes[8] & 0x3F) | 0x80  # RFC variant
+    proposal_id = str(uuid.UUID(bytes=bytes(uuid_bytes)))
     return MemoryProposal(
         proposal_id=proposal_id,
         action=action,

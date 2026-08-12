@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from mneme_core.approval import (
@@ -92,6 +94,18 @@ class TestProposalIdIdentity:
         )
         assert a.proposal_id == b.proposal_id
 
+    def test_id_matches_cross_language_uuid8_fixture(self) -> None:
+        proposal = propose(
+            action="create",
+            target_path="notes/parity.md",
+            content="hello <private>secret</private> world",
+            category=EditCategory.EPHEMERAL,
+        )
+        assert proposal.proposal_id == "5e82b34e-a653-8308-9a98-066cda8f83ac"
+        parsed = uuid.UUID(proposal.proposal_id)
+        assert parsed.version == 8
+        assert parsed.variant == uuid.RFC_4122
+
     def test_non_default_scopes_do_not_alias(self) -> None:
         clinical = propose(
             action="update",
@@ -108,6 +122,16 @@ class TestProposalIdIdentity:
             scope="research",
         )
         assert clinical.proposal_id != research.proposal_id
+
+    def test_non_default_scope_matches_cross_language_uuid8_fixture(self) -> None:
+        proposal = propose(
+            action="create",
+            target_path="notes/parity.md",
+            content="hello <private>secret</private> world",
+            category=EditCategory.EPHEMERAL,
+            scope="clinical",
+        )
+        assert proposal.proposal_id == "13e8a790-9df0-8f57-8a90-d1631b81e4b3"
 
     def test_wildcard_scope_is_never_a_durable_proposal(self) -> None:
         with pytest.raises(ValueError, match="concrete"):

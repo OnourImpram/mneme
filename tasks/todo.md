@@ -134,6 +134,20 @@
 
 The first remote candidate passed every job except Python 3.11 on Windows, where concurrent durable queue writes exceeded the one-second lock wait. The queue contract now uses a 30-second wait and a 60-second stale threshold, and the Python 3.11 Windows suite passes. A follow-up independent review found three P1 migration compatibility defects. Stable aliases are now canonicalized, diagnostics redact lexical and canonical path forms, and signed legacy aliases without a signed canonical target fail closed while preserving the archive for manual hash-verified recovery. The independent re-review found zero P0 or P1. Terminal punctuation loss in conservative path redaction remains a disclosed cosmetic P2. Candidate evidence SHA `17d5651` passed CI, CodeQL, benchmarks, release dry run, governance, Make targets, and clean-clone proof. The report closeout head must pass the same hosted checks before merge.
 
+## 2026-08-12 security advisory closeout
+
+- [x] Inventory all open Dependabot, CodeQL, and secret-scanning alerts from the live GitHub APIs.
+- [x] Upgrade the vulnerable npm dependency graph, including transitive `@hono/node-server`, `brace-expansion`, `fast-uri`, `hono`, `ip-address`, and `nanoid` paths.
+- [x] Replace SHA-1-backed proposal identities with cross-language SHA-256-backed UUIDv8 identities.
+- [x] Verify frozen installation, zero-audit result, dependency paths, build, lint, strict typing, plugin validators, repository integrity, and version consistency.
+- [x] Verify all Python, TypeScript, and parity tests with coverage at or above the repository thresholds.
+- [ ] Push the security branch, open the pull request, and verify exact-head GitHub checks.
+- [ ] Merge after protected checks pass, then verify the alerts close on `main`.
+
+### Review notes
+
+Local dependency audit reports zero vulnerabilities at every severity. The Node suite passed 619 tests with 6 skips and 80.88 percent branch coverage. The Python suites passed 2,502 tests with 16 skips across core, plugin, graph, code, and parity surfaces. Ruff, strict mypy, Biome, TypeScript, the three plugin validators, repository integrity, specification verification, and version consistency passed. The first Python run resolved an already-installed package instead of the checkout. The verified run used an isolated editable environment and passed against the changed source tree. Remote checks and post-merge alert closure remain open until GitHub provides exact-head receipts.
+
 ## Website update
 
 - [x] Preserve `v3.5.0` as the latest published release while presenting 3.6.0 only as a release candidate.
