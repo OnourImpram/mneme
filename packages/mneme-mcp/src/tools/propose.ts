@@ -12,9 +12,9 @@
  * the human approval flow and are never auto-applied.
  *
  * The record shape mirrors `mneme_core.memory_apply.queue_proposal`
- * exactly, and the proposal_id is the same RFC-4122 uuid5 the Python
- * side derives (same namespace, same NUL-joined seed), so identical
- * proposals from either language share one identity.
+ * exactly, and the proposal_id is the same SHA-256-backed RFC 9562
+ * UUIDv8 the Python side derives (same namespace bytes, same NUL-joined
+ * seed), so identical proposals from either language share one identity.
  *
  * C4 sacred constraint: content is redacted before it touches disk.
  * No LLM, no network.
@@ -44,8 +44,8 @@ import { assertWithinVault, VaultPathError } from "../vault/atomic_write.js";
 import type { VaultConfig } from "../vault/config.js";
 import type { ToolResult } from "./common.js";
 
-/** Same namespace bytes the Python engine uses (uuid.UUID("6ba7b810-...")). */
-const UUID5_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
+/** Same stable namespace bytes the Python engine uses. */
+const UUID_NAMESPACE = "6ba7b8109dad11d180b400c04fd430c8";
 const MAX_QUEUE_BYTES = 16 * 1024 * 1024;
 const MAX_QUEUE_LINES = 10_000;
 const MAX_QUEUE_RECORD_BYTES = 1024 * 1024;
@@ -260,15 +260,15 @@ export interface ProposeOutput {
 	note: string;
 }
 
-/** RFC-4122 v5 UUID over SHA-1, byte-compatible with Python's uuid.uuid5. */
-function uuid5(namespaceHex: string, name: string): string {
+/** RFC 9562 UUIDv8 over SHA-256, byte-compatible with the Python engine. */
+function uuid8Sha256(namespaceHex: string, name: string): string {
 	const ns = Buffer.from(namespaceHex, "hex");
-	const digest = createHash("sha1")
+	const digest = createHash("sha256")
 		.update(Buffer.concat([ns, Buffer.from(name, "utf-8")]))
 		.digest();
 	const bytes = Buffer.from(digest.subarray(0, 16));
-	bytes[6] = ((bytes[6] as number) & 0x0f) | 0x50; // version 5
-	bytes[8] = ((bytes[8] as number) & 0x3f) | 0x80; // RFC-4122 variant
+	bytes[6] = ((bytes[6] as number) & 0x0f) | 0x80; // RFC 9562 version 8
+	bytes[8] = ((bytes[8] as number) & 0x3f) | 0x80; // RFC variant
 	const hex = bytes.toString("hex");
 	return (
 		`${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-` +
@@ -325,7 +325,7 @@ export function proposeTool(
 	const trust = "agent";
 	let seed = `${args.action}\x00${args.path}\x00${category}\x00${trust}\x00${redacted}`;
 	if (scope !== "default") seed = `${seed}\x00${scope}`;
-	const proposalId = uuid5(UUID5_NAMESPACE, seed);
+	const proposalId = uuid8Sha256(UUID_NAMESPACE, seed);
 
 	const record = {
 		proposal_id: proposalId,

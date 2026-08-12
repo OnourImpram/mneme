@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -378,6 +379,27 @@ class TestQueueAndDrain:
     def test_drain_empty_queue_noop(self, vault: VaultConfig) -> None:
         report = drain_proposals(vault)
         assert report.applied == 0 and report.refused == 0
+
+    def test_drain_accepts_pre_uuid8_pending_proposal_id(self, vault: VaultConfig) -> None:
+        """Existing UUIDv5 queue records remain readable after the ID upgrade."""
+        (vault.state_dir / "policy.json").write_text(
+            json.dumps({"auto_approve": ["typo-fix"]}), encoding="utf-8"
+        )
+        proposal = replace(
+            propose(
+                action="create",
+                target_path="notes/legacy-id.md",
+                content="legacy pending proposal",
+                category=EditCategory.EPHEMERAL,
+            ),
+            proposal_id="6b3b75e0-c5ac-5916-a299-faa94d74a8d2",
+        )
+        queue_proposal(vault, proposal, AutoApproveClass.TYPO_FIX)
+
+        report = drain_proposals(vault)
+
+        assert report.applied == 1
+        assert (vault.root / "notes/legacy-id.md").is_file()
 
     def test_malformed_queue_line_counted(self, vault: VaultConfig) -> None:
         queue = vault.state_dir / "proposals"
