@@ -141,12 +141,12 @@ The first remote candidate passed every job except Python 3.11 on Windows, where
 - [x] Replace SHA-1-backed proposal identities with cross-language SHA-256-backed UUIDv8 identities.
 - [x] Verify frozen installation, zero-audit result, dependency paths, build, lint, strict typing, plugin validators, repository integrity, and version consistency.
 - [x] Verify all Python, TypeScript, and parity tests with coverage at or above the repository thresholds.
-- [ ] Push the security branch, open the pull request, and verify exact-head GitHub checks.
-- [ ] Merge after protected checks pass, then verify the alerts close on `main`.
+- [x] Push the security branch, open the pull request, and verify exact-head GitHub checks.
+- [x] Merge after protected checks pass, then verify the alerts close on `main`.
 
 ### Review notes
 
-Local dependency audit reports zero vulnerabilities at every severity. The Node suite passed 619 tests with 6 skips and 80.88 percent branch coverage. The Python suites passed 2,503 tests with 16 skips across core, plugin, graph, code, and parity surfaces. Ruff, strict mypy, Biome, TypeScript, the three plugin validators, repository integrity, specification verification, and version consistency passed. The first Python run resolved an already-installed package instead of the checkout. The verified run used an isolated editable environment and passed against the changed source tree. Remote checks and post-merge alert closure remain open until GitHub provides exact-head receipts.
+Local dependency audit reports zero vulnerabilities at every severity. The Node suite passed 619 tests with 6 skips and 80.88 percent branch coverage. The Python suites passed 2,503 tests with 16 skips across core, plugin, graph, code, and parity surfaces. Ruff, strict mypy, Biome, TypeScript, the three plugin validators, repository integrity, specification verification, and version consistency passed. The first Python run resolved an already-installed package instead of the checkout. The verified run used an isolated editable environment and passed against the changed source tree. Pull request 55 passed all 30 exact-head checks after one Node 22 Windows retry recovered from runner resource contention. Merge commit `aa3e9a5` passed the post-merge CI, CodeQL, and benchmark workflows. Live GitHub APIs then reported zero open Dependabot, CodeQL, secret-scanning, and repository advisory alerts. CodeQL alert 1 is fixed.
 
 ## Website update
 
