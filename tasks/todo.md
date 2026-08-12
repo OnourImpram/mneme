@@ -42,7 +42,7 @@
 
 - [x] Fail closed for concrete-scope reads against legacy unscoped FTS5 indexes.
 - [x] Distinguish attempted, succeeded, failed, and contributed backend telemetry.
-- [x] Reverify Turkish `I`, `İ`, `ı`, `i`, snippets, deduplication, confidence, provenance, and error classes.
+- [x] Reverify Turkish `I`, `Ä°`, `Ä±`, `i`, snippets, deduplication, confidence, provenance, and error classes.
 - [x] Run retrieval benchmarks and ablations.
 - [x] Commit the verified Loop 4 change set with a Conventional Commit.
 
@@ -146,7 +146,7 @@ The first remote candidate passed every job except Python 3.11 on Windows, where
 
 ### Review notes
 
-Local dependency audit reports zero vulnerabilities at every severity. The Node suite passed 619 tests with 6 skips and 80.88 percent branch coverage. The Python suites passed 2,502 tests with 16 skips across core, plugin, graph, code, and parity surfaces. Ruff, strict mypy, Biome, TypeScript, the three plugin validators, repository integrity, specification verification, and version consistency passed. The first Python run resolved an already-installed package instead of the checkout. The verified run used an isolated editable environment and passed against the changed source tree. Remote checks and post-merge alert closure remain open until GitHub provides exact-head receipts.
+Local dependency audit reports zero vulnerabilities at every severity. The Node suite passed 619 tests with 6 skips and 80.88 percent branch coverage. The Python suites passed 2,503 tests with 16 skips across core, plugin, graph, code, and parity surfaces. Ruff, strict mypy, Biome, TypeScript, the three plugin validators, repository integrity, specification verification, and version consistency passed. The first Python run resolved an already-installed package instead of the checkout. The verified run used an isolated editable environment and passed against the changed source tree. Remote checks and post-merge alert closure remain open until GitHub provides exact-head receipts.
 
 ## Website update
 
