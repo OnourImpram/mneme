@@ -66,6 +66,18 @@ export class VaultConfig {
 		return join(this.stateDir, "staging");
 	}
 
+	/**
+	 * Where `mneme-core compress` records whether it is on for this vault.
+	 *
+	 * Read-only here, and only to explain a symptom: staging is archived as
+	 * part of a compression pass, so when compression is off the queue cannot
+	 * drain, and a health warning that does not know this sends the reader
+	 * looking for a broken component that does not exist.
+	 */
+	get compressionConfigPath(): string {
+		return join(this.stateDir, "compression.json");
+	}
+
 	get kgQueueDir(): string {
 		return join(this.stateDir, "kg-queue");
 	}

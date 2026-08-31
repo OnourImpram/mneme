@@ -14,7 +14,13 @@
  * Read-only, like every TS path into SQLite.
  */
 
-import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
+import {
+	type Dirent,
+	existsSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
@@ -145,6 +151,32 @@ function readMeta(db: Database.Database): Map<string, string> {
 	return meta;
 }
 
+/**
+ * Is background compression on for this vault?
+ *
+ * Staging is archived inside a compression pass, so a disabled pipeline is the
+ * ordinary reason a queue stops draining -- not a broken hook. The warning
+ * used to say "check the session-end hook that archives staging", which sends
+ * the reader after a component that does not exist. A remedy that cannot be
+ * followed is worse than none: it teaches distrust of the detector.
+ *
+ * Unreadable or absent config is treated as OFF, matching mneme-core, where
+ * compression is opt-in and silence means no.
+ */
+function compressionEnabled(configPath: string): boolean {
+	try {
+		const raw = readFileSync(configPath, "utf8");
+		const parsed: unknown = JSON.parse(raw);
+		return (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			(parsed as { enabled?: unknown }).enabled === true
+		);
+	} catch {
+		return false;
+	}
+}
+
 export function healthTool(
 	args: HealthInput,
 	vault: VaultConfig,
@@ -157,14 +189,23 @@ export function healthTool(
 	const stagingOldestDays =
 		staging.oldestMs === null ? null : daysSince(staging.oldestMs);
 	if (stagingOldestDays !== null && stagingOldestDays > STAGING_BACKLOG_DAYS) {
+		const compressionOn = compressionEnabled(vault.compressionConfigPath);
 		warnings.push({
 			code: "STAGING_NOT_DRAINING",
 			detail:
 				`${staging.pending} pending staging files, oldest ${stagingOldestDays} days. ` +
-				"New sessions keep writing while nothing archives them.",
-			remedy:
-				"Check the session-end hook that archives staging. Files older than " +
-				"the newest archived batch mark where processing stopped.",
+				(compressionOn
+					? "New sessions keep writing while nothing archives them."
+					: "Background compression is off for this vault, and archiving " +
+						"happens inside a compression pass, so the queue cannot drain."),
+			remedy: compressionOn
+				? "Run `mneme-core compress run` — archiving happens inside a " +
+					"compression pass. Files older than the newest archived batch mark " +
+					"where processing stopped."
+				: "Either turn the drain on (`mneme-core compress enable`, an opt-in " +
+					"paid feature) or delete the backlog. Left alone it costs disk and " +
+					"nothing else: staged events are inputs to compression, not " +
+					"retrieval, so search does not see them.",
 		});
 	}
 

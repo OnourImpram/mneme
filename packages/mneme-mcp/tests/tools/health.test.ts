@@ -234,6 +234,69 @@ describe("healthTool — index staleness", () => {
 });
 
 describe("healthTool — staging backlog", () => {
+	/**
+	 * The remedy has to name the actual cause.
+	 *
+	 * Measured on a real vault: 4,585 pending files, oldest 62 days, and the
+	 * reason was neither a stuck queue nor a broken hook — background
+	 * compression was simply off, and archiving only happens inside a
+	 * compression pass. The old remedy said "check the session-end hook that
+	 * archives staging", pointing at a component that does not exist. A
+	 * remedy that cannot be followed teaches distrust of the detector, and a
+	 * distrusted detector is bypassed.
+	 */
+	it("names the disabled pipeline when compression is off", () => {
+		const { vault } = makeTempVault("health-staging-compress-off", docsAged(0));
+		stageFile(vault.stagingDir, "pending-1.md", 30);
+		writeFileSync(vault.compressionConfigPath, JSON.stringify({ enabled: false }));
+
+		const res = healthTool(args(), vault);
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const warning = res.data.warnings.find(
+			(w) => w.code === "STAGING_NOT_DRAINING",
+		);
+		expect(warning).toBeDefined();
+		expect(warning?.detail).toContain("compression is off");
+		expect(warning?.remedy).toContain("compress enable");
+		// The wrong remedy must be gone, not merely joined by a right one.
+		expect(warning?.remedy).not.toContain("session-end hook");
+	});
+
+	it("points at the compression pass when compression is on", () => {
+		const { vault } = makeTempVault("health-staging-compress-on", docsAged(0));
+		stageFile(vault.stagingDir, "pending-1.md", 30);
+		writeFileSync(vault.compressionConfigPath, JSON.stringify({ enabled: true }));
+
+		const res = healthTool(args(), vault);
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const warning = res.data.warnings.find(
+			(w) => w.code === "STAGING_NOT_DRAINING",
+		);
+		expect(warning?.remedy).toContain("compress run");
+		expect(warning?.remedy).not.toContain("compress enable");
+	});
+
+	/**
+	 * NEGATIVE CONTROL for the branch itself. Absent config means OFF, which
+	 * is what mneme-core means by opt-in — so a vault that never configured
+	 * compression must get the disabled-pipeline explanation, not the
+	 * stuck-queue one.
+	 */
+	it("treats missing compression config as off", () => {
+		const { vault } = makeTempVault("health-staging-compress-none", docsAged(0));
+		stageFile(vault.stagingDir, "pending-1.md", 30);
+
+		const res = healthTool(args(), vault);
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const warning = res.data.warnings.find(
+			(w) => w.code === "STAGING_NOT_DRAINING",
+		);
+		expect(warning?.detail).toContain("compression is off");
+	});
+
 	it("warns when the oldest pending file is past the backlog threshold", () => {
 		const { vault } = makeTempVault("health-staging", docsAged(0));
 		stageFile(vault.stagingDir, "pending-1.md", 30);
