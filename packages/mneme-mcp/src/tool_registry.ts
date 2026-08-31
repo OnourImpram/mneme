@@ -3,6 +3,7 @@ import {
 	CheckpointListInputSchema,
 	checkpointListTool,
 } from "./tools/checkpoint_list.js";
+import { HealthInputSchema, healthTool } from "./tools/health.js";
 import { PrimeInputSchema, primeTool } from "./tools/prime.js";
 import { ProposeInputSchema, proposeTool } from "./tools/propose.js";
 import { RecallInputSchema, recallTool } from "./tools/recall.js";
@@ -102,6 +103,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
 		zodSchema: ProposeInputSchema,
 		handler: (args, vault) =>
 			proposeTool(ProposeInputSchema.parse(args), vault),
+	},
+	{
+		name: "mneme_health",
+		description:
+			"Report the memory index's own condition: schema version, locale profile, " +
+			"document count, how stale the index is, per-language breakdown, and the " +
+			"staging backlog. Every warning names its remedy. Call this when retrieval " +
+			"returns nothing, returns something that looks out of date, or before " +
+			"trusting a result that matters.",
+		zodSchema: HealthInputSchema,
+		handler: (args, vault) => healthTool(HealthInputSchema.parse(args), vault),
 	},
 	{
 		name: "mneme_checkpoint_list",

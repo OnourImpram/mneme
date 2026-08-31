@@ -2,7 +2,7 @@
  * End-to-end smoke test for the MCP server.
  *
  * Spawns the server via `tsx src/index.ts` and connects an MCP Client
- * over stdio. Verifies the tools/list response surfaces all nine
+ * over stdio. Verifies the tools/list response surfaces all ten
  * `mneme_*` tools with non-empty descriptions and JSON Schema input
  * declarations.
  *
@@ -32,6 +32,9 @@ const EXPECTED_TOOL_NAMES = [
 	"mneme_propose",
 	"mneme_checkpoint_list",
 	"mneme_working_set_load",
+	// 4.0: the index can report its own condition. Added because every
+	// health number previously required walking the filesystem by hand.
+	"mneme_health",
 ];
 
 describe("mneme-mcp server end-to-end", () => {
@@ -58,7 +61,7 @@ describe("mneme-mcp server end-to-end", () => {
 		await client?.close();
 	});
 
-	it("lists all nine mneme_ tools", async () => {
+	it("lists all ten mneme_ tools", async () => {
 		const res = await client.listTools();
 		const names = res.tools.map((t) => t.name).sort();
 		expect(names.sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
