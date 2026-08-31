@@ -35,6 +35,54 @@ export interface Fts5Hit {
 	trust: string;
 }
 
+/**
+ * BM25 per-column weights for the FTS5 ranking function.
+ *
+ * Column order matches the `documents_fts` / `documents_ascii_fts` DDL:
+ * `(title, content, tags, linked_notes)`.
+ */
+export interface Bm25Weights {
+	readonly title: number;
+	readonly content: number;
+	readonly tags: number;
+	readonly linkedNotes: number;
+}
+
+/**
+ * Default column weights.
+ *
+ * Before 4.0 the query used bare `fts.rank`, which weights every column
+ * equally. That let a long note whose body happens to repeat a query term
+ * outrank a note whose TITLE is the query. Measured on a 24-query golden set
+ * over a real vault (12 tr + 12 en, expected document hand-labelled):
+ *
+ *   fts.rank (equal weights)      hit@1 29%   hit@5 50%
+ *   title=10, linked_notes=0.1    hit@1 46%   hit@5 67%
+ *
+ * Turkish gained the most (hit@5 6/12 -> 10/12) because vault titles are
+ * descriptive noun phrases that mirror how the operator queries. Raising
+ * title beyond 10 produced no further gain, so 10 is the saturation point
+ * rather than an arbitrary large number.
+ *
+ * `linked_notes` is demoted because it is a bag of wikilink slugs: it inflates
+ * term frequency for hub notes without indicating aboutness.
+ */
+export const DEFAULT_BM25_WEIGHTS: Bm25Weights = {
+	title: 10.0,
+	content: 1.0,
+	tags: 1.0,
+	linkedNotes: 0.1,
+};
+
+/**
+ * Render the BM25 call for a table. Weights are numbers constrained by
+ * Bm25Weights, never caller-supplied strings, so this cannot widen the SQL
+ * surface.
+ */
+function bm25Expr(table: FtsTable, w: Bm25Weights): string {
+	return `bm25(${table}, ${w.title}, ${w.content}, ${w.tags}, ${w.linkedNotes})`;
+}
+
 export interface Fts5SearchOptions {
 	dbPath: string;
 	ftsQuery: string;
@@ -52,6 +100,11 @@ export interface Fts5SearchOptions {
 	 * fails closed and requires a rebuild.
 	 */
 	scope: string;
+	/**
+	 * Optional BM25 column weights. Defaults to DEFAULT_BM25_WEIGHTS.
+	 * Exposed so a deployment can retune ranking without a code change.
+	 */
+	weights?: Bm25Weights;
 }
 
 /**
@@ -159,6 +212,7 @@ function queryFtsTable(
 	opts: Fts5SearchOptions,
 ): FtsRow[] {
 	if (query.length === 0) return [];
+	const rankExpr = bm25Expr(table, opts.weights ?? DEFAULT_BM25_WEIGHTS);
 	const filters: string[] = [`${table} MATCH ?`];
 	const bindings: (string | number)[] = [query];
 	if (opts.mtimeFrom !== undefined) {
@@ -180,7 +234,7 @@ function queryFtsTable(
 			`SELECT
         d.path AS path,
         COALESCE(d.title, '') AS title,
-        fts.rank AS rank,
+        ${rankExpr} AS rank,
         COALESCE(d.content_raw, '') AS content_raw,
         COALESCE(d.body_text, '') AS body_text,
         COALESCE(d.mtime, 0) AS mtime,
@@ -191,7 +245,7 @@ function queryFtsTable(
       FROM ${table} fts
       JOIN documents d ON d.rowid = fts.rowid
       WHERE ${filters.join(" AND ")}
-      ORDER BY fts.rank, d.path
+      ORDER BY ${rankExpr}, d.path
       LIMIT ?`,
 		)
 		.all(...bindings) as FtsRow[];

@@ -181,7 +181,7 @@ describe("searchTool runtime", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits).toEqual([]);
+			expect(res.data.cards).toEqual([]);
 			// backends_used must be empty when no hits are returned (stopword path).
 			expect(res.data.backends_used).toEqual([]);
 		}
@@ -197,8 +197,8 @@ describe("searchTool runtime", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBeGreaterThan(0);
-			const first = res.data.hits[0];
+			expect(res.data.cards.length).toBeGreaterThan(0);
+			const first = res.data.cards[0];
 			expect(first.path).toBeTruthy();
 			// Snippet is at most SNIPPET_CHARS chars + 2 possible ellipsis chars.
 			expect(first.snippet.length).toBeLessThanOrEqual(202);
@@ -305,7 +305,7 @@ describe("searchTool runtime", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			for (const h of res.data.hits) expect(h.type).toBe("reference");
+			for (const h of res.data.cards) expect(h.type).toBe("reference");
 		}
 	});
 
@@ -346,8 +346,8 @@ describe("searchTool runtime", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBeGreaterThan(0);
-			const snippet = res.data.hits[0].snippet;
+			expect(res.data.cards.length).toBeGreaterThan(0);
+			const snippet = res.data.cards[0].snippet;
 			// Snippet must come from bodyText, not from the raw frontmatter block.
 			expect(snippet).not.toContain("session_id");
 			expect(snippet).not.toContain("secret-sess-42");
@@ -377,8 +377,8 @@ describe("searchTool runtime", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBeGreaterThan(0);
-			const snippet = res.data.hits[0].snippet;
+			expect(res.data.cards.length).toBeGreaterThan(0);
+			const snippet = res.data.cards[0].snippet;
 			expect(snippet).not.toContain("SECRET_SNIP");
 		}
 	});
@@ -399,9 +399,9 @@ describe("searchTool runtime", () => {
 		]);
 		const res = searchTool(SearchInputSchema.parse({ query: "word" }), vault);
 		expect(res.ok).toBe(true);
-		if (res.ok && res.data.hits.length > 0) {
+		if (res.ok && res.data.cards.length > 0) {
 			// SNIPPET_CHARS (200) + up to 2 ellipsis chars.
-			expect(res.data.hits[0].snippet.length).toBeLessThanOrEqual(202);
+			expect(res.data.cards[0].snippet.length).toBeLessThanOrEqual(202);
 		}
 	});
 });
@@ -436,8 +436,8 @@ describe("searchTool — match-centered snippet (T7)", () => {
 			vault,
 		);
 		expect(res.ok).toBe(true);
-		if (res.ok && res.data.hits.length > 0) {
-			const snippet = res.data.hits[0].snippet;
+		if (res.ok && res.data.cards.length > 0) {
+			const snippet = res.data.cards[0].snippet;
 			// The match term must appear in the snippet.
 			expect(snippet).toContain("centeredterm");
 			// And the snippet must be bounded.
@@ -466,8 +466,8 @@ describe("searchTool — match-centered snippet (T7)", () => {
 			vault,
 		);
 		expect(res.ok).toBe(true);
-		if (res.ok && res.data.hits.length > 0) {
-			const snippet = res.data.hits[0].snippet;
+		if (res.ok && res.data.cards.length > 0) {
+			const snippet = res.data.cards[0].snippet;
 			// Fallback prefix: snippet starts with the beginning of body.
 			expect(snippet).toContain("alpha");
 		}
@@ -493,8 +493,8 @@ describe("searchTool — match-centered snippet (T7)", () => {
 			vault,
 		);
 		expect(res.ok).toBe(true);
-		if (res.ok && res.data.hits.length > 0) {
-			const snippet = res.data.hits[0].snippet;
+		if (res.ok && res.data.cards.length > 0) {
+			const snippet = res.data.cards[0].snippet;
 			expect(snippet).not.toContain("HIDDEN_SECRET");
 			expect(snippet).toContain("keyword");
 		}

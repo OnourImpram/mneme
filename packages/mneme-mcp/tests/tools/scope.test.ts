@@ -204,8 +204,8 @@ describe("searchTool scope isolation", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBe(1);
-			expect(res.data.hits[0]?.path).toBe("clinical/session.md");
+			expect(res.data.cards.length).toBe(1);
+			expect(res.data.cards[0]?.path).toBe("clinical/session.md");
 		}
 	});
 
@@ -218,8 +218,8 @@ describe("searchTool scope isolation", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBe(1);
-			expect(res.data.hits[0]?.path).toBe("default/session.md");
+			expect(res.data.cards.length).toBe(1);
+			expect(res.data.cards[0]?.path).toBe("default/session.md");
 		}
 	});
 
@@ -236,7 +236,7 @@ describe("searchTool scope isolation", () => {
 		);
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect(res.data.hits.length).toBe(3);
+			expect(res.data.cards.length).toBe(3);
 		}
 	});
 });
@@ -598,8 +598,8 @@ describe("Test-gap B: MNEME_SCOPE env end-to-end", () => {
 		expect(res.ok).toBe(true);
 		if (res.ok) {
 			// Only the clinical-scoped doc should be returned
-			expect(res.data.hits.length).toBe(1);
-			expect(res.data.hits[0]?.path).toBe("clinical/session.md");
+			expect(res.data.cards.length).toBe(1);
+			expect(res.data.cards[0]?.path).toBe("clinical/session.md");
 		}
 	});
 });

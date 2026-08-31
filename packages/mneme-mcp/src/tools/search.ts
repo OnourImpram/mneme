@@ -108,21 +108,16 @@ export const SearchInputSchema = z.object({
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;
 
-/** @deprecated Prefer EvidenceCard from the cards field. */
-export interface SearchHit {
-	path: string;
-	title: string;
-	score: number;
-	snippet: string;
-	type: string;
-	mtime: number;
-	contentHash: string;
-	trust: string;
-}
-
 export interface SearchOutput {
 	query: string;
-	hits: SearchHit[];
+	/**
+	 * Ranked evidence cards. Single source of results since 4.0.
+	 *
+	 * BREAKING (4.0): the `hits` array was removed. It duplicated every field
+	 * of `cards` on the wire, doubling response size for no added information.
+	 * Callers read `cards`; EvidenceCard is a superset of the old SearchHit
+	 * (same fields plus confidenceLabel, backend and query).
+	 */
 	cards: EvidenceCard[];
 	/**
 	 * Deduplicated list of backend identifiers that contributed at least one
@@ -326,7 +321,7 @@ export function searchTool(
 		emitSearchTelemetry(vault.stateDir, queryHash, 0, 0);
 		return {
 			ok: true,
-			data: { query: args.query, hits: [], cards: [], backends_used: [] },
+			data: { query: args.query, cards: [], backends_used: [] },
 		};
 	}
 
@@ -402,7 +397,6 @@ export function searchTool(
 	// Extract normalized tokens for match-centered snippeting (T7).
 	const queryTokens = extractQueryTokens(args.query, normalizeTr);
 
-	const hits: SearchHit[] = [];
 	const cards: EvidenceCard[] = [];
 
 	for (const h of filtered) {
@@ -414,16 +408,6 @@ export function searchTool(
 		const snippetStr = neutralize(
 			redact(buildCenteredSnippet(h.bodyText, queryTokens, normalizeTr)).text,
 		);
-		hits.push({
-			path: h.path,
-			title: neutralize(h.title),
-			score: h.rank,
-			snippet: snippetStr,
-			type: h.frontmatterType,
-			mtime: h.mtime,
-			contentHash: h.contentHash,
-			trust: h.trust,
-		});
 		cards.push(hitToEvidenceCard(h, args.query, snippetStr));
 	}
 
@@ -433,7 +417,6 @@ export function searchTool(
 		ok: true,
 		data: {
 			query: args.query,
-			hits,
 			cards,
 			backends_used,
 		},
