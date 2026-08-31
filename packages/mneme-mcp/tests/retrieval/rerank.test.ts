@@ -49,12 +49,12 @@ describe("coverageCount", () => {
 
 	it("matches across Turkish dotted/dotless i", () => {
 		// Query typed with ASCII i, document stored with dotted İ and dotless ı.
-		const h = hit("20-Reference/Vault-Haritasi.md", "Vault Haritası");
-		expect(coverageCount(["vault", "haritasi"], h)).toBe(2);
+		const h = hit("20-Reference/Bolge-Haritasi.md", "Bölge Haritası");
+		expect(coverageCount(["bolge", "haritasi"], h)).toBe(2);
 	});
 
 	it("matches Turkish inflection by substring", () => {
-		const h = hit("notes/protokol.md", "Ajan Yaratma Protokolü");
+		const h = hit("notes/protokol.md", "Cihaz Kayıt Protokolü");
 		// "protokolü" (inflected) against "protokol" (stem) in the path.
 		expect(coverageCount(["protokolü"], h)).toBe(1);
 	});
@@ -78,13 +78,13 @@ describe("coverageCount", () => {
 
 describe("canonicityScore", () => {
 	it("ranks shallow paths above deep ones", () => {
-		expect(canonicityScore("Ajan-Roster.md")).toBeGreaterThan(
-			canonicityScore("a/b/c/d/Ajan-Roster.md"),
+		expect(canonicityScore("Arac-Listesi.md")).toBeGreaterThan(
+			canonicityScore("a/b/c/d/Arac-Listesi.md"),
 		);
 	});
 
 	it("penalises derived content markers", () => {
-		const canonical = canonicityScore("10-Systems/Ajan-Yaratma-Protokolu.md");
+		const canonical = canonicityScore("10-Systems/Cihaz-Kayit-Protokolu.md");
 		const draft = canonicityScore(
 			"10-Systems/Sistem-Denetimi-Ornek/faz5/protokol-taslak.md",
 		);
@@ -118,17 +118,17 @@ describe("rerank", () => {
 	});
 
 	it("breaks a coverage tie with canonicity", () => {
-		// Both titled "ajan yaratma protokolü"; only the path differs.
+		// Both titled "cihaz kayıt protokolü"; only the path differs.
 		const pool = [
 			hit(
 				"10-Systems/Sistem-Denetimi-Ornek/faz5/protokol-taslak.md",
-				"ajan yaratma protokolü (taslak)",
+				"cihaz kayıt protokolü (taslak)",
 				-20,
 			),
-			hit("10-Systems/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü (v1.5.0)", -19),
+			hit("10-Systems/Cihaz-Kayit-Protokolu.md", "cihaz kayıt protokolü (v1.5.0)", -19),
 		];
-		const out = rerank(pool, ["ajan", "yaratma", "protokolü"]);
-		expect(out[0]?.hit.path).toBe("10-Systems/Ajan-Yaratma-Protokolu.md");
+		const out = rerank(pool, ["cihaz", "kayıt", "protokolü"]);
+		expect(out[0]?.hit.path).toBe("10-Systems/Cihaz-Kayit-Protokolu.md");
 	});
 
 	/**

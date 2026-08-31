@@ -3,7 +3,7 @@
  *
  * The bridge exists because coverage scores a document by how many query terms
  * appear in its title or path, and an English query shares no token with a
- * Turkish filename: "agent creation protocol" against `Ajan-Yaratma-Protokolu`
+ * Turkish filename: "device record protocol" against `Cihaz-Kayit-Protokolu`
  * scores zero. Measured on a real bilingual vault, five of six remaining
  * failures had exactly that shape.
  *
@@ -78,8 +78,8 @@ describe("bridgeTerms", () => {
 describe("coverageCount with the bridge", () => {
 	it("counts a cross-language match", () => {
 		// The measured failure: this scored 0 before the bridge.
-		const h = hit("10-Systems/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü");
-		expect(coverageCount(["agent", "creation", "protocol"], h)).toBe(3);
+		const h = hit("10-Systems/Cihaz-Kayit-Protokolu.md", "cihaz kayıt protokolü");
+		expect(coverageCount(["device", "record", "protocol"], h)).toBe(3);
 	});
 
 	it("counts a term ONCE when both it and its equivalent are present", () => {
@@ -90,10 +90,10 @@ describe("coverageCount with the bridge", () => {
 
 	it("never exceeds the number of query terms", () => {
 		const h = hit(
-			"10-Systems/Ajan-Yaratma-Protokolu-Denetim-Kayit.md",
-			"ajan yaratma protokolü denetim kayıt",
+			"10-Systems/Cihaz-Kayit-Protokolu-Denetim-Notu.md",
+			"cihaz kayıt protokolü denetim not",
 		);
-		const tokens = ["agent", "creation", "protocol", "audit", "record"];
+		const tokens = ["device", "record", "protocol", "audit", "note"];
 		expect(coverageCount(tokens, h)).toBeLessThanOrEqual(tokens.length);
 	});
 
@@ -106,11 +106,11 @@ describe("coverageCount with the bridge", () => {
 });
 
 describe("canonicityScore is query-aware", () => {
-	const auditFile = "10-Systems/Hafiza-Sistemi/Onarim-Denetimi-2026-07-30.md";
+	const auditFile = "10-Systems/Kayit-Sistemi/Onarim-Denetimi-Ornek.md";
 
 	it("penalises a derived marker when the query does not ask for it", () => {
 		expect(canonicityScore(auditFile, ["memory", "system"])).toBeLessThan(
-			canonicityScore("10-Systems/Hafiza-Sistemi/Rapor.md", ["memory", "system"]),
+			canonicityScore("10-Systems/Kayit-Sistemi/Rapor.md", ["memory", "system"]),
 		);
 	});
 

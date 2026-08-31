@@ -21,7 +21,7 @@ footing with a note carrying four distinct query terms in its title. Measured,
 that single gap caused most failures: a note literally titled "Kapali Karar Listesi" ranked #6 for the query "kapali karar listesi listesi".
 
 **And coverage cannot cross a language boundary.** "agent creation protocol"
-shares no token with `Ajan-Yaratma-Protokolu`, so that document scored zero on
+shares no token with `Cihaz-Kayit-Protokolu`, so that document scored zero on
 the very signal doing the ranking — not ranked low, invisible.
 
 Measured through the shipped `mneme_search` code path, three hand-labelled
@@ -46,8 +46,8 @@ shipped TypeScript path, not from a simulation of it.
   guarantee that is easy to audit: a document can only be overtaken by one
   covering STRICTLY more query terms.
 - **Canonicity scoring.** Path depth plus derived-content markers (`taslak`,
-  `arsiv`, `-kosum-`, `cikti`, and so on). Measured defect: a file titled "ajan
-  yaratma protokolu (taslak)" outranked the canonical "(v1.5.0)" — identical
+  `arsiv`, `-kosum-`, `cikti`, and so on). Measured defect: a file titled "cihaz
+  kayit protokolu (taslak)" outranked the canonical "(v1.5.0)" — identical
   titles, only the path distinguishes them.
 - **Cross-language term bridge** (`retrieval/bridge.ts`). A hand-written
   Turkish/English table, consulted by both the FTS5 query builder and the

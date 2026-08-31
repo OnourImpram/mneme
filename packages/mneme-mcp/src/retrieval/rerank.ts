@@ -35,9 +35,9 @@ import type { Fts5Hit } from "./fts5.js";
  * Path fragments that mark DERIVED content rather than a canonical note:
  * the output of a run, the record of an audit, a draft, an archived copy.
  *
- * This exists because of a specific measured failure. The query "ajan yaratma
- * protokolü kernel yapısı" returned a file titled "ajan yaratma protokolü
- * (taslak)" — a draft — above the canonical "ajan yaratma protokolü (v1.5.0)".
+ * This exists because of a specific measured failure. The query "cihaz kayıt
+ * protokolü yapısı" returned a file titled "cihaz kayıt protokolü
+ * (taslak)" — a draft — above the canonical "cihaz kayıt protokolü (v1.5.0)".
  * Both titles match equally well; only the path distinguishes them.
  */
 const DERIVED_MARKERS: readonly string[] = [

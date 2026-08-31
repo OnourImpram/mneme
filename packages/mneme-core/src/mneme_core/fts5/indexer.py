@@ -448,7 +448,7 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
 
 #: Separators that carry no meaning inside a vault path. Splitting on them
-#: turns "10-Systems/Ajan-Roster.md" into words FTS5 can match individually.
+#: turns "10-Systems/Arac-Listesi.md" into words FTS5 can match individually.
 # The hyphen sits LAST so it is a literal, not a range endpoint. Written as
 # [/\-_.] it silently becomes the range \ .. _ and stops splitting on
 # hyphens, which is the separator vault filenames use most.
@@ -475,8 +475,8 @@ def _path_tokens(rel_path: str, normalize: Callable[[str], str]) -> str:
         Space-separated normalized tokens. Empty string for an empty path.
 
     Examples:
-        >>> _path_tokens("10-Systems/Ajan-Roster.md", str.lower)
-        '10 systems ajan roster md'
+        >>> _path_tokens("10-Systems/Arac-Listesi.md", str.lower)
+        '10 systems arac listesi md'
     """
     parts = [part for part in _PATH_SEPARATORS.split(rel_path) if part]
     return normalize(" ".join(parts))
