@@ -110,7 +110,22 @@ function defaultPathTokens(path: string): string {
 		.toLowerCase();
 }
 
-export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
+/**
+ * Which locale profile the fixture index should declare.
+ *
+ * This used to be hardcoded to Turkish, and that is precisely why a whole
+ * class of defect went unmeasured: every fixture was a Turkish index, so
+ * three tools that only worked on Turkish indexes passed every test. An
+ * English fixture declares no ascii key, matching what the Python indexer
+ * writes for `--locale en`.
+ */
+export type FixtureLocale = "tr" | "en";
+
+export function buildTestDb(
+	dbPath: string,
+	docs: TestDoc[],
+	locale: FixtureLocale = "tr",
+): void {
 	mkdirSync(dirname(dbPath), { recursive: true });
 	const db = new Database(dbPath);
 	try {
@@ -136,10 +151,16 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
 		);
 		db.prepare(
 			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
-		).run("normalization_profile", "tr-cldr");
+		).run("normalization_profile", locale === "tr" ? "tr-cldr" : "en-unicode");
 		db.prepare(
 			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
-		).run("ascii_normalization_profile", "tr-ascii-fold");
+		).run(
+			"ascii_normalization_profile",
+			locale === "tr" ? "tr-ascii-fold" : "disabled",
+		);
+		db.prepare(
+			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+		).run("index_language", locale);
 		// The schema gate in fts5Search reads this; without it every fixture
 		// would be rejected as unversioned.
 		db.prepare(

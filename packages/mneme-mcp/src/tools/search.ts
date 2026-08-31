@@ -7,16 +7,11 @@
  */
 
 import { existsSync } from "node:fs";
-import Database from "better-sqlite3";
 import { z } from "zod";
 import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
-import {
-	type LocaleProfile,
-	profileById,
-	supportedProfileIds,
-} from "../locale/index.js";
+import { resolveIndexProfile } from "../locale/resolve.js";
 import { redact } from "../privacy.js";
 import { bridgeTerms } from "../retrieval/bridge.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
@@ -231,35 +226,6 @@ function extractQueryTokens(
 	return tokens;
 }
 
-/**
- * Read the normalization_profile row from index_meta if the table and row
- * exist. Returns null when the table is absent or the row is missing so the
- * caller can reject an unverified legacy index. Throws only on unexpected
- * I/O failures.
- */
-function readIndexProfile(dbPath: string): string | null {
-	const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-	try {
-		db.pragma("query_only = ON");
-		// Check whether the index_meta table exists at all.
-		const tableRow = db
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type='table' AND name='index_meta'",
-			)
-			.get() as { name: string } | undefined;
-		if (!tableRow) return null;
-
-		const row = db
-			.prepare(
-				"SELECT value FROM index_meta WHERE key = 'normalization_profile'",
-			)
-			.get() as { value: string } | undefined;
-		return row ? row.value : null;
-	} finally {
-		db.close();
-	}
-}
-
 export function searchTool(
 	args: SearchInput,
 	vault: VaultConfig,
@@ -283,47 +249,20 @@ export function searchTool(
 		};
 	}
 
-	// P6: locale mismatch guard.
-	// Read the profile stored at index-build time. If it IS present and
-	// differs from what the query side uses, fail fast — results would be
-	// garbled. If absent (legacy index), proceed with a warning.
-	let indexProfile: string | null;
+	// P6: locale mismatch guard. The index declares which normalizer built it
+	// and the query path adopts that profile rather than imposing one; an
+	// unknown or absent id fails closed instead of normalizing differently
+	// than the stored tokens. Shared with prime/summarize/timeline, which
+	// previously hardcoded the Turkish normalizer and so could not serve an
+	// English index at all — one definition, four call sites.
+	let resolved: ReturnType<typeof resolveIndexProfile>;
 	try {
-		indexProfile = readIndexProfile(vault.fts5Db);
+		resolved = resolveIndexProfile(vault.fts5Db);
 	} catch (err) {
 		return { ok: false, error: toMnemeError(err) };
 	}
-
-	if (indexProfile === null) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
-				message:
-					"The FTS5 index has no normalizer profile and cannot be trusted for locale-sensitive retrieval. " +
-					"Run 'mneme-core index rebuild' before retrying.",
-			},
-		};
-	}
-
-	// The index declares which normalizer built it; the query path adopts that
-	// profile rather than imposing one. An unknown id means the index was
-	// written by a newer release than this client, so fail closed instead of
-	// silently normalizing differently than the stored tokens.
-	const profile: LocaleProfile | undefined = profileById(indexProfile);
-	if (profile === undefined) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
-				message:
-					`Index normalizer profile '${indexProfile}' cannot serve locale-sensitive retrieval. ` +
-					`Supported profiles: ${supportedProfileIds()}. ` +
-					"Rebuild the index with 'mneme-core index rebuild --locale <tr|en>', " +
-					"or upgrade mneme if this index was written by a newer release.",
-			},
-		};
-	}
+	if (!resolved.ok) return { ok: false, error: resolved.error };
+	const { profile } = resolved;
 
 	const ftsQuery = buildFts5Query(args.query, {
 		minTokenLength: 2,
