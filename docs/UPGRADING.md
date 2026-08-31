@@ -51,8 +51,12 @@ queries keep working and hide the ones that do not.
 `en-unicode` for an English one. A profile of `identity` means no normalizer
 ran at all; that index is refused outright rather than served.
 
-Measured on a 12,317-document vault: 67 seconds, and the result was 33%
-smaller than the schema-3 index it replaced.
+Measured twice on the same vault of roughly 12,350 documents: 67 seconds and
+94 seconds, the slower run sharing the machine with a test suite. Budget about
+a minute and a half and treat either figure as an order of magnitude, not a
+specification — the rebuild is CPU- and disk-bound and will track your
+hardware. The first migration also produced an index 33% smaller than the
+schema-3 one it replaced.
 
 ### 2. `mneme_search` no longer returns `hits`
 
