@@ -734,7 +734,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="hero-copy">
         <div class="hero-eyebrow">
           <span class="dot" aria-hidden="true"></span>
-          4.1 on GitHub · registries serve 3.6.3 · Apache-2.0
+          4.1 published · PyPI, npm, MCP Registry · Apache-2.0
         </div>
         <h1>Memory you can <span class="key">audit</span>,<br>not just <span class="muted">trust</span>.</h1>
         <p class="hero-sub">Accountable, vault-native memory for Claude Code and any MCP client.
@@ -816,7 +816,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
           </div>
           <div class="ledger-foot">
             <span class="note"><b>mneme rebuild --all</b> · regenerated from source</span>
-            <span class="note">3.6 Stop p95 <b>4.70 ms</b></span>
+            <span class="note">4.1 Stop p95 <b>2.06 ms</b></span>
           </div>
         </div>
       </div>
@@ -904,10 +904,10 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
 <section class="release" id="release">
   <div class="wrap release-grid">
     <div class="release-copy">
-      <div class="release-state"><span class="dot" aria-hidden="true"></span>4.1 on GitHub · registries serve 3.6.3</div>
+      <div class="release-state"><span class="dot" aria-hidden="true"></span>4.1 published · PyPI, npm, MCP Registry</div>
       <h2>4.1 changes what ranking can see</h2>
-      <p>4.0 bumped the schema to 4 — the file path became searchable, every document gained a language, and validity dates are now read from frontmatter rather than inferred from mtime. The index is a rebuildable cache over Markdown, so the migration is a version bump plus a full reindex: 12,317 documents in 67 seconds. 4.1 then rewrote ranking. BM25 scores how densely a term repeats; it cannot express how many <em>distinct</em> query terms a document covers, and in a bilingual vault it cannot cross the language boundary at all.</p>
-      <p><b>Availability, stated plainly.</b> 4.1.0 is on GitHub and under review. PyPI, npm and the MCP Registry still serve 3.6.3 — that is what <span class="mono">npm install</span> gives you today.</p>
+      <p>4.0 bumped the schema to 4 — the file path became searchable, every document gained a language, and validity dates are now read from frontmatter rather than inferred from mtime. The index is a rebuildable cache over Markdown, so the migration is a version bump plus a full reindex: about 12,350 documents in 67&nbsp;s on one run and 94&nbsp;s on another sharing the machine with a test suite. 4.1 then rewrote ranking. BM25 scores how densely a term repeats; it cannot express how many <em>distinct</em> query terms a document covers, and in a bilingual vault it cannot cross the language boundary at all.</p>
+      <p><b>Availability, stated plainly.</b> 4.1.0 is published on PyPI, npm and the MCP Registry. Upgrading from 3.6.x requires one index rebuild — see the upgrade guide, and pass the locale your vault is written in.</p>
       <div class="release-links">
         <a href="https://github.com/OnourImpram/mneme/pull/60" target="_blank" rel="noopener">4.1 review →</a>
         <a href="https://github.com/OnourImpram/mneme/blob/release/4.1/CHANGELOG.md" target="_blank" rel="noopener">What changed, and what was rejected →</a>
@@ -918,7 +918,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="release-fact"><dt>Isolation</dt><dd><b>Concrete scopes fail closed.</b> Cross-scope reads require an explicit <span class="mono">scope: "*"</span>. Durable writes reject the wildcard.</dd></div>
       <div class="release-fact"><dt>Temporal</dt><dd><b>One deterministic planner</b> applies valid time and transaction time across claim and graph-enabled paths.</dd></div>
       <div class="release-fact"><dt>Compatibility</dt><dd><b>Markdown stays unchanged.</b> Legacy unscoped indexes require <span class="mono">mneme index rebuild</span> before concrete-scope reads.</dd></div>
-      <div class="release-fact"><dt>Verification</dt><dd><b>706 TypeScript and 1,750 Python tests</b> green, 84.8% coverage. Every gate carries a negative control — the bridge suite was deliberately sabotaged to confirm 7 of its tests can actually fail.</dd></div>
+      <div class="release-fact"><dt>Verification</dt><dd><b>739 TypeScript and 2,530 Python tests</b> green across all four Python packages — 88.2% line coverage in TypeScript, 86.8% in <span class="mono">mneme-core</span>. Every gate carries a negative control — disabling the cross-language bridge drops exactly 7 of its 20 tests, and restoring it returns all 20.</dd></div>
     </dl>
   </div>
 </section>
@@ -944,7 +944,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
           <h3>No LLM on the Stop or critical path</h3>
           <p>Capture is fully deterministic. The Stop hook never calls a model or makes a network request. Work is captured synchronously and heavy processing happens in the background — off the hot path entirely.</p>
         </div>
-        <div class="tenet-tag">p95 4.70 ms · budget 1000 ms</div>
+        <div class="tenet-tag">p95 2.06 ms · budget 1000 ms</div>
       </div>
       <div class="tenet">
         <div class="tenet-num">III</div>
@@ -978,7 +978,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
         <div class="pzone-tab">HOOK</div>
         <div class="pzone-body">
           <div class="pzone-h">Stop Hook</div>
-          <div class="pzone-meta"><span class="ok">deterministic</span> · no LLM<br>no network · p95 4.70 ms<br>sync capture → bg processing</div>
+          <div class="pzone-meta"><span class="ok">deterministic</span> · no LLM<br>no network · p95 2.06 ms<br>sync capture → bg processing</div>
         </div>
       </div>
       <div class="parr" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
@@ -1093,7 +1093,7 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="bmeta bmeta--gap">A third 20-query set was written <b>after</b> the ranking parameters were frozen, specifically to expose overfitting — and it did, scoring 45%/50%. That is why the headline figure here is 79%/85% and not the 93%/100% the first two sets alone would report. Measured through the shipped code path, not a simulation of it.</div>
       <div class="bench-top bench-top--second">
         <span class="t"><b>3.6 benchmark gate</b> — production FTS5 · seed 42 · 500 synthetic documents</span>
-        <span class="t mono">make bench-release</span>
+        <span class="t mono">make bench-rc-gate</span>
       </div>
       <div class="bench-grid">
         <div class="bcell">
@@ -1120,13 +1120,13 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       <div class="bench-lat">
         <div class="lat-h">
           <span class="l">Stop Hook latency — p95 headroom vs CI budget</span>
-          <span class="r">4.70 ms actual · 1000 ms CI budget</span>
+          <span class="r">2.06 ms actual · 1000 ms CI budget</span>
         </div>
         <div class="barwrap">
-          <div class="bar lat" role="img" aria-label="p95 4.70 milliseconds out of a 1000 millisecond CI budget"><i></i></div>
+          <div class="bar lat" role="img" aria-label="p95 2.06 milliseconds out of a 1000 millisecond CI budget"><i></i></div>
           <div class="barscale"><span>0 ms</span><span>250 ms</span><span>500 ms</span><span>750 ms</span><span>1000 ms</span></div>
         </div>
-        <div class="bmeta bmeta--gap">4.70 ms — 99.5% of the CI budget left unused · retrieval p95 3.80 ms</div>
+        <div class="bmeta bmeta--gap">2.06 ms — 99.8% of the CI budget left unused · retrieval p95 3.35 ms</div>
       </div>
       <div class="bench-extra">
         <div class="bex"><div class="n tnum">1.12 MiB</div><div class="d">Production FTS5 index — 500-document synthetic corpus</div></div>
@@ -1254,11 +1254,11 @@ footer{border-top:1px solid var(--rule);padding:clamp(48px,6vw,72px) 0 40px;back
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq3">What is the performance overhead?<span class="ic" aria-hidden="true"></span></button>
-        <div class="faq-a" id="faq3" hidden>The Stop proxy p95 is 4.70 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. Heavy processing — indexing, optional compression, and graph updates — stays off the synchronous critical path of your Claude Code session.</div>
+        <div class="faq-a" id="faq3" hidden>The Stop proxy p95 is 2.06 ms on the locked seed-42 benchmark corpus against a 1000 ms CI budget. Heavy processing — indexing, optional compression, and graph updates — stays off the synchronous critical path of your Claude Code session.</div>
       </div>
       <div class="faq-item">
         <button class="faq-q" aria-expanded="false" aria-controls="faq4">Is it production-ready?<span class="ic" aria-hidden="true"></span></button>
-        <div class="faq-a" id="faq4" hidden>It is published and it is small. 3.6.3 is on PyPI (<span class="mono">mneme-core</span>, <span class="mono">mneme-cc-plugin</span>, <span class="mono">mneme-graph</span>, <span class="mono">mneme-code</span>), on npm as <span class="mono">mneme-mcp-server</span>, and on the MCP Registry; 4.1 is on GitHub and not yet in those registries. What it does not have is scale evidence: this is a single-maintainer project, the benchmarks above are seeded synthetic corpora rather than production traces, and the boundary table is the honest list of what is not shipped. The design decision that makes it safe to try is that your Markdown vault stays authoritative — everything mneme derives is rebuildable, so uninstalling costs you nothing but the index.</div>
+        <div class="faq-a" id="faq4" hidden>It is published and it is small. 4.1.0 is on PyPI (<span class="mono">mneme-core</span>, <span class="mono">mneme-cc-plugin</span>, <span class="mono">mneme-graph</span>, <span class="mono">mneme-code</span>), on npm as <span class="mono">mneme-mcp-server</span>, and on the MCP Registry. What it does not have is scale evidence: this is a single-maintainer project, the benchmarks above are seeded synthetic corpora rather than production traces, and the boundary table is the honest list of what is not shipped. The design decision that makes it safe to try is that your Markdown vault stays authoritative — everything mneme derives is rebuildable, so uninstalling costs you nothing but the index.</div>
       </div>
     </div>
   </div>
