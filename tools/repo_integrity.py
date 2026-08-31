@@ -320,6 +320,65 @@ def _check_coverage_truth(errors: list[str], repo_root: Path) -> None:
         errors.append("CI and release preflight must invoke the Node coverage gate")
 
 
+#: Paketler-arasi mneme bagimliligi tasiyan pyproject dosyalari.
+INTERNAL_DEPENDENTS = (
+    "packages/mneme-graph/pyproject.toml",
+    "packages/mneme-code/pyproject.toml",
+    "packages/mneme-cc-plugin/pyproject.toml",
+)
+
+_INTERNAL_DEP = re.compile(r'"(mneme-[a-z]+)\s*>=\s*([0-9][^,"]*)\s*,\s*<\s*([0-9][^"]*)"')
+
+
+def _check_internal_dependencies(errors: list[str], repo_root: Path) -> None:
+    """Every in-repo mneme dependency must admit the version being released.
+
+    version_bump.py keeps the 18 declared version sources in lockstep, but it
+    does not touch the constraints packages place on EACH OTHER. Those drifted
+    silently across the 4.0 bump: the packages were rebuilt as 4.1.0 while
+    still requiring "mneme-core>=3.0.0,<4". Published that way, pip has no
+    choice but to resolve mneme-core to the newest 3.x, and a schema-4 reader
+    is handed a schema-3 index. The failure surfaces at the user, not here,
+    which is exactly why it needs a gate.
+    """
+    # check_consistency returns (agree, [(label, version), ...]) over all 18
+    # sources, so the distinct versions have to be extracted rather than
+    # counted. Reading the list length instead silently made this whole check
+    # a no-op, which its negative control caught.
+    agree, seen = check_consistency()
+    versions = {version for _, version in seen}
+    if not agree or len(versions) != 1:
+        return  # version-source disagreement is already reported elsewhere
+    current = next(iter(versions))
+    major = current.split(".")[0]
+    try:
+        next_major = str(int(major) + 1)
+    except ValueError:
+        errors.append(f"cannot parse major version from {current!r}")
+        return
+
+    for rel in INTERNAL_DEPENDENTS:
+        path = repo_root / rel
+        if not path.is_file():
+            errors.append(f"internal dependency source is missing: {rel}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        found = _INTERNAL_DEP.findall(text)
+        if not found:
+            errors.append(f"{rel} declares no in-repo mneme dependency to check")
+            continue
+        for name, lower, upper in found:
+            if lower != current:
+                errors.append(
+                    f"{rel}: {name} lower bound is {lower}, expected {current} "
+                    "(in-repo dependencies must admit the version being released)"
+                )
+            if upper.strip() != next_major:
+                errors.append(
+                    f"{rel}: {name} upper bound is <{upper.strip()}, expected <{next_major}"
+                )
+
+
 def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     errors: list[str] = []
     _check_release_workflows(errors, repo_root)
@@ -328,6 +387,7 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     _check_client_manifests(errors, repo_root)
     _check_licenses_and_engines(errors, repo_root)
     _check_coverage_truth(errors, repo_root)
+    _check_internal_dependencies(errors, repo_root)
 
     readme = _read("README.md", repo_root)
     changelog = _read("CHANGELOG.md", repo_root)

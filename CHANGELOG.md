@@ -69,6 +69,23 @@ shipped TypeScript path, not from a simulation of it.
   suppressing exactly what the user asked for. A marker means "probably
   secondary", never "secondary even when sought".
 
+### Fixed
+
+- **In-repo dependency constraints admitted only 3.x.** `mneme-graph`,
+  `mneme-code` and `mneme-cc-plugin` were rebuilt as 4.1.0 while still
+  requiring `mneme-core>=3.0.0,<4`. Published that way, pip has no choice but
+  to resolve `mneme-core` to the newest 3.x — so a schema-4 reader would have
+  been handed a schema-3 index, on a clean install, for every user. Found by
+  running the release preflight locally before tagging; `version_bump.py`
+  keeps the 18 declared version sources in lockstep but never touched the
+  constraints packages place on each other. `repo_integrity.py` now gates
+  this, with a negative control.
+- **`repo_integrity.py` did not count `mneme_health`.** 4.0 shipped a tenth
+  MCP tool and registered it everywhere except the canonical list the release
+  gate checks against, so the gate failed — correctly. Its error message also
+  printed the actual list under a sentence that read like a specification;
+  expected and actual are now printed separately.
+
 ### Not shipped, and why
 
 Each of these was implemented and measured before being discarded. They are

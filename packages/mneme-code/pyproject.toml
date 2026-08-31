@@ -22,8 +22,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mneme-core>=3.0.0,<4",
-    "mneme-graph>=0.1.0",
+    "mneme-core>=4.1.0,<5",
+    "mneme-graph>=4.1.0,<5",
 ]
 
 [project.optional-dependencies]
