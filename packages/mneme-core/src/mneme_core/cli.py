@@ -561,19 +561,28 @@ def index_rebuild(vault_root: Path | None, locale: str) -> None:
             normalize_tr,
             normalize_tr_ascii_fold,
             normalize_tr_ascii_fold_for_fts,
+            normalize_tr_for_fts,
         )
 
         normalize = normalize_tr
+        normalize_for_fts = normalize_tr_for_fts
         normalize_ascii = normalize_tr_ascii_fold
         normalize_ascii_for_fts = normalize_tr_ascii_fold_for_fts
     else:
-        normalize = None
+        from mneme_core.fts5.locale.en import normalize_en, normalize_en_for_fts
+
+        normalize = normalize_en
+        normalize_for_fts = normalize_en_for_fts
+        # No ASCII-fold sibling for English. That second key exists solely to
+        # bridge the Turkish dotted/dotless ``i``; English has no such
+        # ambiguity, so enabling it would double the index for no recall.
         normalize_ascii = None
         normalize_ascii_for_fts = None
     cfg = fts5_indexer.IndexerConfig(
         vault_root=vault.root,
         db_path=vault.fts5_db,
-        normalize=normalize if normalize is not None else fts5_indexer._identity,
+        normalize=normalize,
+        normalize_for_fts=normalize_for_fts,
         normalize_ascii=normalize_ascii,
         normalize_ascii_for_fts=normalize_ascii_for_fts,
     )
@@ -1354,7 +1363,10 @@ def doctor(
     # Verify that a normalization_profile is recorded in index_meta and holds
     # a known value. An absent table is a legacy index (na). An absent key is
     # a warning. An unrecognised value is also a warning.
-    _KNOWN_PROFILES = frozenset({"tr-cldr", "tr-ascii-fold", "identity"})
+    # Must stay in step with ``fts5.indexer._NORMALIZER_PROFILE``. 'en-unicode'
+    # was registered there in 4.0 but omitted here, so a correctly-built
+    # English index was reported as an unexpected value by its own doctor.
+    _KNOWN_PROFILES = frozenset({"tr-cldr", "tr-ascii-fold", "en-unicode", "identity"})
     if db_exists:
         try:
             conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
