@@ -5,8 +5,8 @@
  * OR query, a note carrying four distinct query terms in its title competes
  * on equal footing with a note repeating one term eight times in its body.
  * Measured on a real vault, that single gap accounted for most retrieval
- * failures — a note literally titled "Kapalı Operatör Kararları" ranked #6
- * for the query "kapalı operatör kararları listesi".
+ * failures — a note literally titled "Kapalı Karar Listesi" ranked #6
+ * for the query "kapalı karar listesi listesi".
  *
  * Two signals are added here, both computed from data already in the hit:
  *
@@ -171,7 +171,7 @@ export function canonicityScore(
  * Whether the query is itself asking for the kind of document the marker names.
  *
  * Without this the penalty fires blind. Measured: a file named
- * `Onarim-Denetimi-2026-07-30.md` carries the "-denetimi-" marker and was
+ * `Onarim-Denetimi-Ornek.md` carries the "-denetimi-" marker and was
  * demoted to 0.245 for the query "memory system repair audit" — the penalty
  * was suppressing exactly what the user asked for. A marker means "probably
  * secondary", never "secondary even when sought". The bridge is consulted too,

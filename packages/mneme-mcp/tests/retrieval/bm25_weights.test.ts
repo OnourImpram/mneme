@@ -28,7 +28,7 @@ let dbPath: string;
 
 /**
  * Two documents that mirror the real inversion seen in the operator vault,
- * where "kapalı operatör kararları" ranked the canonical note #6 while short
+ * where "kapalı karar listesi" ranked the canonical note #6 while short
  * agent-output files took the top slots:
  *
  *  - TITLE_MATCH : the query IS its title, but the body is LONG and mentions

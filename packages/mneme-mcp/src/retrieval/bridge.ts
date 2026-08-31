@@ -78,8 +78,6 @@ const TERM_BRIDGE_SOURCE: Readonly<Record<string, string>> = {
 	security: "güvenlik",
 	education: "eğitim",
 	health: "sağlık",
-	clinic: "klinik",
-	clinical: "klinik",
 	book: "kitap",
 	chapter: "bölüm",
 	article: "makale",

@@ -41,7 +41,7 @@ const STRESS_INPUTS = [
 	"Straße",
 	"ΣΊΣΥΦΟΣ",
 	"ǅungla",
-	"kapalı operatör kararları",
+	"kapalı karar listesi",
 	"",
 ];
 
@@ -121,8 +121,8 @@ describe("locale profile registry", () => {
 		// These are the vectors the pre-4.0 hard-coded path produced. Any
 		// change here is a retrieval regression for every existing index.
 		expect(TR_PROFILE.normalize("KIYASLAMA")).toBe("kıyaslama");
-		expect(TR_PROFILE.normalize("kapalı operatör kararları")).toBe(
-			"kapalı operatör kararları",
+		expect(TR_PROFILE.normalize("kapalı karar listesi")).toBe(
+			"kapalı karar listesi",
 		);
 		expect(TR_PROFILE.normalizeForFts("  çok   boşluk  ")).toBe("çok boşluk");
 	});

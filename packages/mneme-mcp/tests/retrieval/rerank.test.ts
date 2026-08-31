@@ -2,8 +2,8 @@
  * Coverage reranking contract (4.1).
  *
  * The defect this fixes, measured on a real vault: a note literally titled
- * "Kapalı Operatör Kararları" ranked #6 for the query "kapalı operatör
- * kararları listesi", losing to short files that repeated one query term.
+ * "Kapalı Karar Listesi" ranked #6 for the query "kapalı karar listesi
+ * dosyasi", losing to short files that repeated one query term.
  * BM25 scores term DENSITY; nothing in it rewards covering more DISTINCT
  * query terms.
  *
@@ -38,8 +38,8 @@ function hit(path: string, title: string, rank = -10): Fts5Hit {
 
 describe("coverageCount", () => {
 	it("counts distinct query terms present in title or path", () => {
-		const h = hit("08-Referans/Kapali-Operator-Kararlari.md", "kapalı operatör kararları");
-		expect(coverageCount(["kapalı", "operatör", "kararları"], h)).toBe(3);
+		const h = hit("20-Reference/Kapali-Karar-Listesi.md", "kapalı karar listesi");
+		expect(coverageCount(["kapalı", "karar", "listesi"], h)).toBe(3);
 	});
 
 	it("counts a term once even if it appears in both title and path", () => {
@@ -49,7 +49,7 @@ describe("coverageCount", () => {
 
 	it("matches across Turkish dotted/dotless i", () => {
 		// Query typed with ASCII i, document stored with dotted İ and dotless ı.
-		const h = hit("08-Referans/Vault-Haritasi.md", "Vault Haritası");
+		const h = hit("20-Reference/Vault-Haritasi.md", "Vault Haritası");
 		expect(coverageCount(["vault", "haritasi"], h)).toBe(2);
 	});
 
@@ -61,8 +61,8 @@ describe("coverageCount", () => {
 
 	it("ignores body text — coverage is aboutness, not mention", () => {
 		const h = hit("notes/unrelated.md", "Something Else");
-		h.bodyText = "kapalı operatör kararları ".repeat(50);
-		expect(coverageCount(["kapalı", "operatör", "kararları"], h)).toBe(0);
+		h.bodyText = "kapalı karar listesi ".repeat(50);
+		expect(coverageCount(["kapalı", "karar", "listesi"], h)).toBe(0);
 	});
 
 	it("negative control: an empty query covers nothing", () => {
@@ -84,9 +84,9 @@ describe("canonicityScore", () => {
 	});
 
 	it("penalises derived content markers", () => {
-		const canonical = canonicityScore("06-Altyapi/Ajan-Yaratma-Protokolu.md");
+		const canonical = canonicityScore("10-Systems/Ajan-Yaratma-Protokolu.md");
 		const draft = canonicityScore(
-			"06-Altyapi/Sistem-Denetimi-2026-07-05/faz5/protokol-taslak.md",
+			"10-Systems/Sistem-Denetimi-Ornek/faz5/protokol-taslak.md",
 		);
 		expect(canonical).toBeGreaterThan(draft);
 	});
@@ -109,11 +109,11 @@ describe("rerank", () => {
 	it("promotes the document covering more query terms", () => {
 		// Mirrors the real failure: BM25 put the noise file first.
 		const pool = [
-			hit("06-Altyapi/Ajan-Kosum-2026-08-02/a11y.cikti.md", "a11y çıktı", -20),
-			hit("08-Referans/Kapali-Operator-Kararlari.md", "kapalı operatör kararları", -15),
+			hit("10-Systems/Ajan-Kosum-Ornek/a11y.cikti.md", "a11y çıktı", -20),
+			hit("20-Reference/Kapali-Karar-Listesi.md", "kapalı karar listesi", -15),
 		];
-		const out = rerank(pool, ["kapalı", "operatör", "kararları", "listesi"]);
-		expect(out[0]?.hit.path).toBe("08-Referans/Kapali-Operator-Kararlari.md");
+		const out = rerank(pool, ["kapalı", "karar", "listesi"]);
+		expect(out[0]?.hit.path).toBe("20-Reference/Kapali-Karar-Listesi.md");
 		expect(out[0]?.coverage).toBe(3);
 	});
 
@@ -121,14 +121,14 @@ describe("rerank", () => {
 		// Both titled "ajan yaratma protokolü"; only the path differs.
 		const pool = [
 			hit(
-				"06-Altyapi/Sistem-Denetimi-2026-07-05/faz5/protokol-taslak.md",
+				"10-Systems/Sistem-Denetimi-Ornek/faz5/protokol-taslak.md",
 				"ajan yaratma protokolü (taslak)",
 				-20,
 			),
-			hit("06-Altyapi/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü (v1.5.0)", -19),
+			hit("10-Systems/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü (v1.5.0)", -19),
 		];
 		const out = rerank(pool, ["ajan", "yaratma", "protokolü"]);
-		expect(out[0]?.hit.path).toBe("06-Altyapi/Ajan-Yaratma-Protokolu.md");
+		expect(out[0]?.hit.path).toBe("10-Systems/Ajan-Yaratma-Protokolu.md");
 	});
 
 	/**

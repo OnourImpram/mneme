@@ -78,7 +78,7 @@ describe("bridgeTerms", () => {
 describe("coverageCount with the bridge", () => {
 	it("counts a cross-language match", () => {
 		// The measured failure: this scored 0 before the bridge.
-		const h = hit("06-Altyapi/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü");
+		const h = hit("10-Systems/Ajan-Yaratma-Protokolu.md", "ajan yaratma protokolü");
 		expect(coverageCount(["agent", "creation", "protocol"], h)).toBe(3);
 	});
 
@@ -90,7 +90,7 @@ describe("coverageCount with the bridge", () => {
 
 	it("never exceeds the number of query terms", () => {
 		const h = hit(
-			"06-Altyapi/Ajan-Yaratma-Protokolu-Denetim-Kayit.md",
+			"10-Systems/Ajan-Yaratma-Protokolu-Denetim-Kayit.md",
 			"ajan yaratma protokolü denetim kayıt",
 		);
 		const tokens = ["agent", "creation", "protocol", "audit", "record"];
@@ -100,17 +100,17 @@ describe("coverageCount with the bridge", () => {
 	it("negative control: an unbridged foreign term still scores zero", () => {
 		// "stale" is deliberately absent from the table; the honest result is
 		// a miss, not a silent fuzzy match.
-		const h = hit("08-Referans/Feedback/2026-08-04-bayat-sunucu.md", "bayat sunucu");
+		const h = hit("20-Reference/Feedback/2026-08-04-bayat-sunucu.md", "bayat sunucu");
 		expect(coverageCount(["stale"], h)).toBe(0);
 	});
 });
 
 describe("canonicityScore is query-aware", () => {
-	const auditFile = "06-Altyapi/Hafiza-Sistemi/Onarim-Denetimi-2026-07-30.md";
+	const auditFile = "10-Systems/Hafiza-Sistemi/Onarim-Denetimi-2026-07-30.md";
 
 	it("penalises a derived marker when the query does not ask for it", () => {
 		expect(canonicityScore(auditFile, ["memory", "system"])).toBeLessThan(
-			canonicityScore("06-Altyapi/Hafiza-Sistemi/Rapor.md", ["memory", "system"]),
+			canonicityScore("10-Systems/Hafiza-Sistemi/Rapor.md", ["memory", "system"]),
 		);
 	});
 

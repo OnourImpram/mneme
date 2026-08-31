@@ -18,8 +18,7 @@ bilingual vault, and both are closed here.
 **BM25 scores term density; it cannot express term diversity.** In an OR query,
 a note repeating one query term eight times in its body competes on equal
 footing with a note carrying four distinct query terms in its title. Measured,
-that single gap caused most failures: a note literally titled "Kapali Operator
-Kararlari" ranked #6 for the query "kapali operator kararlari listesi".
+that single gap caused most failures: a note literally titled "Kapali Karar Listesi" ranked #6 for the query "kapali karar listesi listesi".
 
 **And coverage cannot cross a language boundary.** "agent creation protocol"
 shares no token with `Ajan-Yaratma-Protokolu`, so that document scored zero on
@@ -65,7 +64,7 @@ shipped TypeScript path, not from a simulation of it.
 ### Changed
 
 - The derived-content penalty is now **query-aware**. It fired blind before:
-  `Onarim-Denetimi-2026-07-30.md` carries the `-denetimi-` marker and was
+  `Onarim-Denetimi-Ornek.md` carries the `-denetimi-` marker and was
   demoted to 0.245 for the query "memory system repair audit" — the penalty was
   suppressing exactly what the user asked for. A marker means "probably
   secondary", never "secondary even when sought".
