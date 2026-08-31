@@ -94,3 +94,7 @@ secrets/
 # Private content — never commit (dual-remote leak guard)
 docs/_internal/
 .github/sanitization-patterns.txt
+
+# Session-scoped diagnostic reports: these summarise a private vault and
+# must never enter the public repository. Kept out of tracking by name.
+tasks/4.1-*.md
