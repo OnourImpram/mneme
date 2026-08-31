@@ -7,7 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### 4.0 — retrieval, language, and self-report
+
+Schema bumps to **4**. The index is a rebuildable cache over markdown, so the
+migration is a version bump plus a full reindex, not an in-place ALTER. On a
+real 12,317-document vault the rebuild took 67 seconds.
+
+Measured on a 24-query golden set over that vault (12 Turkish, 12 English,
+expected document hand-labelled), comparing the shipped 3.x path against 4.0:
+
+| | hit@1 | hit@5 | TR hit@5 | EN hit@5 |
+|---|---|---|---|---|
+| 3.x | 29% | 50% | 6/12 | 6/12 |
+| 4.0 | **50%** | **79%** | **10/12** | **9/12** |
+
+### Added
+
+- `mneme_health`, a tenth tool reporting schema version, locale profile,
+  document count, index staleness, per-language breakdown and staging
+  backlog. Every warning names its remedy. Against a pre-4.0 index it
+  reports three real conditions in one call; against a 4.0 index two of them
+  clear.
+- `en-unicode` locale profile alongside `tr-cldr`, plus a profile registry.
+  The index now declares which normalizer built it and the query path adopts
+  that profile, instead of the query path pinning one and rejecting the rest.
+- `documents_fts.path_tokens`: the file path is searchable. A note titled
+  `02-01-PLAN` was previously unreachable even though its directory
+  (`03-supertonic-3-engine-installer-mirror-reliability`) says exactly what it
+  is about. This is what moved English hit@5 from 6/12 to 9/12; title
+  weighting alone had moved it not at all.
+- `documents.valid_from` / `valid_until`, read from frontmatter and never
+  inferred. A file's mtime records when bytes changed, not when a fact became
+  true.
+
+### Changed
+
+- **BREAKING**: `mneme_search` no longer returns `hits`. It duplicated every
+  field of `cards` on the wire, doubling response size for no added
+  information. `EvidenceCard` is a superset of the old `SearchHit`.
+- BM25 now weights columns (`title` 10, `path_tokens` 5, `content` 1,
+  `tags` 1, `linked_notes` 0.1) instead of ranking every column equally. A
+  note whose title IS the query previously lost to a shorter, term-dense file.
+- `documents.language` is populated per document — declaration, then
+  detection, then the index profile's language. It shipped in schema 3 with a
+  `DEFAULT 'en'` that nothing ever wrote: on a Turkish-majority vault, 11,910
+  of 11,910 rows carried the default.
+- The schema gate lives in `fts5Search`, so `summarize` and `timeline`
+  inherit it. The pre-existing locale gate covered only `search`.
+
+### Fixed
+
+- `normalizeEn` folds U+0130 explicitly before lowercasing. Bare
+  `toLowerCase()` is not length-preserving (`"İ"` becomes two code units),
+  and the snippet builder locates a match in the normalized body then slices
+  the original at that offset — an English note mentioning "İstanbul" would
+  have shifted every following snippet.
+- `pytest` now resolves `mneme_core` from `src/`. It previously imported the
+  installed package, so a full green run said nothing about the working tree.
+
+### Not shipped, and why
+
+A relevance threshold was designed and then dropped on measurement. Absolute
+BM25 scores do not separate correct from incorrect results (94% overlap on the
+golden set), and a query-normalized relative threshold discards correct
+results faster than wrong ones at every cut-off tested (at 0.8: 28% of correct
+vs 23% of incorrect). The complaint it was meant to address — irrelevant
+results ranking high — is answered by the ranking fix instead.
 
 ## [3.6.3] - 2026-07-27
 
