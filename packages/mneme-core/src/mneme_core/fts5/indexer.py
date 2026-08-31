@@ -36,6 +36,7 @@ from ..privacy import redact
 from ..retrieval.rrf import build_fts5_query
 from ..scope import DocumentScopeError, classify_markdown_scope
 from ..vault.frontmatter import load_yaml_block
+from .language import resolve_language
 
 DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "/.git/",
@@ -48,7 +49,12 @@ DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "/.mneme/",
 )
 
-SCHEMA_VERSION = "3"
+#: Bumped to 4 in the 4.0 release. Schema changes are NOT migrated in place:
+#: markdown is the ground truth and the SQLite index is a rebuildable cache,
+#: so a version mismatch triggers a full reindex rather than an ALTER dance.
+#: 4 adds documents_fts.path_tokens, populates documents.language, and adds
+#: the bi-temporal validity columns.
+SCHEMA_VERSION = "4"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents(
@@ -65,9 +71,17 @@ CREATE TABLE IF NOT EXISTS documents(
     session_id TEXT,
     scope TEXT NOT NULL DEFAULT 'default',
     linked_notes TEXT,
-    schema_version TEXT DEFAULT '3',
+    schema_version TEXT DEFAULT '4',
+    -- Detected or declared per document since 4.0. Before that the column
+    -- existed but nothing wrote it, so every row carried the default.
     language TEXT DEFAULT 'en',
-    indexed_at TEXT
+    indexed_at TEXT,
+    -- Bi-temporal validity. valid_from is when the fact became true;
+    -- valid_until is when it was superseded, NULL while still current.
+    -- Borrowed from Graphiti's model, without its LLM write path: staleness
+    -- becomes a queryable property instead of an invisible one.
+    valid_from TEXT,
+    valid_until TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_mtime ON documents(mtime);
@@ -79,6 +93,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
     content,
     tags,
     linked_notes,
+    -- Tokenised file path, added in 4.0. Measured on a 24-query golden set:
+    -- documents whose frontmatter title is generic ("02-01-PLAN") carry all
+    -- their aboutness in the path ("03-supertonic-engine-installer-mirror").
+    -- Title weighting alone left English hit@5 at 6/12; adding the path
+    -- signal moved it to 8/12.
+    path_tokens,
     tokenize='unicode61 remove_diacritics 2'
 );
 
@@ -93,6 +113,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_ascii_fts USING fts5(
     content,
     tags,
     linked_notes,
+    path_tokens,
     tokenize='unicode61 remove_diacritics 2'
 );
 
@@ -107,7 +128,18 @@ CREATE TABLE IF NOT EXISTS index_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)
 _NORMALIZER_PROFILE: dict[str, str] = {
     "normalize_tr": "tr-cldr",
     "normalize_tr_ascii_fold": "tr-ascii-fold",
+    "normalize_en": "en-unicode",
     "_identity": "identity",
+}
+
+#: Language each index profile serves. Used as the per-document fallback when
+#: a file neither declares its language nor gives the detector enough signal,
+#: so an undetected document lands where its index already is.
+_PROFILE_LANGUAGE: dict[str, str] = {
+    "tr-cldr": "tr",
+    "tr-ascii-fold": "tr",
+    "en-unicode": "en",
+    "identity": "en",
 }
 
 
@@ -270,7 +302,17 @@ _MIGRATION_COLUMNS: dict[str, str] = {
     "trust": "TEXT",
     "key_points": "TEXT",
     "scope": "TEXT NOT NULL DEFAULT 'default'",
+    "valid_from": "TEXT",
+    "valid_until": "TEXT",
 }
+
+#: Columns the current FTS5 DDL declares. SQLite cannot ALTER a virtual
+#: table, so a missing column here means the FTS tables must be dropped and
+#: rebuilt rather than migrated. Safe because markdown is the ground truth
+#: and the index is a derived cache.
+_FTS_COLUMNS: frozenset[str] = frozenset(
+    {"title", "content", "tags", "linked_notes", "path_tokens"}
+)
 
 
 def migrate_schema(conn: sqlite3.Connection) -> None:
@@ -306,6 +348,50 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
     # databases the ALTER TABLE ADD COLUMN scope always runs first.
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_documents_scope ON documents(scope)"
+    )
+    _rebuild_fts_if_stale(conn)
+
+
+def _fts_columns(conn: sqlite3.Connection, table: str) -> frozenset[str]:
+    """Return the column names of an existing FTS5 table, empty if absent."""
+    present = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if present is None:
+        return frozenset()
+    return frozenset(row[1] for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _rebuild_fts_if_stale(conn: sqlite3.Connection) -> None:
+    """Drop and recreate the FTS5 tables when their column set is outdated.
+
+    SQLite offers no ALTER for virtual tables, so a schema that gains a
+    column — ``path_tokens`` in 4.0 — cannot be migrated in place. The tables
+    are dropped and recreated from the canonical DDL instead.
+
+    Critically, the ``documents`` rows are cleared in the same transaction.
+    Without that the next incremental pass would skip every unchanged file,
+    leaving the freshly created FTS tables EMPTY while ``documents`` still
+    looked fully populated: search would return nothing and report no error.
+    Clearing forces the following pass to reindex from markdown, which is the
+    ground truth. Nothing is lost that the vault cannot regenerate.
+    """
+    stale = any(
+        _fts_columns(conn, table) not in (frozenset(), _FTS_COLUMNS)
+        for table in ("documents_fts", "documents_ascii_fts")
+    )
+    if not stale:
+        return
+    conn.execute("DROP TABLE IF EXISTS documents_fts")
+    conn.execute("DROP TABLE IF EXISTS documents_ascii_fts")
+    conn.executescript(SCHEMA)
+    # Force a full repopulate: see docstring.
+    conn.execute("DELETE FROM documents")
+    conn.execute(
+        "INSERT INTO index_meta(key, value) VALUES('fts_rebuilt_for_schema', ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (SCHEMA_VERSION,),
     )
 
 
@@ -346,6 +432,65 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     if not isinstance(data, dict):
         return {}, body
     return data, body
+
+
+#: Separators that carry no meaning inside a vault path. Splitting on them
+#: turns "06-Altyapi/Ajan-Roster.md" into words FTS5 can match individually.
+# The hyphen sits LAST so it is a literal, not a range endpoint. Written as
+# [/\-_.] it silently becomes the range \ .. _ and stops splitting on
+# hyphens, which is the separator vault filenames use most.
+_PATH_SEPARATORS = re.compile(r"[/\\_.\s-]+")
+
+
+def _path_tokens(rel_path: str, normalize: Callable[[str], str]) -> str:
+    """Render a vault-relative path as normalized, space-separated tokens.
+
+    Paths are a retrieval signal the index ignored before 4.0. A note titled
+    ``02-01-PLAN`` is unsearchable by title, yet its directory
+    (``02-engine-isolation-subprocessbackend``) states exactly what it is
+    about. Tokenising the path puts that text in reach of the same BM25 query
+    without a second index or a filename-matching special case.
+
+    The same normalizer that processes body text is applied, so a Turkish
+    path matches a Turkish query under the same fold.
+
+    Args:
+        rel_path: path relative to the vault root.
+        normalize: locale normalizer for this index.
+
+    Returns:
+        Space-separated normalized tokens. Empty string for an empty path.
+
+    Examples:
+        >>> _path_tokens("06-Altyapi/Ajan-Roster.md", str.lower)
+        '06 altyapi ajan roster md'
+    """
+    parts = [part for part in _PATH_SEPARATORS.split(rel_path) if part]
+    return normalize(" ".join(parts))
+
+
+def _validity_window(fm: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Read the bi-temporal validity window a document declares.
+
+    Nothing is inferred. A file's mtime says when bytes changed, not when the
+    fact it records became true, and guessing one from the other would put
+    fabricated timestamps into an audit surface. Undeclared means NULL, which
+    reads as "no stated start" and "still current".
+
+    Args:
+        fm: parsed frontmatter mapping.
+
+    Returns:
+        ``(valid_from, valid_until)`` as ISO strings, either possibly None.
+    """
+    def _read(key: str) -> str | None:
+        raw = fm.get(key)
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        return text or None
+
+    return _read("valid_from"), _read("valid_until")
 
 
 def _frontmatter_tags(fm: dict[str, Any]) -> str:
@@ -399,6 +544,13 @@ def index_vault(
         errored, and total-seen files.
     """
     stats = IndexStats()
+    # Language a document falls back to when it neither declares one nor
+    # gives the detector enough signal. Derived from the index's own
+    # normalizer profile so an undetected file lands where its index is,
+    # rather than on a hard-coded 'en' that was the pre-4.0 defect.
+    index_language = _PROFILE_LANGUAGE.get(
+        _profile_for_normalizer(config.normalize), "en"
+    )
     # Sort the walk so document rowids are assigned in a filesystem-independent
     # order. ``rglob`` yields entries in directory order, which differs across
     # filesystems (e.g. ext4 vs NTFS); since FTS5 breaks equal-BM25 ties by
@@ -513,13 +665,22 @@ def index_vault(
         keypoints = [redact(point) for point in keypoints]
         content_hash_val = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+        # Language: the file's own declaration first, then detection, then the
+        # index profile's language. Never a silent 'en' default -- that is the
+        # defect 4.0 exists to fix (11,910 of 11,910 documents in a Turkish
+        # vault carried the default because nothing ever wrote this column).
+        doc_language = resolve_language(fm, body, index_language)
+        valid_from, valid_until = _validity_window(fm)
+        path_tokens_value = redact(_path_tokens(rel_path, config.normalize))
+
         conn.execute(
             """INSERT INTO documents
                (title, title_normalized, path, content_raw, body_text,
                 content_size, mtime, tags, frontmatter_type, session_id,
                 linked_notes, indexed_at, content_hash, trust, key_points,
-                scope)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                scope, language, schema_version, valid_from, valid_until)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?)
                ON CONFLICT(path) DO UPDATE SET
                  title=excluded.title,
                  title_normalized=excluded.title_normalized,
@@ -535,7 +696,11 @@ def index_vault(
                  content_hash=excluded.content_hash,
                  trust=excluded.trust,
                  key_points=excluded.key_points,
-                 scope=excluded.scope""",
+                 scope=excluded.scope,
+                 language=excluded.language,
+                 schema_version=excluded.schema_version,
+                 valid_from=excluded.valid_from,
+                 valid_until=excluded.valid_until""",
             (
                 title,
                 title_normalized,
@@ -553,6 +718,10 @@ def index_vault(
                 trust_val,
                 json.dumps(keypoints),
                 fm_scope,
+                doc_language,
+                SCHEMA_VERSION,
+                valid_from,
+                valid_until,
             ),
         )
 
@@ -562,14 +731,16 @@ def index_vault(
         doc_id = row[0]
         conn.execute("DELETE FROM documents_fts WHERE rowid=?", (doc_id,))
         conn.execute(
-            "INSERT INTO documents_fts (rowid, title, content, tags, linked_notes) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO documents_fts "
+            "(rowid, title, content, tags, linked_notes, path_tokens) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 doc_id,
                 title_normalized,
                 content_normalized,
                 tags_normalized,
                 wikilinks_normalized,
+                path_tokens_value,
             ),
         )
 
@@ -583,14 +754,15 @@ def index_vault(
         ):
             conn.execute(
                 "INSERT INTO documents_ascii_fts "
-                "(rowid, title, content, tags, linked_notes) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "(rowid, title, content, tags, linked_notes, path_tokens) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     doc_id,
                     redact(config.normalize_ascii(title)),
                     redact(config.normalize_ascii_for_fts(body)),
                     redact(config.normalize_ascii(tags)),
                     redact(config.normalize_ascii(wikilinks)),
+                    redact(_path_tokens(rel_path, config.normalize_ascii)),
                 ),
             )
 
@@ -650,6 +822,27 @@ def index_vault(
         " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         ("ascii_normalization_profile", ascii_profile),
     )
+
+    # 4.0: health metadata. Before this, index_meta held only the two
+    # normalizer profiles, so nothing could answer "how old is this index?"
+    # or "how many documents does it hold?" without walking the database by
+    # hand. A memory system that cannot report its own staleness lets a stale
+    # index answer confidently and wrongly -- the exact failure that retired
+    # this vault's previous memory layer after 105 silent days.
+    doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    newest = conn.execute("SELECT MAX(mtime) FROM documents").fetchone()[0]
+    for key, value in (
+        ("schema_version", SCHEMA_VERSION),
+        ("index_language", index_language),
+        ("document_count", str(doc_count)),
+        ("newest_document_mtime", str(newest) if newest is not None else ""),
+        ("last_index_run_at", datetime.now(UTC).isoformat()),
+    ):
+        conn.execute(
+            "INSERT INTO index_meta(key, value) VALUES(?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
 
     conn.commit()
     return stats

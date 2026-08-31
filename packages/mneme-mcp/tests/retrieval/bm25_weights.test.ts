@@ -56,14 +56,16 @@ beforeAll(() => {
 			content_raw TEXT, body_text TEXT, content_size INTEGER, mtime REAL,
 			tags TEXT, frontmatter_type TEXT, session_id TEXT,
 			scope TEXT NOT NULL DEFAULT 'default', linked_notes TEXT,
-			schema_version TEXT DEFAULT '3', language TEXT DEFAULT 'en',
-			indexed_at TEXT, content_hash TEXT, trust TEXT
+			schema_version TEXT DEFAULT '4', language TEXT DEFAULT 'en',
+			indexed_at TEXT, content_hash TEXT, trust TEXT,
+			valid_from TEXT, valid_until TEXT
 		);
 		CREATE VIRTUAL TABLE documents_fts USING fts5(
-			title, content, tags, linked_notes,
+			title, content, tags, linked_notes, path_tokens,
 			tokenize='unicode61 remove_diacritics 2'
 		);
 		CREATE TABLE index_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		INSERT INTO index_meta(key, value) VALUES('schema_version', '4');
 	`);
 
 	// Long canonical note: title is the query, body is mostly unrelated prose.
@@ -80,12 +82,17 @@ beforeAll(() => {
 			"VALUES(?, ?, ?, ?, 1700000000, 'topic', 's1', 'h', 'user', 'default')",
 	);
 	const insFts = db.prepare(
-		"INSERT INTO documents_fts(rowid, title, content, tags, linked_notes) " +
-			"VALUES(?, ?, ?, '', ?)",
+		"INSERT INTO documents_fts" +
+			"(rowid, title, content, tags, linked_notes, path_tokens) " +
+			"VALUES(?, ?, ?, '', ?, ?)",
 	);
 	for (const [path, title, body, links] of rows) {
 		const info = insDoc.run(path, title, body, links);
-		insFts.run(info.lastInsertRowid, title, body, links);
+		// Path tokens are deliberately EMPTY here. This suite isolates the
+		// title-vs-content weighting; leaving the path signal out keeps the
+		// negative control honest, since both fixture paths contain the query
+		// term and would otherwise mask the effect being measured.
+		insFts.run(info.lastInsertRowid, title, body, links, "");
 	}
 	db.close();
 });
@@ -100,6 +107,15 @@ describe("BM25 column weights", () => {
 		expect(DEFAULT_BM25_WEIGHTS.content).toBe(1.0);
 		expect(DEFAULT_BM25_WEIGHTS.tags).toBe(1.0);
 		expect(DEFAULT_BM25_WEIGHTS.linkedNotes).toBe(0.1);
+		// Path sits between title and content: strong evidence of aboutness,
+		// but machine-assigned rather than authored.
+		expect(DEFAULT_BM25_WEIGHTS.pathTokens).toBe(5.0);
+		expect(DEFAULT_BM25_WEIGHTS.pathTokens).toBeLessThan(
+			DEFAULT_BM25_WEIGHTS.title,
+		);
+		expect(DEFAULT_BM25_WEIGHTS.pathTokens).toBeGreaterThan(
+			DEFAULT_BM25_WEIGHTS.content,
+		);
 		expect(DEFAULT_BM25_WEIGHTS.title).toBeGreaterThan(
 			DEFAULT_BM25_WEIGHTS.content,
 		);
@@ -130,7 +146,13 @@ describe("BM25 column weights", () => {
 			ftsQuery: '"kararlar" OR "kararlari"',
 			limit: 5,
 			scope: "*",
-			weights: { title: 1.0, content: 1.0, tags: 1.0, linkedNotes: 1.0 },
+			weights: {
+				title: 1.0,
+				content: 1.0,
+				tags: 1.0,
+				linkedNotes: 1.0,
+				pathTokens: 1.0,
+			},
 		});
 		expect(hits.length).toBe(2);
 		expect(hits[0]?.path).toBe(BODY_FLOOD);
@@ -142,7 +164,13 @@ describe("BM25 column weights", () => {
 			ftsQuery: '"kararlar" OR "kararlari"',
 			limit: 5,
 			scope: "*",
-			weights: { title: 50.0, content: 1.0, tags: 1.0, linkedNotes: 0.1 },
+			weights: {
+				title: 50.0,
+				content: 1.0,
+				tags: 1.0,
+				linkedNotes: 0.1,
+				pathTokens: 5.0,
+			},
 		});
 		expect(heavy[0]?.path).toBe(TITLE_MATCH);
 	});
