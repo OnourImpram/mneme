@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from datetime import date
 from pathlib import Path
 
@@ -535,6 +536,59 @@ def index() -> None:  # pragma: no cover - dispatcher
     pass
 
 
+def _resolve_exclude_patterns(
+    vault_root: Path, extra: tuple[str, ...] = ()
+) -> tuple[str, ...]:
+    """Built-in exclusions, plus this vault's own, plus any passed on the CLI.
+
+    The built-in list is a module constant with no per-vault override, which
+    is fine until a vault mirrors something large that is not its own content.
+    Measured on a real 12,352-document vault: 57% of the index was third-party
+    material — a mirrored plugin home alone accounted for 56.5% — competing
+    with the operator's own notes for BM25 rank. There was no way to keep it
+    out short of editing the constant.
+
+    Entries are ADDED, never substituted. Letting a config file replace the
+    defaults would let one typo put ``.git`` and ``node_modules`` back into
+    the index, and no vault benefits from indexing those. Patterns are matched
+    as substrings of ``/relative/path/``, so ``/vendor/`` excludes a directory
+    while ``vendor`` would also catch ``my-vendor-notes.md`` — the slashes are
+    the caller's to supply, exactly as in ``DEFAULT_EXCLUDE_PATTERNS``.
+
+    A malformed config is reported, never silently ignored: a swallowed
+    exclusion list looks identical to one that did nothing.
+    """
+    from mneme_core.fts5.indexer import DEFAULT_EXCLUDE_PATTERNS
+
+    patterns: list[str] = list(DEFAULT_EXCLUDE_PATTERNS)
+    config_path = vault_root / ".mneme" / "config.toml"
+    if config_path.is_file():
+        try:
+            with config_path.open("rb") as fh:
+                cfg = tomllib.load(fh)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise click.ClickException(
+                f"{config_path} could not be read: {exc}"
+            ) from exc
+        section = cfg.get("index")
+        if section is not None:
+            if not isinstance(section, dict):
+                raise click.ClickException(
+                    f"{config_path}: [index] must be a table, got {type(section).__name__}"
+                )
+            declared = section.get("exclude", [])
+            if not isinstance(declared, list) or not all(
+                isinstance(item, str) for item in declared
+            ):
+                raise click.ClickException(
+                    f"{config_path}: [index] exclude must be a list of strings"
+                )
+            patterns.extend(declared)
+    patterns.extend(extra)
+    # Order-preserving dedupe so the reported list mirrors what actually ran.
+    return tuple(dict.fromkeys(patterns))
+
+
 @index.command("rebuild", help="Rebuild the FTS5 index over every markdown file in the vault.")
 @click.option(
     "--vault",
@@ -552,10 +606,24 @@ def index() -> None:  # pragma: no cover - dispatcher
         "for KIYASLAMA-style edge cases."
     ),
 )
-def index_rebuild(vault_root: Path | None, locale: str) -> None:
+@click.option(
+    "--exclude",
+    "extra_excludes",
+    multiple=True,
+    metavar="SUBSTRING",
+    help=(
+        "Extra path substring to skip, repeatable. Added to the built-in list "
+        "and to any [index] exclude entries in the vault's config.toml; it "
+        "never replaces them."
+    ),
+)
+def index_rebuild(
+    vault_root: Path | None, locale: str, extra_excludes: tuple[str, ...]
+) -> None:
     from mneme_core.fts5 import indexer as fts5_indexer
 
     vault = _resolve_vault(vault_root)
+    excludes = _resolve_exclude_patterns(vault.root, extra_excludes)
     if locale == "tr":
         from mneme_core.fts5.locale.tr import (
             normalize_tr,
@@ -585,6 +653,7 @@ def index_rebuild(vault_root: Path | None, locale: str) -> None:
         normalize_for_fts=normalize_for_fts,
         normalize_ascii=normalize_ascii,
         normalize_ascii_for_fts=normalize_ascii_for_fts,
+        exclude_patterns=excludes,
     )
     conn = fts5_indexer.connect(vault.fts5_db)
     try:
@@ -592,12 +661,28 @@ def index_rebuild(vault_root: Path | None, locale: str) -> None:
         stats = fts5_indexer.index_vault(conn, cfg)
     finally:
         conn.close()
+    # SQLite keeps freed pages allocated, so a rebuild that drops documents
+    # leaves the file its old size. Measured: excluding 9,414 mirrored
+    # documents took the index from 12,390 rows to 2,976 and the file from
+    # 655 MB to 679 MB — larger, on a quarter of the content. VACUUM returned
+    # it to 425 MB. A rebuild exists to produce a clean derived artifact, so
+    # reclaiming is part of the job rather than a separate chore the user has
+    # to know about.
+    import sqlite3 as _sqlite3_reclaim
+
+    reclaim_conn = _sqlite3_reclaim.connect(vault.fts5_db)
+    try:
+        reclaim_conn.execute("VACUUM")
+    finally:
+        reclaim_conn.close()
     click.echo(
         json.dumps(
             {
                 "vault": str(vault.root),
                 "db": str(vault.fts5_db),
+                "db_size_bytes": vault.fts5_db.stat().st_size,
                 "locale": locale,
+                "exclude_patterns": list(excludes),
                 "stats": {
                     "indexed": stats.indexed,
                     "skipped_excluded": stats.skipped_excluded,

@@ -98,6 +98,31 @@ def _load_yaml_block(yaml_block: str) -> Any:
     return load_yaml_block(yaml_block)
 
 
+def _malformed_frontmatter(exc: yaml.YAMLError) -> DocumentScopeError:
+    """Name the parser's complaint and where it is, never the offending text.
+
+    "frontmatter YAML is malformed" says a file was refused but not why, so
+    every occurrence still costs a separate script to diagnose. ``problem`` and
+    ``problem_mark`` carry the two facts that make it actionable: what the
+    parser expected, and which line it gave up on.
+
+    ``str(exc)`` is deliberately NOT used. PyYAML embeds a snippet of the
+    offending source line in it, and a frontmatter line can be private; the
+    same rule that keeps document text out of the index keeps it out of errors.
+
+    Lines are counted from the first line AFTER the opening ``---``, which is
+    the coordinate system the parser itself was handed.
+    """
+    problem = getattr(exc, "problem", None)
+    if not problem:
+        return DocumentScopeError("frontmatter YAML is malformed")
+    mark = getattr(exc, "problem_mark", None)
+    where = ""
+    if mark is not None:
+        where = f" (frontmatter line {mark.line + 1}, column {mark.column + 1})"
+    return DocumentScopeError(f"frontmatter YAML is malformed: {problem}{where}")
+
+
 def classify_markdown_scope(text: str) -> MarkdownScope:
     """Classify a Markdown document without widening malformed metadata."""
     parts = _frontmatter_parts(text)
@@ -107,7 +132,7 @@ def classify_markdown_scope(text: str) -> MarkdownScope:
     try:
         loaded = _load_yaml_block(yaml_block) or {}
     except yaml.YAMLError as exc:
-        raise DocumentScopeError("frontmatter YAML is malformed") from exc
+        raise _malformed_frontmatter(exc) from exc
     if not isinstance(loaded, dict):
         raise DocumentScopeError("frontmatter must be a mapping")
     data: dict[str, Any] = loaded
@@ -139,7 +164,7 @@ def stamp_markdown_scope(text: str, requested_scope: str) -> str:
         try:
             loaded = _load_yaml_block(yaml_block) or {}
         except yaml.YAMLError as exc:
-            raise DocumentScopeError("frontmatter YAML is malformed") from exc
+            raise _malformed_frontmatter(exc) from exc
         if isinstance(loaded, dict) and "scope" in loaded:
             return text
         insertion = f"scope: {json.dumps(scope, ensure_ascii=False)}{newline}"
