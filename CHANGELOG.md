@@ -106,6 +106,14 @@ shipped TypeScript path, not from a simulation of it.
   Turkish profile exists to serve. Title and path ranking was unaffected, so
   the hit-rate figures above stand. **Turkish vaults should rebuild to recover
   body recall.**
+- **The version-lockstep gate could not fail on a missing source.**
+  `version_bump.py --check` guards the release tag, and the publish workflow
+  is fully automated off that tag. It dropped unreadable sources before
+  comparing versions, so deleting or corrupting one of the eighteen declared
+  sources left every source that still parsed agreeing with itself — the
+  preflight reported consensus over a missing file. An unreadable source is
+  now disagreement, not an exclusion, with a test that fails against the old
+  behaviour and passes against the new one.
 - **`doctor` did not recognise its own English profile.** `_KNOWN_PROFILES`
   omitted `en-unicode`, so a correctly built English index was reported as an
   unexpected value by the very tool meant to confirm it.
