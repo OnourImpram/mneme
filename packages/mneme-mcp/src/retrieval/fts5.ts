@@ -440,7 +440,10 @@ function requireSchemaVersion(db: Database.Database, dbPath: string): void {
 		ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
 		`FTS5 index schema '${stored ?? "unversioned"}' does not match the ` +
 			`schema this client speaks ('${EXPECTED_SCHEMA_VERSION}'). ` +
-			"Run 'mneme-core index rebuild' to regenerate it from your markdown.",
+			"Run 'mneme-core index rebuild --locale <tr|en>' to regenerate it from " +
+			"your markdown. Pass the locale your vault is written in: the flag " +
+			"defaults to 'en', and rebuilding a Turkish vault under it silently " +
+			"degrades Turkish matching.",
 	);
 }
 
