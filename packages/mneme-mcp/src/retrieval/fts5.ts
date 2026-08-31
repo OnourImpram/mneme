@@ -189,7 +189,9 @@ export function buildFts5Query(
 			for (const equivalent of expand(part)) {
 				// Guard the FTS5 grammar: an equivalent is a bare term, so it
 				// must not carry quotes or operators of its own.
-				const clean = norm(equivalent).replace(/[-":^*()]+/g, " ").trim();
+				const clean = norm(equivalent)
+					.replace(/[-":^*()]+/g, " ")
+					.trim();
 				if (clean.length >= minLen) push(`"${clean}"`);
 			}
 		}

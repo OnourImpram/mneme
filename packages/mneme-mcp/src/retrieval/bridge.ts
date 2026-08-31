@@ -152,7 +152,11 @@ const TERM_BRIDGE_SOURCE: Readonly<Record<string, string>> = {
  * This is a comparison key only — never a display or index transform.
  */
 export function foldForCompare(s: string): string {
-	return s.replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase().replace(/ı/g, "i");
+	return s
+		.replace(/İ/g, "i")
+		.replace(/I/g, "ı")
+		.toLowerCase()
+		.replace(/ı/g, "i");
 }
 
 function buildBridge(): ReadonlyMap<string, ReadonlySet<string>> {

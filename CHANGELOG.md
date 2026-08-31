@@ -71,6 +71,20 @@ shipped TypeScript path, not from a simulation of it.
 
 ### Fixed
 
+- **A skipped file said nothing about itself.** `IndexStats.skipped_error`
+  counted dropped documents but no code path recorded WHICH ones — the module
+  had no logger at all. Measured on a real vault, a rebuild reported
+  `skipped_error: 86` and answering "which 86?" required writing a separate
+  script that re-walked the vault through the indexer's own filters. Every skip
+  path now logs its path and cause at WARNING, with the path passed through
+  `redact` first, because a filename can itself be private. (For the record,
+  all 86 were one class: malformed YAML frontmatter.)
+- **`mneme_health` had no tests.** The tool that reports whether the system is
+  healthy was the only module in the package with no measurement of its own
+  (6.57% statements, 0% branches), which is what pushed global branch coverage
+  under the release threshold. Now 93.42%/88.33%, with a negative control on
+  every warning path and a contract test asserting every warning carries a
+  remedy.
 - **In-repo dependency constraints admitted only 3.x.** `mneme-graph`,
   `mneme-code` and `mneme-cc-plugin` were rebuilt as 4.1.0 while still
   requiring `mneme-core>=3.0.0,<4`. Published that way, pip has no choice but

@@ -87,7 +87,10 @@ function daysSince(epochMs: number): number {
  * vault: 7,734 total files, of which 3,254 were archived and 4,480 genuinely
  * pending — a distinction an earlier report missed entirely.
  */
-function scanStaging(dir: string): { pending: number; oldestMs: number | null } {
+function scanStaging(dir: string): {
+	pending: number;
+	oldestMs: number | null;
+} {
 	if (!existsSync(dir)) return { pending: 0, oldestMs: null };
 	let pending = 0;
 	let oldestMs: number | null = null;
@@ -131,7 +134,9 @@ function readMeta(db: Database.Database): Map<string, string> {
 		)
 		.get() as { name: string } | undefined;
 	if (!table) return meta;
-	for (const row of db.prepare("SELECT key, value FROM index_meta").all() as Array<{
+	for (const row of db
+		.prepare("SELECT key, value FROM index_meta")
+		.all() as Array<{
 		key: string;
 		value: string;
 	}>) {
@@ -168,7 +173,11 @@ export function healthTool(
 			ok: true,
 			data: {
 				ok: false,
-				schema: { expected: EXPECTED_SCHEMA_VERSION, stored: null, matches: false },
+				schema: {
+					expected: EXPECTED_SCHEMA_VERSION,
+					stored: null,
+					matches: false,
+				},
 				locale: {
 					profile: null,
 					asciiProfile: null,
@@ -184,13 +193,17 @@ export function healthTool(
 					lastIndexRunAt: null,
 				},
 				languages: null,
-				staging: { pendingFiles: staging.pending, oldestAgeDays: stagingOldestDays },
+				staging: {
+					pendingFiles: staging.pending,
+					oldestAgeDays: stagingOldestDays,
+				},
 				warnings: [
 					...warnings,
 					{
 						code: "INDEX_NOT_FOUND",
 						detail: `No FTS5 index at ${dbPath}.`,
-						remedy: "Run 'mneme-core index rebuild' to build it from your markdown.",
+						remedy:
+							"Run 'mneme-core index rebuild' to build it from your markdown.",
 					},
 				],
 			},

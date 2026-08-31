@@ -18,8 +18,8 @@ import {
 	supportedProfileIds,
 } from "../locale/index.js";
 import { redact } from "../privacy.js";
-import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
 import { bridgeTerms } from "../retrieval/bridge.js";
+import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
 import { rerank } from "../retrieval/rerank.js";
 import {
 	computeQueryHash,
@@ -343,7 +343,10 @@ export function searchTool(
 			})
 		: undefined;
 	if (ftsQuery.length === 0 && !ftsQueryAscii) {
-		const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
+		const queryHash = computeQueryHash(
+			vault.stateDir,
+			profile.normalize(args.query),
+		);
 		emitSearchTelemetry(vault.stateDir, queryHash, 0, 0);
 		return {
 			ok: true,
@@ -375,7 +378,10 @@ export function searchTool(
 		});
 	} catch (err) {
 		const elapsedMs = Date.now() - searchStart;
-		const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
+		const queryHash = computeQueryHash(
+			vault.stateDir,
+			profile.normalize(args.query),
+		);
 		emitSearchTelemetry(
 			vault.stateDir,
 			queryHash,
@@ -411,7 +417,10 @@ export function searchTool(
 		.map((r) => r.hit);
 
 	// Emit retrieval telemetry (non-fatal — wrapped inside emitSearchTelemetry).
-	const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
+	const queryHash = computeQueryHash(
+		vault.stateDir,
+		profile.normalize(args.query),
+	);
 	emitSearchTelemetry(
 		vault.stateDir,
 		queryHash,
@@ -439,7 +448,8 @@ export function searchTool(
 		// embedded fence sentinel in snippets/titles so a crafted note cannot
 		// forge an untrusted-memory boundary inside a search result (G-3).
 		const snippetStr = neutralize(
-			redact(buildCenteredSnippet(h.bodyText, queryTokens, profile.normalize)).text,
+			redact(buildCenteredSnippet(h.bodyText, queryTokens, profile.normalize))
+				.text,
 		);
 		cards.push(hitToEvidenceCard(h, args.query, snippetStr));
 	}

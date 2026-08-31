@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -54,6 +55,18 @@ DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
 #: so a version mismatch triggers a full reindex rather than an ALTER dance.
 #: 4 adds documents_fts.path_tokens, populates documents.language, and adds
 #: the bi-temporal validity columns.
+#: Skip reasons are counted in ``IndexStats`` but the counter alone cannot say
+#: WHICH file was dropped, and a count with no evidence is not actionable: on a
+#: real vault, "skipped_error: 86" required writing a separate script to learn
+#: that all 86 were malformed YAML frontmatter. Each skip now logs its path and
+#: cause at WARNING, so the next run answers that question by itself.
+#:
+#: The path is redacted before it is logged — a filename can itself be private,
+#: and the same rule that keeps such names out of the index keeps them out of
+#: the log.
+_log = logging.getLogger(__name__)
+
+
 SCHEMA_VERSION = "4"
 
 SCHEMA = """
@@ -594,8 +607,9 @@ def index_vault(
         # Mirrors the TypeScript ``assertWithinVault`` write-path guard.
         try:
             resolved = md_path.resolve()
-        except OSError:
+        except OSError as exc:
             stats.skipped_error += 1
+            _log.warning("index skip (unresolvable path): %s: %s", redact(str(md_path)), exc)
             continue
         if not resolved.is_relative_to(vault_root_resolved):
             stats.skipped_excluded += 1
@@ -622,11 +636,20 @@ def index_vault(
             scope_info = classify_markdown_scope(raw_content)
             if redact(scope_info.scope) != scope_info.scope:
                 stats.skipped_error += 1
+                _log.warning(
+                    "index skip (scope value is private): %s", redact(rel_path)
+                )
                 continue
             content = redact(raw_content)
             content_hash_val = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        except (OSError, DocumentScopeError):
+        except (OSError, DocumentScopeError) as exc:
             stats.skipped_error += 1
+            _log.warning(
+                "index skip (%s): %s: %s",
+                type(exc).__name__,
+                redact(rel_path),
+                exc,
+            )
             continue
 
         trust_val = "user"
