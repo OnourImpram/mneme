@@ -555,7 +555,10 @@ describe("searchTool — locale profile mismatch guard (P6)", () => {
 		}
 	});
 
-	it("error message names both the stored profile and the expected profile", () => {
+	// 4.0: there is no single "expected" profile any more. The index declares
+	// which normalizer built it and the query path adopts it, so a rejection
+	// names the stored profile plus the set this client can actually serve.
+	it("error message names the stored profile and the supported set", () => {
 		const { vault } = makeTempVault("search-p6-msg", defaultDocs());
 		setIndexProfile(vault.fts5Db, "identity");
 		const res = searchTool(
@@ -566,6 +569,9 @@ describe("searchTool — locale profile mismatch guard (P6)", () => {
 		if (!res.ok) {
 			expect(res.error.message).toContain("identity");
 			expect(res.error.message).toContain("tr-cldr");
+			expect(res.error.message).toContain("en-unicode");
+			// The remedy must be in the message, not only in the docs.
+			expect(res.error.message).toContain("rebuild");
 		}
 	});
 });

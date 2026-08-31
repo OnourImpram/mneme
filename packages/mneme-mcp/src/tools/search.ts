@@ -12,7 +12,11 @@ import { z } from "zod";
 import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
-import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
+import {
+	type LocaleProfile,
+	profileById,
+	supportedProfileIds,
+} from "../locale/index.js";
 import { redact } from "../privacy.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
 import {
@@ -50,13 +54,6 @@ export const CANONICAL_MEMORY_TYPES = [
 ] as const;
 
 export type CanonicalMemoryType = (typeof CANONICAL_MEMORY_TYPES)[number];
-
-/**
- * The normalizer profile written into index_meta by `mneme index rebuild
- * --locale tr`. The TS query path always uses normalizeTr which implements
- * the tr-cldr fold, so this is the expected profile value.
- */
-const QUERY_SIDE_NORMALIZER_PROFILE = "tr-cldr";
 
 export const SearchInputSchema = z.object({
 	query: z
@@ -284,16 +281,6 @@ export function searchTool(
 		return { ok: false, error: toMnemeError(err) };
 	}
 
-	if (indexProfile !== null && indexProfile !== QUERY_SIDE_NORMALIZER_PROFILE) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
-				message: `Index normalizer profile '${indexProfile}' does not match query-side profile '${QUERY_SIDE_NORMALIZER_PROFILE}'. Rebuild the index with 'mneme index rebuild --locale tr' to fix.`,
-			},
-		};
-	}
-
 	if (indexProfile === null) {
 		return {
 			ok: false,
@@ -301,7 +288,26 @@ export function searchTool(
 				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
 				message:
 					"The FTS5 index has no normalizer profile and cannot be trusted for locale-sensitive retrieval. " +
-					"Run 'mneme-core index rebuild --locale tr' before retrying.",
+					"Run 'mneme-core index rebuild' before retrying.",
+			},
+		};
+	}
+
+	// The index declares which normalizer built it; the query path adopts that
+	// profile rather than imposing one. An unknown id means the index was
+	// written by a newer release than this client, so fail closed instead of
+	// silently normalizing differently than the stored tokens.
+	const profile: LocaleProfile | undefined = profileById(indexProfile);
+	if (profile === undefined) {
+		return {
+			ok: false,
+			error: {
+				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+				message:
+					`Index normalizer profile '${indexProfile}' cannot serve locale-sensitive retrieval. ` +
+					`Supported profiles: ${supportedProfileIds()}. ` +
+					"Rebuild the index with 'mneme-core index rebuild --locale <tr|en>', " +
+					"or upgrade mneme if this index was written by a newer release.",
 			},
 		};
 	}
@@ -309,15 +315,20 @@ export function searchTool(
 	const ftsQuery = buildFts5Query(args.query, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTr,
+		normalize: profile.normalize,
 	});
-	const ftsQueryAscii = buildFts5Query(args.query, {
-		minTokenLength: 2,
-		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTrAsciiFold,
-	});
-	if (ftsQuery.length === 0 && ftsQueryAscii.length === 0) {
-		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+	// Only locales that declare an ascii-fold key query the sibling table.
+	// English has no dotted/dotless ambiguity to bridge, so it skips the leg
+	// entirely rather than paying for a duplicate index scan.
+	const ftsQueryAscii = profile.asciiFold
+		? buildFts5Query(args.query, {
+				minTokenLength: 2,
+				stopwords: DEFAULT_STOPWORDS,
+				normalize: profile.asciiFold,
+			})
+		: undefined;
+	if (ftsQuery.length === 0 && !ftsQueryAscii) {
+		const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
 		emitSearchTelemetry(vault.stateDir, queryHash, 0, 0);
 		return {
 			ok: true,
@@ -348,7 +359,7 @@ export function searchTool(
 		});
 	} catch (err) {
 		const elapsedMs = Date.now() - searchStart;
-		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+		const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
 		emitSearchTelemetry(
 			vault.stateDir,
 			queryHash,
@@ -375,7 +386,7 @@ export function searchTool(
 		: raw;
 
 	// Emit retrieval telemetry (non-fatal — wrapped inside emitSearchTelemetry).
-	const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+	const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
 	emitSearchTelemetry(
 		vault.stateDir,
 		queryHash,
@@ -395,7 +406,7 @@ export function searchTool(
 	);
 
 	// Extract normalized tokens for match-centered snippeting (T7).
-	const queryTokens = extractQueryTokens(args.query, normalizeTr);
+	const queryTokens = extractQueryTokens(args.query, profile.normalize);
 
 	const cards: EvidenceCard[] = [];
 
@@ -406,7 +417,7 @@ export function searchTool(
 		// embedded fence sentinel in snippets/titles so a crafted note cannot
 		// forge an untrusted-memory boundary inside a search result (G-3).
 		const snippetStr = neutralize(
-			redact(buildCenteredSnippet(h.bodyText, queryTokens, normalizeTr)).text,
+			redact(buildCenteredSnippet(h.bodyText, queryTokens, profile.normalize)).text,
 		);
 		cards.push(hitToEvidenceCard(h, args.query, snippetStr));
 	}
