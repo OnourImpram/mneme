@@ -199,7 +199,10 @@ adversarial set failures, and is the honest ceiling of the current approach.
 
 Schema bumps to **4**. The index is a rebuildable cache over markdown, so the
 migration is a version bump plus a full reindex, not an in-place ALTER. On a
-real 12,317-document vault the rebuild took 67 seconds.
+real vault of roughly 12,350 documents the rebuild took 67 seconds on one run
+and 94 on another that shared the machine with a test suite; it is CPU- and
+disk-bound, so treat that as an order of magnitude rather than a figure to
+hold the release to.
 
 Measured on a 24-query golden set over that vault (12 Turkish, 12 English,
 expected document hand-labelled), comparing the shipped 3.x path against 4.0:
@@ -238,8 +241,10 @@ expected document hand-labelled), comparing the shipped 3.x path against 4.0:
   note whose title IS the query previously lost to a shorter, term-dense file.
 - `documents.language` is populated per document — declaration, then
   detection, then the index profile's language. It shipped in schema 3 with a
-  `DEFAULT 'en'` that nothing ever wrote: on a Turkish-majority vault, 11,910
-  of 11,910 rows carried the default.
+  `DEFAULT 'en'` that nothing ever wrote: 11,910 of 11,910 rows carried the
+  default, so every document claimed English whatever it was written in. With
+  detection running, the same vault reports 9,513 English and 2,839 Turkish —
+  a split the column previously could not express in either direction.
 - The schema gate lives in `fts5Search`, so `summarize` and `timeline`
   inherit it. The pre-existing locale gate covered only `search`.
 

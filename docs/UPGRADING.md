@@ -51,8 +51,15 @@ queries keep working and hide the ones that do not.
 `en-unicode` for an English one. A profile of `identity` means no normalizer
 ran at all; that index is refused outright rather than served.
 
-Measured on a 12,317-document vault: 67 seconds, and the result was 33%
-smaller than the schema-3 index it replaced.
+Measured twice on the same vault of roughly 12,350 documents: 67 seconds and
+94 seconds, the slower run sharing the machine with a test suite. Budget about
+a minute and a half and treat either figure as an order of magnitude, not a
+specification — the rebuild is CPU- and disk-bound and will track your
+hardware. The schema-4 index is also smaller than the schema-3 one it
+replaces: 806 MB to 655 MB, about 19%, measured on that same vault after the
+body-normalization fix in 4.1. (An intermediate build measured 544 MB — that
+one was smaller because document bodies were not being normalized into the
+index at all, which is the defect 4.1 fixes, not a better result.)
 
 ### 2. `mneme_search` no longer returns `hits`
 
