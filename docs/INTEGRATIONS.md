@@ -54,7 +54,7 @@ protocol but are not natively integrated with mneme: Kimi, Qwen, Cursor,
 Cline, Claude Desktop in manual-tool mode, and any other client that reads
 an `mcpServers` JSON object.
 
-The model calls mneme's nine MCP tools when it chooses to. Nothing fires
+The model calls mneme's ten MCP tools when it chooses to. Nothing fires
 automatically.
 
 ### Option A — use the installer
@@ -102,7 +102,7 @@ Removes only the `mcpServers.mneme` entry; all other servers are preserved.
 
 ## MCP tools (all tiers)
 
-All nine tools are served by `mneme-mcp` regardless of which tier you use.
+All ten tools are served by `mneme-mcp` regardless of which tier you use.
 
 | Tool | Default behaviour | Gated behaviour |
 |---|---|---|

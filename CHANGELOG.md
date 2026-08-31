@@ -11,18 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 4.1 — ranking that reads names, and crosses languages
 
-A query-path release: no schema change, so an existing schema-4 index needs no
-rebuild. Two gaps in 4.0 ranking were measured on a real 12,317-document
-bilingual vault, and both are closed here.
+Mostly a query-path release: the schema does not change, so a schema-4 index
+stays readable. Turkish vaults should still rebuild once — a separate indexer
+fix below means their document bodies were stored unnormalized, and only a
+rebuild recovers body recall. Two gaps in 4.0 ranking were measured on a real
+12,317-document bilingual vault, and both are closed here.
 
 **BM25 scores term density; it cannot express term diversity.** In an OR query,
 a note repeating one query term eight times in its body competes on equal
 footing with a note carrying four distinct query terms in its title. Measured,
-that single gap caused most failures: a note literally titled "Kapali Karar Listesi" ranked #6 for the query "kapali karar listesi listesi".
+that single gap caused most failures: a note whose title consisted of exactly
+the query's terms ranked #6, behind five notes that merely repeated one of them.
 
-**And coverage cannot cross a language boundary.** "agent creation protocol"
-shares no token with `Cihaz-Kayit-Protokolu`, so that document scored zero on
-the very signal doing the ranking — not ranked low, invisible.
+**And coverage cannot cross a language boundary.** "device record protocol"
+shares no token with `Cihaz-Kayit-Protokolu` — its own Turkish translation —
+so that document scored zero on the very signal doing the ranking. Not ranked
+low: invisible.
 
 Measured through the shipped `mneme_search` code path, three hand-labelled
 query sets over that vault:
@@ -63,14 +67,61 @@ shipped TypeScript path, not from a simulation of it.
 
 ### Changed
 
-- The derived-content penalty is now **query-aware**. It fired blind before:
-  `Onarim-Denetimi-Ornek.md` carries the `-denetimi-` marker and was
-  demoted to 0.245 for the query "memory system repair audit" — the penalty was
+- The derived-content penalty is now **query-aware**. It fired blind before: a
+  note whose filename carried the `-denetimi-` ("audit") marker was demoted to
+  0.245 on a query that was itself asking for an audit — the penalty was
   suppressing exactly what the user asked for. A marker means "probably
   secondary", never "secondary even when sought".
 
 ### Fixed
 
+- **`index rebuild --locale en` produced an index that refused every query.**
+  The default locale fell through to the identity normalizer: `normalize_en`
+  existed, was registered in the profile map, mirrored in TypeScript and unit
+  tested — and no CLI path ever selected it. The resulting index recorded
+  `normalization_profile = 'identity'`, which 4.0's own locale gate refuses
+  outright, so the documented rebuild command run with its default flag left
+  an English user with `INDEX_STALE_OR_LOCALE_MISMATCH` on every search. Found
+  by running the upgrade path end to end instead of reading it.
+- **`mneme_prime`, `mneme_summarize` and `mneme_timeline` refused every query
+  on an English index.** `mneme_search` reads the profile the index declares
+  and folds queries the way the stored tokens were folded; the other three
+  imported the Turkish normalizers directly and so passed an ASCII-fold arm on
+  every call. `fts5Search` refuses that arm unless the index declares the
+  Turkish ASCII key, so on an `en-unicode` index all three failed with
+  `INDEX_STALE_OR_LOCALE_MISMATCH` — measured, for every query, including ones
+  containing no Turkish characters at all. Profile resolution now has one
+  definition and four call sites. No test caught this because the TypeScript
+  fixture builder hardcoded the Turkish profile: every fixture in the suite was
+  a Turkish index, so three tools that only worked on Turkish indexes passed
+  everything. `buildTestDb` now takes a locale, and a new parity suite runs all
+  four tools against an English index with the Turkish path as its control.
+- **Document bodies were indexed unnormalized, in both locales.**
+  `index rebuild` never passed `normalize_for_fts`, so titles and paths were
+  folded while bodies were stored verbatim and queries were folded — the two
+  ends disagreed. Measured: a body containing `KIYASLAMA` did not match the
+  query `"kıyaslama"`. Only the Turkish dotted/dotless axis breaks, because
+  FTS5's own tokenizer already folds ASCII case, and that is exactly why it
+  survived: invisible to every query that does not exercise the one axis the
+  Turkish profile exists to serve. Title and path ranking was unaffected, so
+  the hit-rate figures above stand. **Turkish vaults should rebuild to recover
+  body recall.**
+- **`doctor` did not recognise its own English profile.** `_KNOWN_PROFILES`
+  omitted `en-unicode`, so a correctly built English index was reported as an
+  unexpected value by the very tool meant to confirm it.
+- **The public tool count stayed at nine after a tenth tool shipped.** 4.0
+  added `mneme_health`; README said "nine" in seven places, `docs/MCP.md` said
+  "nine tools over stdio" and gave the new tool no section at all, the npm
+  package description said "9 tools", and four client READMEs enumerated the
+  tools by name without it. `repo_integrity.py` *required* the string
+  "9 MCP tools", so the gate was holding the wrong number in place. The count
+  is now derived from the tool registry, and a new check fails when a
+  registered tool has no section in `docs/MCP.md` — negative-controlled in
+  both directions.
+- **`docs/MCP.md` still documented the removed `hits` field.** Its example
+  showed a response shape 4.0 had deleted. It now shows `data.cards` with the
+  evidence fields (`contentHash`, `trust`, `confidenceLabel`) that `hits`
+  never carried.
 - **A skipped file said nothing about itself.** `IndexStats.skipped_error`
   counted dropped documents but no code path recorded WHICH ones — the module
   had no logger at all. Measured on a real vault, a rebuild reported

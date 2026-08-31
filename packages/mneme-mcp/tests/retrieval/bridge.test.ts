@@ -16,9 +16,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { bridgeSize, bridgeTerms, foldForCompare } from "../../src/retrieval/bridge.js";
-import { buildFts5Query } from "../../src/retrieval/fts5.js";
+import {
+	bridgeSize,
+	bridgeTerms,
+	foldForCompare,
+} from "../../src/retrieval/bridge.js";
 import type { Fts5Hit } from "../../src/retrieval/fts5.js";
+import { buildFts5Query } from "../../src/retrieval/fts5.js";
 import { canonicityScore, coverageCount } from "../../src/retrieval/rerank.js";
 
 function hit(path: string, title: string): Fts5Hit {
@@ -78,7 +82,10 @@ describe("bridgeTerms", () => {
 describe("coverageCount with the bridge", () => {
 	it("counts a cross-language match", () => {
 		// The measured failure: this scored 0 before the bridge.
-		const h = hit("10-Systems/Cihaz-Kayit-Protokolu.md", "cihaz kayıt protokolü");
+		const h = hit(
+			"10-Systems/Cihaz-Kayit-Protokolu.md",
+			"cihaz kayıt protokolü",
+		);
 		expect(coverageCount(["device", "record", "protocol"], h)).toBe(3);
 	});
 
@@ -100,7 +107,10 @@ describe("coverageCount with the bridge", () => {
 	it("negative control: an unbridged foreign term still scores zero", () => {
 		// "stale" is deliberately absent from the table; the honest result is
 		// a miss, not a silent fuzzy match.
-		const h = hit("20-Reference/Feedback/2026-08-04-bayat-sunucu.md", "bayat sunucu");
+		const h = hit(
+			"20-Reference/Feedback/2026-08-04-bayat-sunucu.md",
+			"bayat sunucu",
+		);
 		expect(coverageCount(["stale"], h)).toBe(0);
 	});
 });
@@ -110,7 +120,10 @@ describe("canonicityScore is query-aware", () => {
 
 	it("penalises a derived marker when the query does not ask for it", () => {
 		expect(canonicityScore(auditFile, ["memory", "system"])).toBeLessThan(
-			canonicityScore("10-Systems/Kayit-Sistemi/Rapor.md", ["memory", "system"]),
+			canonicityScore("10-Systems/Kayit-Sistemi/Rapor.md", [
+				"memory",
+				"system",
+			]),
 		);
 	});
 
@@ -141,18 +154,26 @@ describe("buildFts5Query expansion", () => {
 	it("negative control: without an expander the query is unchanged", () => {
 		// If this ever fails, the bridge has leaked into callers that did not
 		// ask for it — including every existing test's expectations.
-		expect(buildFts5Query("agent protocol", opts)).toBe('"agent" OR "protocol"');
+		expect(buildFts5Query("agent protocol", opts)).toBe(
+			'"agent" OR "protocol"',
+		);
 	});
 
 	it("adds equivalents as separate OR arms", () => {
-		const q = buildFts5Query("agent protocol", { ...opts, expandTerm: bridgeTerms });
+		const q = buildFts5Query("agent protocol", {
+			...opts,
+			expandTerm: bridgeTerms,
+		});
 		expect(q).toContain('"agent"');
 		expect(q).toContain('"ajan"');
 		expect(q).toContain('"protokol"');
 	});
 
 	it("does not duplicate an arm", () => {
-		const q = buildFts5Query("agent ajan", { ...opts, expandTerm: bridgeTerms });
+		const q = buildFts5Query("agent ajan", {
+			...opts,
+			expandTerm: bridgeTerms,
+		});
 		const arms = q.split(" OR ");
 		expect(new Set(arms).size).toBe(arms.length);
 	});

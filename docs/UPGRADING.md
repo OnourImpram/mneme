@@ -18,9 +18,11 @@ index in place, so 4.x refuses to read a schema-3 one rather than answering
 from a half-understood index:
 
 ```
-INDEX_STALE_OR_LOCALE_MISMATCH: FTS5 index schema '3' does not match the
-schema this client speaks ('4').
+INDEX_STALE_OR_LOCALE_MISMATCH: FTS5 index schema 'unversioned' does not
+match the schema this client speaks ('4').
 ```
+
+(A 3.6.3 index records no schema version at all, hence `'unversioned'`.)
 
 Rebuild it:
 
@@ -28,11 +30,26 @@ Rebuild it:
 mneme-core index rebuild --locale <tr|en>
 ```
 
-**Pass `--locale` explicitly.** It defaults to `en`, and rebuilding a Turkish
-vault under the English normalizer silently degrades Turkish matching rather
-than failing — the index will look healthy and answer worse. If you are unsure
-what the current index used, `mneme_health` reports it under `locale.profile`
-before you rebuild.
+**Pass `--locale` explicitly.** It defaults to `en`, and this is the one
+mistake in the upgrade that does not announce itself. The query path adopts
+whatever profile the index declares, so a Turkish vault rebuilt under `en`
+normalizes consistently at both ends and keeps answering `ok` — it simply
+stops finding things. Measured on a one-document fixture whose body reads
+`KIYASLAMA sonuçları`:
+
+| rebuilt with | query `kıyaslama` | query `ölçümleri` |
+| --- | --- | --- |
+| `--locale tr` | 1 result | 1 result |
+| `--locale en` | **0 results** | 1 result |
+
+Nothing errors in the failing cell. Only the Turkish dotted/dotless `i` axis
+breaks, which is precisely the axis the `tr` profile exists to serve, so most
+queries keep working and hide the ones that do not.
+
+`mneme_health` reports the profile an index actually carries under
+`locale.profile`. Check it after you rebuild — `tr-cldr` for a Turkish vault,
+`en-unicode` for an English one. A profile of `identity` means no normalizer
+ran at all; that index is refused outright rather than served.
 
 Measured on a 12,317-document vault: 67 seconds, and the result was 33%
 smaller than the schema-3 index it replaced.

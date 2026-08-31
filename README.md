@@ -54,7 +54,7 @@ transcript: `~/.claude/projects/mneme/a3f19c2e.jsonl`
 pipx install mneme-cc-plugin && mneme install
 ```
 
-That installs the plugin and registers the lifecycle hooks; `mneme doctor` verifies the result, and profiles and per-client installs are under [Three-Tier Install](#three-tier-install). Claude Code registers six hook events; Codex and Antigravity map four. Any other MCP client (Kimi, Qwen, Cline, Cursor) gets the nine MCP tools through the open adapter, with no lifecycle hooks and no automatic capture.
+That installs the plugin and registers the lifecycle hooks; `mneme doctor` verifies the result, and profiles and per-client installs are under [Three-Tier Install](#three-tier-install). Claude Code registers six hook events; Codex and Antigravity map four. Any other MCP client (Kimi, Qwen, Cline, Cursor) gets the ten MCP tools through the open adapter, with no lifecycle hooks and no automatic capture.
 
 - **What it stores is a file you can open.** When a session has actually changed something in the vault, the Stop hook appends a timestamped `## HH:MM session` block to `vault/sessions/YYYY-MM-DD.md` with `type: session` frontmatter, written atomically under a cross-process lock; `mneme index rebuild` reconstructs the FTS5 index over every markdown file in the vault, so the database is derived state you can delete.
 - **Closing a session costs nothing and takes 2 ms.** "No LLM call on the critical path" is enforced in CI rather than promised in prose. `tools/spec_verify.py` parses all six lifecycle hook modules and fails the build on any import of seven network-capable roots (`anthropic`, `openai`, `requests`, `httpx`, `urllib.request`, `urllib3`, `aiohttp`), and `packages/mneme-cc-plugin/tests/integration/test_c3_no_network.py` re-checks the full transitive import closure of the three hot-path hooks at runtime, where a static scan cannot see. The Stop-hook proxy benchmark measures 2 ms at p95 over 100 sessions against a 1000 ms ceiling: `benchmarks/latency/p95_guard.py` enforces that ceiling inside the same path-scoped benchmark workflow described below, and `packages/mneme-cc-plugin/tests/unit/test_stop_performance.py` re-checks it over 100 real Stop calls on every CI run, which carries no path filter.
@@ -82,7 +82,7 @@ The full shipped / gated / roadmap ledger is in [Implementation Status](#impleme
 
 ## Tools
 
-The MCP server registers nine tools. Every client that speaks MCP gets all nine; lifecycle hooks
+The MCP server registers ten tools. Every client that speaks MCP gets all ten; lifecycle hooks
 and automatic capture are a separate layer that only Claude Code, Codex, and Antigravity provide.
 The authoritative list is `packages/mneme-mcp/src/tool_registry.ts`.
 
@@ -175,7 +175,7 @@ CI regression guards lock the path-scoped benchmark surface. Pull requests touch
 ## Three-Tier Install
 
 ```bash
-# Lite: FTS5 + Stop hook + privacy redaction + 9 MCP tools (Python + Node only)
+# Lite: FTS5 + Stop hook + privacy redaction + 10 MCP tools (Python + Node only)
 pipx install mneme-cc-plugin
 mneme install --profile=lite
 
@@ -211,7 +211,7 @@ codex plugin marketplace add OnourImpram/mneme
 mneme install --client=codex
 ```
 
-Codex gets the same nine MCP tools, the same two skills, and the same vault. Four of mneme's six registered Claude Code hook events map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. UserPromptSubmit has no Codex mapping. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
+Codex gets the same ten MCP tools, the same two skills, and the same vault. Four of mneme's six registered Claude Code hook events map to native Codex lifecycle events (SessionStart, PostToolUse, Stop, PreCompact), and SessionEnd folds into Stop. UserPromptSubmit has no Codex mapping. See `docs/CODEX.md` for the full coverage table and ADR-014 in `docs/ARCHITECTURE.md` for the multi-client design.
 
 ## Using mneme with Antigravity
 
@@ -221,11 +221,11 @@ Antigravity (Google's agentic IDE) uses the Gemini-CLI extension model, and mnem
 mneme install --client=antigravity
 ```
 
-This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same nine MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
+This installs the `mneme` extension into `~/.gemini/extensions/`, wiring the same ten MCP tools, the same two skills, a `GEMINI.md` rules file, and lifecycle hooks (SessionStart, PostToolUse, Stop, PreCompact) that map to the same `mneme hook <event>` core path Claude Code and Codex use. Because Antigravity exposes a Stop hook, session capture has full native parity.
 
 ## Other MCP clients (open adapter)
 
-Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the nine MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
+Any MCP-capable client (Kimi, Qwen, Cline, Cursor, and others) can use mneme through the open adapter. This is the non-native tier: the ten MCP tools are available for the model to call, but there are no lifecycle hooks and no automatic capture.
 
 ```bash
 mneme install --client=mcp --config <path-to-your-clients-mcp-config.json>
@@ -235,7 +235,7 @@ mneme merges only its own server entry and leaves every other server in the conf
 
 ## What 2.0 Ships
 
-- 9 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`, `mneme_checkpoint_list`, `mneme_working_set_load`. Default search is FTS5. Full-profile summarize and timeline can add KG fields when the local graph is active. `mneme_checkpoint_list` and `mneme_working_set_load` support the Context Continuity Engine (CCE): list available working-set checkpoints and load a checkpoint's salience-ranked items for JIT context re-injection.
+- 10 MCP tools: `mneme_search`, `mneme_recall`, `mneme_write`, `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`, `mneme_health`, `mneme_checkpoint_list`, `mneme_working_set_load`. Default search is FTS5. `mneme_health` reports the installation's own state — index schema and age, the locale profile the index carries, document count, staging depth — with a remedy attached to every warning. Full-profile summarize and timeline can add KG fields when the local graph is active. `mneme_checkpoint_list` and `mneme_working_set_load` support the Context Continuity Engine (CCE): list available working-set checkpoints and load a checkpoint's salience-ranked items for JIT context re-injection.
 - 5 Claude Code hooks: `PostToolUse`, `SessionStart`, `Stop`, `PreCompact`, `SessionEnd`.
 - 3 slash commands: `/mneme:prime`, `/mneme:recall`, `/mneme:migrate`.
 - 2 skills: `mneme-prime`, `mneme-search`.

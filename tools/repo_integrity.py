@@ -379,6 +379,52 @@ def _check_internal_dependencies(errors: list[str], repo_root: Path) -> None:
                 )
 
 
+#: Prose that states how many MCP tools ship. Each entry is (file, template);
+#: the template is rendered with the registry's own length, so the gate cannot
+#: keep asserting a number the registry has moved past.
+_TOOL_COUNT_CLAIMS: tuple[tuple[str, str], ...] = (
+    ("README.md", "{n} MCP tools"),
+    ("docs/MCP.md", "exposes {word} tools over stdio"),
+)
+
+_NUMBER_WORDS = {
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+}
+
+
+def _check_tool_count_claims(errors: list[str], readme: str, mcp_docs: str) -> None:
+    """Public tool-count claims must match the registry, and each tool must be documented.
+
+    4.0 added ``mneme_health`` as the tenth tool. README went on saying "nine"
+    in seven places, ``docs/MCP.md`` said "nine tools over stdio" and never
+    gave the new tool a section at all, and this file *required* the string
+    "9 MCP tools" — so the gate was holding the wrong number in place. A count
+    written as a literal in prose is a rule with no measure; deriving it from
+    ``EXPECTED_TOOL_NAMES`` is the measure.
+    """
+    n = len(EXPECTED_TOOL_NAMES)
+    word = _NUMBER_WORDS.get(n, str(n))
+    sources = {"README.md": readme, "docs/MCP.md": mcp_docs}
+    for rel, template in _TOOL_COUNT_CLAIMS:
+        expected = template.format(n=n, word=word)
+        if expected not in sources[rel]:
+            errors.append(
+                f"{rel} must state the registry's tool count: expected {expected!r}"
+            )
+        stale = template.format(n=n - 1, word=_NUMBER_WORDS.get(n - 1, str(n - 1)))
+        if stale in sources[rel]:
+            errors.append(f"{rel} still carries the previous tool count: {stale!r}")
+
+    # A tool nobody documented is a tool nobody can use. This is the check that
+    # would have caught mneme_health's missing section mechanically.
+    for name in EXPECTED_TOOL_NAMES:
+        if f"### {name}" not in mcp_docs:
+            errors.append(f"docs/MCP.md has no '### {name}' section for a registered tool")
+
+
 def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     errors: list[str] = []
     _check_release_workflows(errors, repo_root)
@@ -395,8 +441,7 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     for marker in ("v1.0.0-rc", "Hard launch target", "Phase K release"):
         if marker in readme:
             errors.append(f"README still contains stale release marker: {marker}")
-    if "9 MCP tools" not in readme:
-        errors.append("README must describe lite as nine MCP tools")
+    _check_tool_count_claims(errors, readme, mcp_docs)
     if "mneme upgrade --profile=standard" not in readme:
         errors.append("README must document the supported upgrade command")
 
@@ -406,8 +451,12 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
         errors.append("mneme-mcp package.json must preserve the immutable registry name")
     if server_manifest.get("name") != mcp_pkg.get("mcpName"):
         errors.append("server.json name must match package.json mcpName exactly")
-    if "9 tools" not in mcp_pkg.get("description", ""):
-        errors.append("mneme-mcp package.json description must say 9 tools")
+    expected_tools = f"{len(EXPECTED_TOOL_NAMES)} tools"
+    if expected_tools not in mcp_pkg.get("description", ""):
+        errors.append(
+            "mneme-mcp package.json description must say "
+            f"{expected_tools!r} (it is the npm registry blurb)"
+        )
 
     actual_locations = _immutable_name_locations(repo_root)
     if actual_locations != IMMUTABLE_MCP_NAME_LOCATIONS:

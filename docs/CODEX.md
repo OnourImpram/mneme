@@ -49,16 +49,16 @@ Published package versions are kept in lockstep with the repository status line.
 
 ## What works on Codex
 
-The nine MCP tools (`mneme_search`, `mneme_recall`, `mneme_write`,
+The ten MCP tools (`mneme_search`, `mneme_recall`, `mneme_write`,
 `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`,
-`mneme_checkpoint_list`, `mneme_working_set_load`) and the two skills
+`mneme_health`, `mneme_checkpoint_list`, `mneme_working_set_load`) and the two skills
 (`mneme-prime`, `mneme-search`) are identical across clients. Four of the
 six registered Claude Code hook events map to four native Codex events. A single
 `mneme hook <event>` command serves both clients.
 
 | Capability | Claude Code (native) | Codex (extended) |
 |---|---|---|
-| 9 MCP tools | full | full |
+| 10 MCP tools | full | full |
 | Skills (prime, search) | full | full |
 | SessionStart prime | full | full |
 | PostToolUse capture | full | full (Bash-output compression is tuned to Claude Code tool names) |

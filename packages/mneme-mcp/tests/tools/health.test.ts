@@ -272,9 +272,9 @@ describe("healthTool — language breakdown", () => {
 		expect(res.ok).toBe(true);
 		if (!res.ok) return;
 		expect(res.data.languages).not.toBeNull();
-		expect(Object.values(res.data.languages ?? {}).reduce((a, b) => a + b, 0)).toBe(
-			3,
-		);
+		expect(
+			Object.values(res.data.languages ?? {}).reduce((a, b) => a + b, 0),
+		).toBe(3);
 	});
 
 	it("skips the extra scan when not asked", () => {
@@ -325,9 +325,7 @@ describe("healthTool — language breakdown", () => {
 		buildTestDb(vault.fts5Db, many);
 		const db = new Database(vault.fts5Db);
 		try {
-			db.prepare(
-				"UPDATE documents SET language = 'tr' WHERE id % 2 = 0",
-			).run();
+			db.prepare("UPDATE documents SET language = 'tr' WHERE id % 2 = 0").run();
 		} finally {
 			db.close();
 		}

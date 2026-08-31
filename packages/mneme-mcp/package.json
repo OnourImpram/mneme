@@ -1,70 +1,70 @@
 {
-  "name": "mneme-mcp-server",
-  "version": "4.1.0",
-  "mcpName": "io.github.OnourImpram/mneme",
-  "description": "MCP server for mneme: 9 tools for vault-native memory in Claude Code and MCP-compatible clients.",
-  "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "mneme-mcp": "dist/index.js",
-    "mneme-migrate": "dist/cli/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
-    "lint": "biome check src/",
-    "format": "biome format --write src/",
-    "clean": "rimraf dist .tsbuildinfo"
-  },
-  "files": [
-    "dist/",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "mcp",
-    "claude-code",
-    "memory",
-    "vault",
-    "fts5",
-    "rrf"
-  ],
-  "author": "Onour Impram",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/OnourImpram/mneme.git",
-    "directory": "packages/mneme-mcp"
-  },
-  "bugs": {
-    "url": "https://github.com/OnourImpram/mneme/issues"
-  },
-  "homepage": "https://github.com/OnourImpram/mneme#readme",
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^12.11.1",
-    "zod": "^4.4.3"
-  },
-  "optionalDependencies": {
-    "neo4j-driver": "^6.2.0"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.10",
-    "@types/node": "^26.1.1",
-    "rimraf": "^6.1.3",
-    "tsx": "^4.23.5",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.10",
-    "@vitest/coverage-v8": "^4.1.10",
-    "vite": "^8.2.0"
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "publishConfig": {
-    "access": "public"
-  }
+	"name": "mneme-mcp-server",
+	"version": "4.1.0",
+	"mcpName": "io.github.OnourImpram/mneme",
+	"description": "MCP server for mneme: 10 tools for vault-native memory in Claude Code and MCP-compatible clients.",
+	"type": "module",
+	"main": "dist/index.js",
+	"bin": {
+		"mneme-mcp": "dist/index.js",
+		"mneme-migrate": "dist/cli/index.js"
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"test": "vitest run",
+		"test:coverage": "vitest run --coverage",
+		"test:watch": "vitest",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"clean": "rimraf dist .tsbuildinfo"
+	},
+	"files": [
+		"dist/",
+		"README.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"mcp",
+		"claude-code",
+		"memory",
+		"vault",
+		"fts5",
+		"rrf"
+	],
+	"author": "Onour Impram",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/OnourImpram/mneme.git",
+		"directory": "packages/mneme-mcp"
+	},
+	"bugs": {
+		"url": "https://github.com/OnourImpram/mneme/issues"
+	},
+	"homepage": "https://github.com/OnourImpram/mneme#readme",
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.30.0",
+		"better-sqlite3": "^12.11.1",
+		"zod": "^4.4.3"
+	},
+	"optionalDependencies": {
+		"neo4j-driver": "^6.2.0"
+	},
+	"devDependencies": {
+		"@types/better-sqlite3": "^7.6.10",
+		"@types/node": "^26.1.1",
+		"rimraf": "^6.1.3",
+		"tsx": "^4.23.5",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.10",
+		"@vitest/coverage-v8": "^4.1.10",
+		"vite": "^8.2.0"
+	},
+	"engines": {
+		"node": ">=22"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
 }

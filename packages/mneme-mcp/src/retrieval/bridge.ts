@@ -4,8 +4,9 @@
  * THE DEFECT
  * A vault written in one language is searched in another. Measured on a real
  * bilingual vault, five of the six remaining retrieval failures were the same
- * shape: an English query against a Turkish filename. "agent creation protocol"
- * shares no token with `Cihaz-Kayit-Protokolu`, so coverage — which counts how
+ * shape: an English query against a Turkish filename. "device record protocol"
+ * shares no token with `Cihaz-Kayit-Protokolu`, its own Turkish translation, so
+ * coverage — which counts how
  * many query terms appear in the title or path — scores it zero. The document
  * is not merely ranked low; it is invisible to the signal that does the ranking.
  *

@@ -556,7 +556,7 @@ _AG_SKILLS: dict[str, str] = {
 _AG_GEMINI_MD_CONTENT = (
     "# mneme for Antigravity\n"
     "\n"
-    "mneme adds vault-native memory to Antigravity via nine MCP tools served\n"
+    "mneme adds vault-native memory to Antigravity via ten MCP tools served\n"
     "by `mneme-mcp`. Markdown files are the ground truth; the MCP server\n"
     "is a read/write interface over that vault.\n"
     "\n"
@@ -574,6 +574,8 @@ _AG_GEMINI_MD_CONTENT = (
     " into a compact digest. |\n"
     "| `mneme_timeline` | Retrieve temporally ordered events from the"
     " knowledge graph. |\n"
+    "| `mneme_health` | Retrieval is returning nothing, or answers look"
+    " stale — reports index age, locale profile, and staging depth. |\n"
     "\n"
     "## Lifecycle hooks (automatic)\n"
     "\n"

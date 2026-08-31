@@ -14,7 +14,7 @@ This code applies within all community spaces (issues, pull requests, discussion
 
 ## Reporting
 
-Concerns may be reported privately to the project lead at onuribram+mneme-conduct@outlook.com. All reports will be reviewed and investigated promptly and fairly. The project lead is obligated to respect the privacy and security of the reporter of any incident.
+Concerns may be reported privately to the project lead at onour@onourimpram.com. All reports will be reviewed and investigated promptly and fairly. The project lead is obligated to respect the privacy and security of the reporter of any incident.
 
 ## Enforcement
 

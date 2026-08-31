@@ -7,9 +7,9 @@ Codex gets the same tools and the same vault with no loss of fidelity.
 
 ## What this plugin wires into Codex
 
-- **MCP server** (`mneme-mcp`): nine tools, `mneme_search`, `mneme_recall`, `mneme_write`,
+- **MCP server** (`mneme-mcp`): ten tools, `mneme_search`, `mneme_recall`, `mneme_write`,
   `mneme_prime`, `mneme_summarize`, `mneme_timeline`, `mneme_propose`,
-  `mneme_checkpoint_list`, and `mneme_working_set_load`.
+  `mneme_health`, `mneme_checkpoint_list`, and `mneme_working_set_load`.
 - **Skills**: `mneme-prime` (preflight context) and `mneme-search`
   (vault recall).
 - **Lifecycle hooks** via the shared `mneme hook <event>` command:
@@ -51,7 +51,7 @@ layer over the same client-neutral core.
 
 | Capability | Claude Code (native) | Codex (extended) |
 |---|---|---|
-| 9 MCP tools | full | full |
+| 10 MCP tools | full | full |
 | Skills (prime, search) | full | full |
 | SessionStart prime | full | full |
 | PostToolUse capture | full | full (Bash-output compression is tuned to Claude Code tool names) |

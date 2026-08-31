@@ -1,6 +1,6 @@
 # MCP Tool Reference
 
-mneme-mcp exposes nine tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client. The JSON Schema returned by MCP `tools/list` is generated from the same Zod schema that validates tool calls. There is no separate hand-maintained public schema.
+mneme-mcp exposes ten tools over stdio. All names are prefixed with `mneme_` to avoid namespace clash with other MCP servers in the same client. The JSON Schema returned by MCP `tools/list` is generated from the same Zod schema that validates tool calls. There is no separate hand-maintained public schema.
 
 The scope-aware tools are `mneme_search`, `mneme_recall`, `mneme_summarize`, `mneme_timeline`, `mneme_prime`, and `mneme_propose`. Omit `scope` to use the configured default. Pass `"*"` only when an explicit cross-scope operation is intended.
 
@@ -26,7 +26,9 @@ Retrieval across the vault. **Shipped**: FTS5 BM25 only. **Gated**: summarize an
 }
 ```
 
-**Output**: ranked list of `{path, score, snippet, frontmatter}` records.
+**Output**: `data.cards`, a ranked list of evidence cards. The `hits` field was
+removed in 4.0 — it duplicated every result in the same response. See
+[UPGRADING](UPGRADING.md).
 
 **Example output**:
 
@@ -35,19 +37,29 @@ Retrieval across the vault. **Shipped**: FTS5 BM25 only. **Gated**: summarize an
   "ok": true,
   "data": {
     "query": "rrf fusion",
-    "hits": [
+    "backends_used": ["fts5"],
+    "cards": [
       {
         "path": "sessions/2026-05-19/14-32-11-rrf-fusion.md",
         "title": "RRF fusion decision",
         "score": -1.72,
         "snippet": "decided to fuse FTS5 and dense embeddings with RRF k=60...",
         "type": "session",
-        "mtime": 1789727531
+        "mtime": 1789727531,
+        "contentHash": "235dd45febd1c878eb7229e69c90795ac739886c9d463661d94834c07d843be2",
+        "trust": "user",
+        "confidenceLabel": "EXTRACTED",
+        "backend": "fts5",
+        "query": "rrf fusion"
       }
     ]
   }
 }
 ```
+
+`contentHash`, `trust` and `confidenceLabel` are the evidence fields `hits`
+never carried: they let a caller separate a quoted passage from an inferred
+one, and detect that a file changed underneath a cached result.
 
 ### mneme_recall
 
@@ -215,6 +227,61 @@ Load the working-set items from a CCE checkpoint for cross-agent handoff or JIT 
 ```
 
 **Resolution strategy**: first looks up the anchor in `<vault>/.mneme/checkpoints/index.jsonl`; if found, reads the `path` field directly; if not in the index, falls back to a glob over `<vault>/checkpoints/*-<anchor>.md`. A missing markdown file after a successful index lookup returns `found: false`.
+
+### mneme_health
+
+Added in 4.0. Reports what the installation itself is doing: index schema and age, the locale profile the index actually carries, document count, staging queue depth. Every one of those had to be found by hand on the filesystem before this tool existed, which is how an index can go stale for months while answering every query without an error.
+
+Warnings are the point. Each carries a `remedy` field naming the action to take — a detector that reports a condition nobody can act on becomes noise, and noise reads as silence.
+
+**Input schema**:
+
+```json
+{
+  "include_language_breakdown": "boolean (default true) — group the document count by detected language; one extra scan of the documents table"
+}
+```
+
+**Output**:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "ok": true,
+    "schema": { "expected": "4", "stored": "4", "matches": true },
+    "locale": {
+      "profile": "en-unicode",
+      "asciiProfile": "disabled",
+      "indexLanguage": "en",
+      "recognized": true
+    },
+    "index": {
+      "path": "/path/to/vault/.mneme/fts5.sqlite",
+      "exists": true,
+      "sizeBytes": 81920,
+      "documentCount": 1,
+      "newestDocumentAgeDays": 0,
+      "lastIndexRunAt": "2026-08-31T16:48:12.688810+00:00"
+    },
+    "languages": { "en": 1 },
+    "staging": { "pendingFiles": 0, "oldestAgeDays": null },
+    "warnings": []
+  }
+}
+```
+
+`data.ok` is the health verdict and is independent of the transport-level `ok`: a tool call that succeeds in reporting bad news returns `ok: true` with `data.ok: false`. A populated `warnings` array looks like this:
+
+```json
+{
+  "code": "STAGING_NOT_DRAINING",
+  "detail": "4672 pending staging files, oldest 33 days.",
+  "remedy": "Check the session-end hook that archives staging."
+}
+```
+
+`locale.profile` is the field to check after any rebuild: `tr-cldr` for a Turkish vault, `en-unicode` for an English one. `identity` means no normalizer ran, and such an index is refused by `mneme_search` rather than served.
 
 ## Configuration
 

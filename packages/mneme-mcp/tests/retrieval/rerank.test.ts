@@ -38,7 +38,10 @@ function hit(path: string, title: string, rank = -10): Fts5Hit {
 
 describe("coverageCount", () => {
 	it("counts distinct query terms present in title or path", () => {
-		const h = hit("20-Reference/Kapali-Karar-Listesi.md", "kapalı karar listesi");
+		const h = hit(
+			"20-Reference/Kapali-Karar-Listesi.md",
+			"kapalı karar listesi",
+		);
 		expect(coverageCount(["kapalı", "karar", "listesi"], h)).toBe(3);
 	});
 
@@ -125,7 +128,11 @@ describe("rerank", () => {
 				"cihaz kayıt protokolü (taslak)",
 				-20,
 			),
-			hit("10-Systems/Cihaz-Kayit-Protokolu.md", "cihaz kayıt protokolü (v1.5.0)", -19),
+			hit(
+				"10-Systems/Cihaz-Kayit-Protokolu.md",
+				"cihaz kayıt protokolü (v1.5.0)",
+				-19,
+			),
 		];
 		const out = rerank(pool, ["cihaz", "kayıt", "protokolü"]);
 		expect(out[0]?.hit.path).toBe("10-Systems/Cihaz-Kayit-Protokolu.md");
@@ -144,7 +151,11 @@ describe("rerank", () => {
 			hit("a/three.md", "alpha", -10),
 		];
 		const out = rerank(pool, ["alpha"]);
-		expect(out.map((r) => r.hit.path)).toEqual(["a/one.md", "a/two.md", "a/three.md"]);
+		expect(out.map((r) => r.hit.path)).toEqual([
+			"a/one.md",
+			"a/two.md",
+			"a/three.md",
+		]);
 		expect(new Set(out.map((r) => r.coverage))).toEqual(new Set([1]));
 	});
 
@@ -154,10 +165,7 @@ describe("rerank", () => {
 	 * that reordered here would be sorting on something it should not see.
 	 */
 	it("negative control: empty query leaves order untouched", () => {
-		const pool = [
-			hit("z/last.md", "z", -5),
-			hit("a/first.md", "a", -4),
-		];
+		const pool = [hit("z/last.md", "z", -5), hit("a/first.md", "a", -4)];
 		const out = rerank(pool, []);
 		expect(out.map((r) => r.hit.path)).toEqual(["z/last.md", "a/first.md"]);
 	});

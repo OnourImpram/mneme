@@ -5,7 +5,7 @@
 If you discover a security vulnerability in mneme, please do not open a public GitHub issue. Instead, report it privately via one of the following channels:
 
 1. GitHub Security Advisories at https://github.com/OnourImpram/mneme/security/advisories/new
-2. Email: onuribram@outlook.com (put "mneme security" in the subject line)
+2. Email: onour@onourimpram.com (put "mneme security" in the subject line)
 
 Please include:
 
