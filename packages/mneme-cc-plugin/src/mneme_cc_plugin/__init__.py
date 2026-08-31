@@ -1,3 +1,3 @@
 """Claude Code plugin package for mneme."""
 
-__version__ = "3.6.3"
+__version__ = "4.1.0"

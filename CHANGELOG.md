@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-08-31
+
 ### 4.1 — ranking that reads names, and crosses languages
 
 A query-path release: no schema change, so an existing schema-4 index needs no
