@@ -19,6 +19,8 @@ import {
 } from "../locale/index.js";
 import { redact } from "../privacy.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
+import { bridgeTerms } from "../retrieval/bridge.js";
+import { rerank } from "../retrieval/rerank.js";
 import {
 	computeQueryHash,
 	emitSearchTelemetry,
@@ -124,6 +126,17 @@ export interface SearchOutput {
 	 */
 	backends_used: string[];
 }
+
+/**
+ * BM25 candidates fetched before reranking.
+ *
+ * Coverage reranking can only promote a document that is in the pool. On the
+ * golden set the correct answer sat as deep as BM25 position 75, so a pool
+ * the size of the requested page would have made the rerank a no-op for
+ * exactly the queries it exists to fix. 200 covers every measured case with
+ * headroom; the cost is one wider SQLite scan, not extra round trips.
+ */
+const RERANK_POOL = 200;
 
 const SNIPPET_CHARS = 200;
 const SNIPPET_HALF = Math.floor(SNIPPET_CHARS / 2);
@@ -316,6 +329,7 @@ export function searchTool(
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
 		normalize: profile.normalize,
+		expandTerm: bridgeTerms,
 	});
 	// Only locales that declare an ascii-fold key query the sibling table.
 	// English has no dotted/dotless ambiguity to bridge, so it skips the leg
@@ -325,6 +339,7 @@ export function searchTool(
 				minTokenLength: 2,
 				stopwords: DEFAULT_STOPWORDS,
 				normalize: profile.asciiFold,
+				expandTerm: bridgeTerms,
 			})
 		: undefined;
 	if (ftsQuery.length === 0 && !ftsQueryAscii) {
@@ -353,6 +368,7 @@ export function searchTool(
 			ftsQuery,
 			ftsQueryAscii,
 			limit: args.top_k,
+			poolSize: RERANK_POOL,
 			mtimeFrom,
 			mtimeTo,
 			scope,
@@ -381,9 +397,18 @@ export function searchTool(
 	}
 	const elapsedMs = Date.now() - searchStart;
 
-	const filtered = args.filters?.type
+	const typeFiltered = args.filters?.type
 		? raw.filter((h) => h.frontmatterType === args.filters?.type)
 		: raw;
+
+	// Rerank the pool by term coverage, then cut to the requested page.
+	// BM25 ranks term density; coverage ranks how many DISTINCT query terms a
+	// document's title and path carry. See retrieval/rerank.ts for the
+	// measured effect (hit@1 59% -> 85% on a 46-query golden set).
+	const queryTokens = extractQueryTokens(args.query, profile.normalize);
+	const filtered = rerank(typeFiltered, queryTokens)
+		.slice(0, args.top_k)
+		.map((r) => r.hit);
 
 	// Emit retrieval telemetry (non-fatal — wrapped inside emitSearchTelemetry).
 	const queryHash = computeQueryHash(vault.stateDir, profile.normalize(args.query));
@@ -404,9 +429,6 @@ export function searchTool(
 			},
 		},
 	);
-
-	// Extract normalized tokens for match-centered snippeting (T7).
-	const queryTokens = extractQueryTokens(args.query, profile.normalize);
 
 	const cards: EvidenceCard[] = [];
 

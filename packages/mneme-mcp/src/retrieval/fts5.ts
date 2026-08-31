@@ -121,6 +121,15 @@ export interface Fts5SearchOptions {
 	 * Exposed so a deployment can retune ranking without a code change.
 	 */
 	weights?: Bm25Weights;
+	/**
+	 * Number of candidates to retrieve before the caller reranks.
+	 *
+	 * Defaults to `limit`. Reranking by term coverage can only promote a
+	 * document that is IN the pool, so a caller that reranks must ask for a
+	 * pool wider than the page it will show: measured on the golden set, the
+	 * correct answer sat at BM25 position 25 for one query and 75 for another.
+	 */
+	poolSize?: number;
 }
 
 /**
@@ -144,19 +153,46 @@ export function buildFts5Query(
 		minTokenLength?: number;
 		stopwords?: ReadonlySet<string>;
 		normalize?: (s: string) => string;
+		/**
+		 * Cross-language equivalents for a token, OR-ed into the query.
+		 *
+		 * Injected rather than imported so this function stays a pure string
+		 * transform: the bridge table is a retrieval policy, not a property of
+		 * FTS5 syntax. Without it a term like "audit" cannot reach a document
+		 * named "denetim" — the candidate never enters the pool at all, and no
+		 * amount of reranking can recover a document that was never fetched.
+		 */
+		expandTerm?: (token: string) => Iterable<string>;
 	} = {},
 ): string {
 	const minLen = opts.minTokenLength ?? 2;
 	const stopwords = opts.stopwords ?? EMPTY_STOPWORDS;
 	const norm = opts.normalize ?? identity;
+	const expand = opts.expandTerm;
 	if (typeof rawQuery !== "string" || rawQuery.length === 0) return "";
 	const phrases: string[] = [];
+	const seen = new Set<string>();
+	const push = (phrase: string): void => {
+		if (seen.has(phrase)) return;
+		seen.add(phrase);
+		phrases.push(phrase);
+	};
 	for (const word of rawQuery.split(/\s+/)) {
 		const parts = word
 			.split(/[-":^*()]+/)
 			.map((p) => norm(p))
 			.filter((p) => p.length >= minLen && !stopwords.has(p));
-		if (parts.length > 0) phrases.push(`"${parts.join(" ")}"`);
+		if (parts.length === 0) continue;
+		push(`"${parts.join(" ")}"`);
+		if (expand === undefined) continue;
+		for (const part of parts) {
+			for (const equivalent of expand(part)) {
+				// Guard the FTS5 grammar: an equivalent is a bare term, so it
+				// must not carry quotes or operators of its own.
+				const clean = norm(equivalent).replace(/[-":^*()]+/g, " ").trim();
+				if (clean.length >= minLen) push(`"${clean}"`);
+			}
+		}
 	}
 	if (phrases.length === 0) return "";
 	return phrases.join(" OR ");
@@ -197,12 +233,13 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			const existing = bestByPath.get(hit.path);
 			if (!existing || hit.rank < existing.rank) bestByPath.set(hit.path, hit);
 		}
+		const take = Math.max(opts.poolSize ?? opts.limit, opts.limit);
 		return [...bestByPath.values()]
 			.sort(
 				(left, right) =>
 					left.rank - right.rank || left.path.localeCompare(right.path),
 			)
-			.slice(0, opts.limit);
+			.slice(0, take);
 	} finally {
 		db.close();
 	}
@@ -245,7 +282,7 @@ function queryFtsTable(
 		filters.push("d.scope = ?");
 		bindings.push(opts.scope);
 	}
-	bindings.push(opts.limit);
+	bindings.push(Math.max(opts.poolSize ?? opts.limit, opts.limit));
 
 	return db
 		.prepare(

@@ -7,6 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 4.1 — ranking that reads names, and crosses languages
+
+A query-path release: no schema change, so an existing schema-4 index needs no
+rebuild. Two gaps in 4.0 ranking were measured on a real 12,317-document
+bilingual vault, and both are closed here.
+
+**BM25 scores term density; it cannot express term diversity.** In an OR query,
+a note repeating one query term eight times in its body competes on equal
+footing with a note carrying four distinct query terms in its title. Measured,
+that single gap caused most failures: a note literally titled "Kapali Operator
+Kararlari" ranked #6 for the query "kapali operator kararlari listesi".
+
+**And coverage cannot cross a language boundary.** "agent creation protocol"
+shares no token with `Ajan-Yaratma-Protokolu`, so that document scored zero on
+the very signal doing the ranking — not ranked low, invisible.
+
+Measured through the shipped `mneme_search` code path, three hand-labelled
+query sets over that vault:
+
+| set | size | 4.0 hit@1 | 4.1 hit@1 | 4.0 hit@5 | 4.1 hit@5 |
+|---|---|---|---|---|---|
+| tuning + held-out | 46 | 59% | **93%** | 80% | **100%** |
+| adversarial cross-language | 20 | — | **45%** | — | **50%** |
+| all three | 66 | — | **79%** | — | **85%** |
+
+The third set was written AFTER the bridge table was frozen, specifically to
+expose overfitting — and it did. The first two sets alone report 93%/100%,
+which is therefore not the number to trust. Every figure here comes from the
+shipped TypeScript path, not from a simulation of it.
+
+### Added
+
+- **Coverage-tiered reranking** (`retrieval/rerank.ts`). Candidates are grouped
+  by how many distinct query terms appear in title or path; inside a tier the
+  BM25 order is preserved exactly. Tiering rather than a weighted sum buys a
+  guarantee that is easy to audit: a document can only be overtaken by one
+  covering STRICTLY more query terms.
+- **Canonicity scoring.** Path depth plus derived-content markers (`taslak`,
+  `arsiv`, `-kosum-`, `cikti`, and so on). Measured defect: a file titled "ajan
+  yaratma protokolu (taslak)" outranked the canonical "(v1.5.0)" — identical
+  titles, only the path distinguishes them.
+- **Cross-language term bridge** (`retrieval/bridge.ts`). A hand-written
+  Turkish/English table, consulted by both the FTS5 query builder and the
+  coverage counter. A bridged term counts ONCE, never twice, so a bilingual
+  document cannot outrank a monolingual one on the same evidence.
+- **Question and filler stopwords** for Turkish and English. They inflated the
+  coverage denominator: "ne zaman aciliyor" turned a correct 2-of-2 match into
+  a 2-of-6 one.
+- `buildFts5Query` accepts an injected `expandTerm`, which keeps the bridge a
+  retrieval policy rather than a property of FTS5 syntax.
+- `fts5Search` accepts `poolSize`: reranking needs a deeper candidate pool than
+  the caller top_k.
+
+### Changed
+
+- The derived-content penalty is now **query-aware**. It fired blind before:
+  `Onarim-Denetimi-2026-07-30.md` carries the `-denetimi-` marker and was
+  demoted to 0.245 for the query "memory system repair audit" — the penalty was
+  suppressing exactly what the user asked for. A marker means "probably
+  secondary", never "secondary even when sought".
+
+### Not shipped, and why
+
+Each of these was implemented and measured before being discarded. They are
+recorded so the same ground is not re-explored.
+
+- **Dense/semantic retrieval as a reranker.** Local embeddings
+  (`paraphrase-multilingual-MiniLM-L12-v2`, 12,317 documents, no network at
+  query time) work in isolation, but no fusion beat lexical-only. Flat RRF cost
+  17 points of hit@1 (96% to 79%). Conditional gating measured IDENTICAL to
+  lexical-only — and the negative control returning the same number is what
+  revealed the arm was never firing at all. Top-5 dense rescoring lost 8
+  points.
+- **Token-level dense as the cross-language bridge.** Rejected on measurement:
+  similarity hinges on diacritics while filenames are ASCII (design/tasarim
+  0.487 versus design/tasarim-with-diacritic 0.959; memory/hafiza 0.257 versus
+  0.961). The negative control topped out at 0.449, which sits inside the range
+  of the VALID ASCII pairs, so no threshold separates signal from noise.
+- **IDF-weighted coverage.** Weighting rarer query terms higher cost 4 points
+  of hit@1 and 4 of hit@5 when ranked before canonicity, and was bit-identical
+  to plain coverage when ranked after: the pool OR-derived document frequencies
+  are too skewed to carry information.
+- **Title-focus ratio** (covered terms divided by title length). Cost 15
+  points.
+- **Relevance thresholds** (carried over from 4.0): BM25 score distributions
+  for correct and incorrect results overlap 92%, and every cutoff discarded
+  correct results faster than incorrect ones.
+
+### Known limits
+
+The bridge is a hand-written table, so a pair that is absent does not bridge.
+`stale`/`bayat` and `participation`/`katilim` are measured misses, and a brand
+name standing in for a category (`coinbase` for "crypto exchange") is outside
+what any term table can reach. That accounts for most of the 20-query
+adversarial set failures, and is the honest ceiling of the current approach.
+
+
 ### 4.0 — retrieval, language, and self-report
 
 Schema bumps to **4**. The index is a rebuildable cache over markdown, so the

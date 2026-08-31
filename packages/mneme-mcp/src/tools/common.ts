@@ -29,6 +29,30 @@ const STOPWORDS_TR: ReadonlySet<string> = new Set([
 	"fakat",
 	"ya",
 	"hem",
+	// Question and filler words, added in 4.1. These carry the shape of a
+	// question but distinguish no document, and they were actively harmful:
+	// ranking measures how many query terms a document covers, so "ne zaman
+	// aciliyor" inflated the denominator and pushed a correct 2-of-2 match
+	// down to 2-of-6. Measured on the golden set: +4% hit@1.
+	"ne",
+	"neden",
+	"nasil",
+	"nedir",
+	"kim",
+	"kime",
+	"nerede",
+	"nereye",
+	"hangi",
+	"kac",
+	"zaman",
+	"aciliyor",
+	"oluyor",
+	"olur",
+	"var",
+	"yok",
+	"mi",
+	"mu",
+	"midir",
 ]);
 
 const STOPWORDS_EN: ReadonlySet<string> = new Set([
@@ -50,6 +74,17 @@ const STOPWORDS_EN: ReadonlySet<string> = new Set([
 	"be",
 	"been",
 	"being",
+	// English question words, same reasoning as the Turkish additions above.
+	"what",
+	"when",
+	"where",
+	"which",
+	"how",
+	"why",
+	"who",
+	"does",
+	"did",
+	"do",
 ]);
 
 /**
