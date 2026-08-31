@@ -476,8 +476,10 @@ class TestFrontmatterDequote:
 
 
 class TestConstants:
-    def test_schema_version_is_string_three(self) -> None:
-        assert SCHEMA_VERSION == "3"
+    def test_schema_version_is_string_four(self) -> None:
+        # 4.0 added documents_fts.path_tokens, populated documents.language,
+        # and introduced the bi-temporal validity columns.
+        assert SCHEMA_VERSION == "4"
 
     def test_default_excludes_include_critical_dirs(self) -> None:
         assert "/.git/" in DEFAULT_EXCLUDE_PATTERNS
@@ -1218,12 +1220,25 @@ class TestScopeColumn:
 
         conn = sqlite3.connect(db_path)
         ensure_schema(conn)
-        stored_ver = conn.execute(
-            "SELECT MAX(schema_version) FROM documents"
-        ).fetchone()[0]
+        # 4.0: an FTS table whose column set predates path_tokens cannot be
+        # ALTERed (SQLite forbids it on virtual tables), so ensure_schema drops
+        # and recreates it. The documents rows are cleared in the same step --
+        # otherwise the next incremental pass would skip every unchanged file
+        # and leave the new FTS tables EMPTY while documents still looked
+        # populated, i.e. search returning nothing and reporting no error.
+        fts_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(documents_fts)")
+        }
+        remaining = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        rebuilt_for = conn.execute(
+            "SELECT value FROM index_meta WHERE key='fts_rebuilt_for_schema'"
+        ).fetchone()
         conn.close()
 
-        assert stored_ver == "2", "old rows must retain their schema_version value"
-        assert stored_ver != SCHEMA_VERSION, (
-            "mismatch between stored and expected version triggers the rebuild signal"
+        assert "path_tokens" in fts_cols, "stale FTS table must be recreated"
+        assert remaining == 0, (
+            "documents must be cleared so the next pass reindexes from markdown"
+        )
+        assert rebuilt_for is not None and rebuilt_for[0] == SCHEMA_VERSION, (
+            "the rebuild must record which schema version it was performed for"
         )

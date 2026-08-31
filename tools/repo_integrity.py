@@ -41,6 +41,7 @@ EXPECTED_TOOL_NAMES = (
     "mneme_timeline",
     "mneme_prime",
     "mneme_propose",
+    "mneme_health",
     "mneme_checkpoint_list",
     "mneme_working_set_load",
 )
@@ -206,8 +207,9 @@ def _check_tool_registry(errors: list[str], repo_root: Path) -> None:
     actual = _tool_names_from_registry(registry)
     if actual != EXPECTED_TOOL_NAMES:
         errors.append(
-            "MCP tool registry must expose the canonical nine tools in order: "
-            f"{actual}"
+            "MCP tool registry must expose the canonical tools in order.\n"
+            f"  expected: {EXPECTED_TOOL_NAMES}\n"
+            f"  actual:   {actual}"
         )
 
 
@@ -318,6 +320,111 @@ def _check_coverage_truth(errors: list[str], repo_root: Path) -> None:
         errors.append("CI and release preflight must invoke the Node coverage gate")
 
 
+#: Paketler-arasi mneme bagimliligi tasiyan pyproject dosyalari.
+INTERNAL_DEPENDENTS = (
+    "packages/mneme-graph/pyproject.toml",
+    "packages/mneme-code/pyproject.toml",
+    "packages/mneme-cc-plugin/pyproject.toml",
+)
+
+_INTERNAL_DEP = re.compile(r'"(mneme-[a-z]+)\s*>=\s*([0-9][^,"]*)\s*,\s*<\s*([0-9][^"]*)"')
+
+
+def _check_internal_dependencies(errors: list[str], repo_root: Path) -> None:
+    """Every in-repo mneme dependency must admit the version being released.
+
+    version_bump.py keeps the 18 declared version sources in lockstep, but it
+    does not touch the constraints packages place on EACH OTHER. Those drifted
+    silently across the 4.0 bump: the packages were rebuilt as 4.1.0 while
+    still requiring "mneme-core>=3.0.0,<4". Published that way, pip has no
+    choice but to resolve mneme-core to the newest 3.x, and a schema-4 reader
+    is handed a schema-3 index. The failure surfaces at the user, not here,
+    which is exactly why it needs a gate.
+    """
+    # check_consistency returns (agree, [(label, version), ...]) over all 18
+    # sources, so the distinct versions have to be extracted rather than
+    # counted. Reading the list length instead silently made this whole check
+    # a no-op, which its negative control caught.
+    agree, seen = check_consistency()
+    versions = {version for _, version in seen}
+    if not agree or len(versions) != 1:
+        return  # version-source disagreement is already reported elsewhere
+    current = next(iter(versions))
+    major = current.split(".")[0]
+    try:
+        next_major = str(int(major) + 1)
+    except ValueError:
+        errors.append(f"cannot parse major version from {current!r}")
+        return
+
+    for rel in INTERNAL_DEPENDENTS:
+        path = repo_root / rel
+        if not path.is_file():
+            errors.append(f"internal dependency source is missing: {rel}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        found = _INTERNAL_DEP.findall(text)
+        if not found:
+            errors.append(f"{rel} declares no in-repo mneme dependency to check")
+            continue
+        for name, lower, upper in found:
+            if lower != current:
+                errors.append(
+                    f"{rel}: {name} lower bound is {lower}, expected {current} "
+                    "(in-repo dependencies must admit the version being released)"
+                )
+            if upper.strip() != next_major:
+                errors.append(
+                    f"{rel}: {name} upper bound is <{upper.strip()}, expected <{next_major}"
+                )
+
+
+#: Prose that states how many MCP tools ship. Each entry is (file, template);
+#: the template is rendered with the registry's own length, so the gate cannot
+#: keep asserting a number the registry has moved past.
+_TOOL_COUNT_CLAIMS: tuple[tuple[str, str], ...] = (
+    ("README.md", "{n} MCP tools"),
+    ("docs/MCP.md", "exposes {word} tools over stdio"),
+)
+
+_NUMBER_WORDS = {
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+}
+
+
+def _check_tool_count_claims(errors: list[str], readme: str, mcp_docs: str) -> None:
+    """Public tool-count claims must match the registry, and each tool must be documented.
+
+    4.0 added ``mneme_health`` as the tenth tool. README went on saying "nine"
+    in seven places, ``docs/MCP.md`` said "nine tools over stdio" and never
+    gave the new tool a section at all, and this file *required* the string
+    "9 MCP tools" — so the gate was holding the wrong number in place. A count
+    written as a literal in prose is a rule with no measure; deriving it from
+    ``EXPECTED_TOOL_NAMES`` is the measure.
+    """
+    n = len(EXPECTED_TOOL_NAMES)
+    word = _NUMBER_WORDS.get(n, str(n))
+    sources = {"README.md": readme, "docs/MCP.md": mcp_docs}
+    for rel, template in _TOOL_COUNT_CLAIMS:
+        expected = template.format(n=n, word=word)
+        if expected not in sources[rel]:
+            errors.append(
+                f"{rel} must state the registry's tool count: expected {expected!r}"
+            )
+        stale = template.format(n=n - 1, word=_NUMBER_WORDS.get(n - 1, str(n - 1)))
+        if stale in sources[rel]:
+            errors.append(f"{rel} still carries the previous tool count: {stale!r}")
+
+    # A tool nobody documented is a tool nobody can use. This is the check that
+    # would have caught mneme_health's missing section mechanically.
+    for name in EXPECTED_TOOL_NAMES:
+        if f"### {name}" not in mcp_docs:
+            errors.append(f"docs/MCP.md has no '### {name}' section for a registered tool")
+
+
 def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     errors: list[str] = []
     _check_release_workflows(errors, repo_root)
@@ -326,6 +433,7 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     _check_client_manifests(errors, repo_root)
     _check_licenses_and_engines(errors, repo_root)
     _check_coverage_truth(errors, repo_root)
+    _check_internal_dependencies(errors, repo_root)
 
     readme = _read("README.md", repo_root)
     changelog = _read("CHANGELOG.md", repo_root)
@@ -333,8 +441,7 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     for marker in ("v1.0.0-rc", "Hard launch target", "Phase K release"):
         if marker in readme:
             errors.append(f"README still contains stale release marker: {marker}")
-    if "9 MCP tools" not in readme:
-        errors.append("README must describe lite as nine MCP tools")
+    _check_tool_count_claims(errors, readme, mcp_docs)
     if "mneme upgrade --profile=standard" not in readme:
         errors.append("README must document the supported upgrade command")
 
@@ -344,8 +451,12 @@ def collect_errors(repo_root: Path = REPO_ROOT) -> list[str]:
         errors.append("mneme-mcp package.json must preserve the immutable registry name")
     if server_manifest.get("name") != mcp_pkg.get("mcpName"):
         errors.append("server.json name must match package.json mcpName exactly")
-    if "9 tools" not in mcp_pkg.get("description", ""):
-        errors.append("mneme-mcp package.json description must say 9 tools")
+    expected_tools = f"{len(EXPECTED_TOOL_NAMES)} tools"
+    if expected_tools not in mcp_pkg.get("description", ""):
+        errors.append(
+            "mneme-mcp package.json description must say "
+            f"{expected_tools!r} (it is the npm registry blurb)"
+        )
 
     actual_locations = _immutable_name_locations(repo_root)
     if actual_locations != IMMUTABLE_MCP_NAME_LOCATIONS:

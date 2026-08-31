@@ -33,7 +33,7 @@ This mutates your Claude Code `settings.json` in a BOM-safe way (Windows-friendl
 
 ## Three-Tier Install Profiles
 
-- `lite`: hooks + commands + 9 MCP tools (Python + Node only).
+- `lite`: hooks + commands + 10 MCP tools (Python + Node only).
 - `standard`: lite + optional ONNX runtime slot and RRF extension points. Packaged LEANN retrieval is roadmap.
 - `full`: standard + gated Graphiti temporal knowledge graph enrichment for summarize and timeline (Docker + Neo4j required).
 

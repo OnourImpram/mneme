@@ -32,7 +32,7 @@ class RepositoryTruthTests(unittest.TestCase):
     def test_live_repository_integrity_passes(self) -> None:
         self.assertEqual(repo_integrity.collect_errors(), [])
 
-    def test_tool_registry_exposes_canonical_nine(self) -> None:
+    def test_tool_registry_exposes_canonical_tools(self) -> None:
         registry = (REPO_ROOT / "packages/mneme-mcp/src/tool_registry.ts").read_text(
             encoding="utf-8"
         )

@@ -415,15 +415,23 @@ def write_version(source: VersionSource, new_semver: str) -> None:
 
 
 def check_consistency() -> tuple[bool, list[tuple[str, str]]]:
-    """Returns (all_agree, [(label, version)]). Always reports actual values."""
+    """Returns (all_agree, [(label, version)]). Always reports actual values.
+
+    An unreadable source counts as disagreement, not as an exclusion. Dropping
+    ERROR entries before comparing made this gate pass on exactly the condition
+    it exists to catch: delete or corrupt one of the declared version sources
+    and every source that still parses agrees with itself, so the release
+    preflight reported consensus over a missing file.
+    """
     seen: list[tuple[str, str]] = []
     for src in SOURCES:
         try:
             seen.append((src.label, read_version(src)))
         except (OSError, ValueError) as exc:
             seen.append((src.label, f"ERROR: {exc}"))
+    unreadable = [label for label, v in seen if v.startswith("ERROR:")]
     versions = {v for _, v in seen if not v.startswith("ERROR:")}
-    return len(versions) == 1, seen
+    return not unreadable and len(versions) == 1, seen
 
 
 def main() -> int:
@@ -459,10 +467,10 @@ def main() -> int:
                 {"label": label, "version": version} for label, version in seen
             ],
         }
+        # No ERROR filter here either: a source that could not be read has not
+        # been shown to declare the target, so it cannot count as a match.
         match = (
-            True
-            if args.version is None
-            else all(v == args.version for _, v in seen if not v.startswith("ERROR:"))
+            True if args.version is None else all(v == args.version for _, v in seen)
         )
         report["matches_target"] = match
         print(json.dumps(report, indent=2, ensure_ascii=False))

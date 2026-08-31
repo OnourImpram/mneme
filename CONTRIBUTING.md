@@ -50,7 +50,7 @@ New MCP tools require an Architecture Decision Record entry in `docs/ARCHITECTUR
 
 ## Code of Conduct
 
-This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Report violations to onuribram+mneme-conduct@outlook.com.
+This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Report violations to onour@onourimpram.com.
 
 ## License
 

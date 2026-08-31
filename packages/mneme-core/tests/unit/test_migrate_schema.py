@@ -37,13 +37,18 @@ def _create_minimal_documents(conn: sqlite3.Connection, *, exclude: set[str]) ->
         "frontmatter_type TEXT",
         "session_id TEXT",
         "linked_notes TEXT",
-        "schema_version TEXT DEFAULT '3'",
+        "schema_version TEXT DEFAULT '4'",
         "language TEXT DEFAULT 'en'",
         "indexed_at TEXT",
         "content_hash TEXT",
         "trust TEXT",
         "key_points TEXT",
         "scope TEXT NOT NULL DEFAULT 'default'",
+        # 4.0 bi-temporal validity columns. This list is the "fully migrated"
+        # reference: any column added to _MIGRATION_COLUMNS must appear here
+        # too, or the idempotency test fails by reporting a genuine gap.
+        "valid_from TEXT",
+        "valid_until TEXT",
     ]
     # Strip excluded columns (match by name prefix).
     kept = [

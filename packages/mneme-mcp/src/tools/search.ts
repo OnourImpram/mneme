@@ -7,14 +7,15 @@
  */
 
 import { existsSync } from "node:fs";
-import Database from "better-sqlite3";
 import { z } from "zod";
 import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { type EvidenceCard, hitToEvidenceCard } from "../evidence_card.js";
 import { neutralize } from "../injection.js";
-import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
+import { resolveIndexProfile } from "../locale/resolve.js";
 import { redact } from "../privacy.js";
+import { bridgeTerms } from "../retrieval/bridge.js";
 import { buildFts5Query, type Fts5Hit, fts5Search } from "../retrieval/fts5.js";
+import { rerank } from "../retrieval/rerank.js";
 import {
 	computeQueryHash,
 	emitSearchTelemetry,
@@ -50,13 +51,6 @@ export const CANONICAL_MEMORY_TYPES = [
 ] as const;
 
 export type CanonicalMemoryType = (typeof CANONICAL_MEMORY_TYPES)[number];
-
-/**
- * The normalizer profile written into index_meta by `mneme index rebuild
- * --locale tr`. The TS query path always uses normalizeTr which implements
- * the tr-cldr fold, so this is the expected profile value.
- */
-const QUERY_SIDE_NORMALIZER_PROFILE = "tr-cldr";
 
 export const SearchInputSchema = z.object({
 	query: z
@@ -108,21 +102,16 @@ export const SearchInputSchema = z.object({
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;
 
-/** @deprecated Prefer EvidenceCard from the cards field. */
-export interface SearchHit {
-	path: string;
-	title: string;
-	score: number;
-	snippet: string;
-	type: string;
-	mtime: number;
-	contentHash: string;
-	trust: string;
-}
-
 export interface SearchOutput {
 	query: string;
-	hits: SearchHit[];
+	/**
+	 * Ranked evidence cards. Single source of results since 4.0.
+	 *
+	 * BREAKING (4.0): the `hits` array was removed. It duplicated every field
+	 * of `cards` on the wire, doubling response size for no added information.
+	 * Callers read `cards`; EvidenceCard is a superset of the old SearchHit
+	 * (same fields plus confidenceLabel, backend and query).
+	 */
 	cards: EvidenceCard[];
 	/**
 	 * Deduplicated list of backend identifiers that contributed at least one
@@ -132,6 +121,17 @@ export interface SearchOutput {
 	 */
 	backends_used: string[];
 }
+
+/**
+ * BM25 candidates fetched before reranking.
+ *
+ * Coverage reranking can only promote a document that is in the pool. On the
+ * golden set the correct answer sat as deep as BM25 position 75, so a pool
+ * the size of the requested page would have made the rerank a no-op for
+ * exactly the queries it exists to fix. 200 covers every measured case with
+ * headroom; the cost is one wider SQLite scan, not extra round trips.
+ */
+const RERANK_POOL = 200;
 
 const SNIPPET_CHARS = 200;
 const SNIPPET_HALF = Math.floor(SNIPPET_CHARS / 2);
@@ -226,35 +226,6 @@ function extractQueryTokens(
 	return tokens;
 }
 
-/**
- * Read the normalization_profile row from index_meta if the table and row
- * exist. Returns null when the table is absent or the row is missing so the
- * caller can reject an unverified legacy index. Throws only on unexpected
- * I/O failures.
- */
-function readIndexProfile(dbPath: string): string | null {
-	const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-	try {
-		db.pragma("query_only = ON");
-		// Check whether the index_meta table exists at all.
-		const tableRow = db
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type='table' AND name='index_meta'",
-			)
-			.get() as { name: string } | undefined;
-		if (!tableRow) return null;
-
-		const row = db
-			.prepare(
-				"SELECT value FROM index_meta WHERE key = 'normalization_profile'",
-			)
-			.get() as { value: string } | undefined;
-		return row ? row.value : null;
-	} finally {
-		db.close();
-	}
-}
-
 export function searchTool(
 	args: SearchInput,
 	vault: VaultConfig,
@@ -278,55 +249,47 @@ export function searchTool(
 		};
 	}
 
-	// P6: locale mismatch guard.
-	// Read the profile stored at index-build time. If it IS present and
-	// differs from what the query side uses, fail fast — results would be
-	// garbled. If absent (legacy index), proceed with a warning.
-	let indexProfile: string | null;
+	// P6: locale mismatch guard. The index declares which normalizer built it
+	// and the query path adopts that profile rather than imposing one; an
+	// unknown or absent id fails closed instead of normalizing differently
+	// than the stored tokens. Shared with prime/summarize/timeline, which
+	// previously hardcoded the Turkish normalizer and so could not serve an
+	// English index at all — one definition, four call sites.
+	let resolved: ReturnType<typeof resolveIndexProfile>;
 	try {
-		indexProfile = readIndexProfile(vault.fts5Db);
+		resolved = resolveIndexProfile(vault.fts5Db);
 	} catch (err) {
 		return { ok: false, error: toMnemeError(err) };
 	}
-
-	if (indexProfile !== null && indexProfile !== QUERY_SIDE_NORMALIZER_PROFILE) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
-				message: `Index normalizer profile '${indexProfile}' does not match query-side profile '${QUERY_SIDE_NORMALIZER_PROFILE}'. Rebuild the index with 'mneme index rebuild --locale tr' to fix.`,
-			},
-		};
-	}
-
-	if (indexProfile === null) {
-		return {
-			ok: false,
-			error: {
-				code: ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
-				message:
-					"The FTS5 index has no normalizer profile and cannot be trusted for locale-sensitive retrieval. " +
-					"Run 'mneme-core index rebuild --locale tr' before retrying.",
-			},
-		};
-	}
+	if (!resolved.ok) return { ok: false, error: resolved.error };
+	const { profile } = resolved;
 
 	const ftsQuery = buildFts5Query(args.query, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTr,
+		normalize: profile.normalize,
+		expandTerm: bridgeTerms,
 	});
-	const ftsQueryAscii = buildFts5Query(args.query, {
-		minTokenLength: 2,
-		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTrAsciiFold,
-	});
-	if (ftsQuery.length === 0 && ftsQueryAscii.length === 0) {
-		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+	// Only locales that declare an ascii-fold key query the sibling table.
+	// English has no dotted/dotless ambiguity to bridge, so it skips the leg
+	// entirely rather than paying for a duplicate index scan.
+	const ftsQueryAscii = profile.asciiFold
+		? buildFts5Query(args.query, {
+				minTokenLength: 2,
+				stopwords: DEFAULT_STOPWORDS,
+				normalize: profile.asciiFold,
+				expandTerm: bridgeTerms,
+			})
+		: undefined;
+	if (ftsQuery.length === 0 && !ftsQueryAscii) {
+		const queryHash = computeQueryHash(
+			vault.stateDir,
+			profile.normalize(args.query),
+		);
 		emitSearchTelemetry(vault.stateDir, queryHash, 0, 0);
 		return {
 			ok: true,
-			data: { query: args.query, hits: [], cards: [], backends_used: [] },
+			data: { query: args.query, cards: [], backends_used: [] },
 		};
 	}
 
@@ -347,13 +310,17 @@ export function searchTool(
 			ftsQuery,
 			ftsQueryAscii,
 			limit: args.top_k,
+			poolSize: RERANK_POOL,
 			mtimeFrom,
 			mtimeTo,
 			scope,
 		});
 	} catch (err) {
 		const elapsedMs = Date.now() - searchStart;
-		const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+		const queryHash = computeQueryHash(
+			vault.stateDir,
+			profile.normalize(args.query),
+		);
 		emitSearchTelemetry(
 			vault.stateDir,
 			queryHash,
@@ -375,12 +342,24 @@ export function searchTool(
 	}
 	const elapsedMs = Date.now() - searchStart;
 
-	const filtered = args.filters?.type
+	const typeFiltered = args.filters?.type
 		? raw.filter((h) => h.frontmatterType === args.filters?.type)
 		: raw;
 
+	// Rerank the pool by term coverage, then cut to the requested page.
+	// BM25 ranks term density; coverage ranks how many DISTINCT query terms a
+	// document's title and path carry. See retrieval/rerank.ts for the
+	// measured effect (hit@1 59% -> 85% on a 46-query golden set).
+	const queryTokens = extractQueryTokens(args.query, profile.normalize);
+	const filtered = rerank(typeFiltered, queryTokens)
+		.slice(0, args.top_k)
+		.map((r) => r.hit);
+
 	// Emit retrieval telemetry (non-fatal — wrapped inside emitSearchTelemetry).
-	const queryHash = computeQueryHash(vault.stateDir, normalizeTr(args.query));
+	const queryHash = computeQueryHash(
+		vault.stateDir,
+		profile.normalize(args.query),
+	);
 	emitSearchTelemetry(
 		vault.stateDir,
 		queryHash,
@@ -399,10 +378,6 @@ export function searchTool(
 		},
 	);
 
-	// Extract normalized tokens for match-centered snippeting (T7).
-	const queryTokens = extractQueryTokens(args.query, normalizeTr);
-
-	const hits: SearchHit[] = [];
 	const cards: EvidenceCard[] = [];
 
 	for (const h of filtered) {
@@ -412,18 +387,9 @@ export function searchTool(
 		// embedded fence sentinel in snippets/titles so a crafted note cannot
 		// forge an untrusted-memory boundary inside a search result (G-3).
 		const snippetStr = neutralize(
-			redact(buildCenteredSnippet(h.bodyText, queryTokens, normalizeTr)).text,
+			redact(buildCenteredSnippet(h.bodyText, queryTokens, profile.normalize))
+				.text,
 		);
-		hits.push({
-			path: h.path,
-			title: neutralize(h.title),
-			score: h.rank,
-			snippet: snippetStr,
-			type: h.frontmatterType,
-			mtime: h.mtime,
-			contentHash: h.contentHash,
-			trust: h.trust,
-		});
 		cards.push(hitToEvidenceCard(h, args.query, snippetStr));
 	}
 
@@ -433,7 +399,6 @@ export function searchTool(
 		ok: true,
 		data: {
 			query: args.query,
-			hits,
 			cards,
 			backends_used,
 		},

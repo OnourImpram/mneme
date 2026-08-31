@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneme-core"
-version = "3.6.3"
+version = "4.1.0"
 description = "Vault-native memory engine for Claude Code. FTS5 BM25, RRF-ready retrieval, gated Graphiti KG, and adaptive context tooling."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -114,6 +114,12 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Test the working tree, not whatever version happens to be installed.
+# Without this, pytest imports mneme_core from site-packages: a full green
+# run then says nothing about the code being edited. Observed during the 4.0
+# schema work -- 1,686 tests passed against a stale installed copy that still
+# reported SCHEMA_VERSION 3 while the source said 4.
+pythonpath = ["src"]
 python_files = "test_*.py"
 addopts = "-v --strict-markers --cov=mneme_core --cov-report=term-missing --cov-fail-under=80"
 

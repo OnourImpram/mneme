@@ -31,11 +31,13 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      session_id TEXT,
      scope TEXT NOT NULL DEFAULT 'default',
      linked_notes TEXT,
-     schema_version TEXT DEFAULT '3',
+     schema_version TEXT DEFAULT '4',
      language TEXT DEFAULT 'en',
      indexed_at TEXT,
      content_hash TEXT,
-     trust TEXT
+     trust TEXT,
+     valid_from TEXT,
+     valid_until TEXT
    )`,
 	`CREATE INDEX IF NOT EXISTS idx_documents_mtime ON documents(mtime)`,
 	`CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path)`,
@@ -46,6 +48,7 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      content,
      tags,
      linked_notes,
+     path_tokens,
      tokenize='unicode61 remove_diacritics 2'
    )`,
 	`CREATE VIRTUAL TABLE IF NOT EXISTS documents_ascii_fts USING fts5(
@@ -53,6 +56,7 @@ export const TEST_SCHEMA_STATEMENTS: string[] = [
      content,
      tags,
      linked_notes,
+     path_tokens,
      tokenize='unicode61 remove_diacritics 2'
    )`,
 	`CREATE TABLE IF NOT EXISTS index_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -84,9 +88,44 @@ export interface TestDoc {
 	contentHash?: string;
 	/** Origin trust label. Defaults to 'user'. */
 	trust?: string;
+	/**
+	 * Tokenised path. Defaults to the document path split on vault separators,
+	 * mirroring `mneme_core.fts5.indexer._path_tokens`.
+	 */
+	pathTokens?: string;
 }
 
-export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
+/**
+ * Split a vault path into searchable tokens.
+ *
+ * Mirrors the Python indexer. The hyphen is last in the character class so it
+ * stays a literal instead of forming a range — writing it mid-class silently
+ * stops splitting on the separator vault filenames use most.
+ */
+function defaultPathTokens(path: string): string {
+	return path
+		.split(/[/\_.\s-]+/)
+		.filter((part) => part.length > 0)
+		.join(" ")
+		.toLowerCase();
+}
+
+/**
+ * Which locale profile the fixture index should declare.
+ *
+ * This used to be hardcoded to Turkish, and that is precisely why a whole
+ * class of defect went unmeasured: every fixture was a Turkish index, so
+ * three tools that only worked on Turkish indexes passed every test. An
+ * English fixture declares no ascii key, matching what the Python indexer
+ * writes for `--locale en`.
+ */
+export type FixtureLocale = "tr" | "en";
+
+export function buildTestDb(
+	dbPath: string,
+	docs: TestDoc[],
+	locale: FixtureLocale = "tr",
+): void {
 	mkdirSync(dirname(dbPath), { recursive: true });
 	const db = new Database(dbPath);
 	try {
@@ -101,19 +140,32 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		);
 		const insertFts = db.prepare(
-			`INSERT INTO documents_fts (rowid, title, content, tags, linked_notes)
-       VALUES (?, ?, ?, ?, ?)`,
+			`INSERT INTO documents_fts
+       (rowid, title, content, tags, linked_notes, path_tokens)
+       VALUES (?, ?, ?, ?, ?, ?)`,
 		);
 		const insertAsciiFts = db.prepare(
-			`INSERT INTO documents_ascii_fts (rowid, title, content, tags, linked_notes)
-       VALUES (?, ?, ?, ?, ?)`,
+			`INSERT INTO documents_ascii_fts
+       (rowid, title, content, tags, linked_notes, path_tokens)
+       VALUES (?, ?, ?, ?, ?, ?)`,
 		);
 		db.prepare(
 			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
-		).run("normalization_profile", "tr-cldr");
+		).run("normalization_profile", locale === "tr" ? "tr-cldr" : "en-unicode");
 		db.prepare(
 			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
-		).run("ascii_normalization_profile", "tr-ascii-fold");
+		).run(
+			"ascii_normalization_profile",
+			locale === "tr" ? "tr-ascii-fold" : "disabled",
+		);
+		db.prepare(
+			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+		).run("index_language", locale);
+		// The schema gate in fts5Search reads this; without it every fixture
+		// would be rejected as unversioned.
+		db.prepare(
+			"INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+		).run("schema_version", "4");
 		const tx = db.transaction(() => {
 			for (const d of docs) {
 				const bodyText = d.bodyText ?? d.contentRaw;
@@ -134,12 +186,14 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
 					d.trust ?? "user",
 					d.scope ?? "default",
 				);
+				const pathTokens = d.pathTokens ?? defaultPathTokens(d.path);
 				insertFts.run(
 					info.lastInsertRowid,
 					d.titleNormalized,
 					d.contentNormalized,
 					d.tagsNormalized ?? d.tags ?? "",
 					d.linkedNotesNormalized ?? d.linkedNotes ?? "",
+					pathTokens,
 				);
 				insertAsciiFts.run(
 					info.lastInsertRowid,
@@ -150,6 +204,7 @@ export function buildTestDb(dbPath: string, docs: TestDoc[]): void {
 						d.linkedNotesNormalized ??
 						d.linkedNotes ??
 						"",
+					pathTokens,
 				);
 			}
 		});

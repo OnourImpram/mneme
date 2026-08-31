@@ -7,7 +7,260 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+## [4.1.0] - 2026-08-31
+
+### 4.1 — ranking that reads names, and crosses languages
+
+Mostly a query-path release: the schema does not change, so a schema-4 index
+stays readable. Turkish vaults should still rebuild once — a separate indexer
+fix below means their document bodies were stored unnormalized, and only a
+rebuild recovers body recall. Two gaps in 4.0 ranking were measured on a real
+12,317-document bilingual vault, and both are closed here.
+
+**BM25 scores term density; it cannot express term diversity.** In an OR query,
+a note repeating one query term eight times in its body competes on equal
+footing with a note carrying four distinct query terms in its title. Measured,
+that single gap caused most failures: a note whose title consisted of exactly
+the query's terms ranked #6, behind five notes that merely repeated one of them.
+
+**And coverage cannot cross a language boundary.** "device record protocol"
+shares no token with `Cihaz-Kayit-Protokolu` — its own Turkish translation —
+so that document scored zero on the very signal doing the ranking. Not ranked
+low: invisible.
+
+Measured through the shipped `mneme_search` code path, three hand-labelled
+query sets over that vault:
+
+| set | size | 4.0 hit@1 | 4.1 hit@1 | 4.0 hit@5 | 4.1 hit@5 |
+|---|---|---|---|---|---|
+| tuning + held-out | 46 | 59% | **93%** | 80% | **100%** |
+| adversarial cross-language | 20 | — | **45%** | — | **50%** |
+| all three | 66 | — | **79%** | — | **85%** |
+
+The third set was written AFTER the bridge table was frozen, specifically to
+expose overfitting — and it did. The first two sets alone report 93%/100%,
+which is therefore not the number to trust. Every figure here comes from the
+shipped TypeScript path, not from a simulation of it.
+
+### Added
+
+- **Coverage-tiered reranking** (`retrieval/rerank.ts`). Candidates are grouped
+  by how many distinct query terms appear in title or path; inside a tier the
+  BM25 order is preserved exactly. Tiering rather than a weighted sum buys a
+  guarantee that is easy to audit: a document can only be overtaken by one
+  covering STRICTLY more query terms.
+- **Canonicity scoring.** Path depth plus derived-content markers (`taslak`,
+  `arsiv`, `-kosum-`, `cikti`, and so on). Measured defect: a file titled "cihaz
+  kayit protokolu (taslak)" outranked the canonical "(v1.5.0)" — identical
+  titles, only the path distinguishes them.
+- **Cross-language term bridge** (`retrieval/bridge.ts`). A hand-written
+  Turkish/English table, consulted by both the FTS5 query builder and the
+  coverage counter. A bridged term counts ONCE, never twice, so a bilingual
+  document cannot outrank a monolingual one on the same evidence.
+- **Question and filler stopwords** for Turkish and English. They inflated the
+  coverage denominator: "ne zaman aciliyor" turned a correct 2-of-2 match into
+  a 2-of-6 one.
+- `buildFts5Query` accepts an injected `expandTerm`, which keeps the bridge a
+  retrieval policy rather than a property of FTS5 syntax.
+- `fts5Search` accepts `poolSize`: reranking needs a deeper candidate pool than
+  the caller top_k.
+
+### Changed
+
+- The derived-content penalty is now **query-aware**. It fired blind before: a
+  note whose filename carried the `-denetimi-` ("audit") marker was demoted to
+  0.245 on a query that was itself asking for an audit — the penalty was
+  suppressing exactly what the user asked for. A marker means "probably
+  secondary", never "secondary even when sought".
+
+### Fixed
+
+- **`index rebuild --locale en` produced an index that refused every query.**
+  The default locale fell through to the identity normalizer: `normalize_en`
+  existed, was registered in the profile map, mirrored in TypeScript and unit
+  tested — and no CLI path ever selected it. The resulting index recorded
+  `normalization_profile = 'identity'`, which 4.0's own locale gate refuses
+  outright, so the documented rebuild command run with its default flag left
+  an English user with `INDEX_STALE_OR_LOCALE_MISMATCH` on every search. Found
+  by running the upgrade path end to end instead of reading it.
+- **`mneme_prime`, `mneme_summarize` and `mneme_timeline` refused every query
+  on an English index.** `mneme_search` reads the profile the index declares
+  and folds queries the way the stored tokens were folded; the other three
+  imported the Turkish normalizers directly and so passed an ASCII-fold arm on
+  every call. `fts5Search` refuses that arm unless the index declares the
+  Turkish ASCII key, so on an `en-unicode` index all three failed with
+  `INDEX_STALE_OR_LOCALE_MISMATCH` — measured, for every query, including ones
+  containing no Turkish characters at all. Profile resolution now has one
+  definition and four call sites. No test caught this because the TypeScript
+  fixture builder hardcoded the Turkish profile: every fixture in the suite was
+  a Turkish index, so three tools that only worked on Turkish indexes passed
+  everything. `buildTestDb` now takes a locale, and a new parity suite runs all
+  four tools against an English index with the Turkish path as its control.
+- **Document bodies were indexed unnormalized, in both locales.**
+  `index rebuild` never passed `normalize_for_fts`, so titles and paths were
+  folded while bodies were stored verbatim and queries were folded — the two
+  ends disagreed. Measured: a body containing `KIYASLAMA` did not match the
+  query `"kıyaslama"`. Only the Turkish dotted/dotless axis breaks, because
+  FTS5's own tokenizer already folds ASCII case, and that is exactly why it
+  survived: invisible to every query that does not exercise the one axis the
+  Turkish profile exists to serve. Title and path ranking was unaffected, so
+  the hit-rate figures above stand. **Turkish vaults should rebuild to recover
+  body recall.**
+- **The version-lockstep gate could not fail on a missing source.**
+  `version_bump.py --check` guards the release tag, and the publish workflow
+  is fully automated off that tag. It dropped unreadable sources before
+  comparing versions, so deleting or corrupting one of the eighteen declared
+  sources left every source that still parsed agreeing with itself — the
+  preflight reported consensus over a missing file. An unreadable source is
+  now disagreement, not an exclusion, with a test that fails against the old
+  behaviour and passes against the new one.
+- **`doctor` did not recognise its own English profile.** `_KNOWN_PROFILES`
+  omitted `en-unicode`, so a correctly built English index was reported as an
+  unexpected value by the very tool meant to confirm it.
+- **The public tool count stayed at nine after a tenth tool shipped.** 4.0
+  added `mneme_health`; README said "nine" in seven places, `docs/MCP.md` said
+  "nine tools over stdio" and gave the new tool no section at all, the npm
+  package description said "9 tools", and four client READMEs enumerated the
+  tools by name without it. `repo_integrity.py` *required* the string
+  "9 MCP tools", so the gate was holding the wrong number in place. The count
+  is now derived from the tool registry, and a new check fails when a
+  registered tool has no section in `docs/MCP.md` — negative-controlled in
+  both directions.
+- **`docs/MCP.md` still documented the removed `hits` field.** Its example
+  showed a response shape 4.0 had deleted. It now shows `data.cards` with the
+  evidence fields (`contentHash`, `trust`, `confidenceLabel`) that `hits`
+  never carried.
+- **A skipped file said nothing about itself.** `IndexStats.skipped_error`
+  counted dropped documents but no code path recorded WHICH ones — the module
+  had no logger at all. Measured on a real vault, a rebuild reported
+  `skipped_error: 86` and answering "which 86?" required writing a separate
+  script that re-walked the vault through the indexer's own filters. Every skip
+  path now logs its path and cause at WARNING, with the path passed through
+  `redact` first, because a filename can itself be private. (For the record,
+  all 86 were one class: malformed YAML frontmatter.)
+- **`mneme_health` had no tests.** The tool that reports whether the system is
+  healthy was the only module in the package with no measurement of its own
+  (6.57% statements, 0% branches), which is what pushed global branch coverage
+  under the release threshold. Now 93.42%/88.33%, with a negative control on
+  every warning path and a contract test asserting every warning carries a
+  remedy.
+- **In-repo dependency constraints admitted only 3.x.** `mneme-graph`,
+  `mneme-code` and `mneme-cc-plugin` were rebuilt as 4.1.0 while still
+  requiring `mneme-core>=3.0.0,<4`. Published that way, pip has no choice but
+  to resolve `mneme-core` to the newest 3.x — so a schema-4 reader would have
+  been handed a schema-3 index, on a clean install, for every user. Found by
+  running the release preflight locally before tagging; `version_bump.py`
+  keeps the 18 declared version sources in lockstep but never touched the
+  constraints packages place on each other. `repo_integrity.py` now gates
+  this, with a negative control.
+- **`repo_integrity.py` did not count `mneme_health`.** 4.0 shipped a tenth
+  MCP tool and registered it everywhere except the canonical list the release
+  gate checks against, so the gate failed — correctly. Its error message also
+  printed the actual list under a sentence that read like a specification;
+  expected and actual are now printed separately.
+
+### Not shipped, and why
+
+Each of these was implemented and measured before being discarded. They are
+recorded so the same ground is not re-explored.
+
+- **Dense/semantic retrieval as a reranker.** Local embeddings
+  (`paraphrase-multilingual-MiniLM-L12-v2`, 12,317 documents, no network at
+  query time) work in isolation, but no fusion beat lexical-only. Flat RRF cost
+  17 points of hit@1 (96% to 79%). Conditional gating measured IDENTICAL to
+  lexical-only — and the negative control returning the same number is what
+  revealed the arm was never firing at all. Top-5 dense rescoring lost 8
+  points.
+- **Token-level dense as the cross-language bridge.** Rejected on measurement:
+  similarity hinges on diacritics while filenames are ASCII (design/tasarim
+  0.487 versus design/tasarim-with-diacritic 0.959; memory/hafiza 0.257 versus
+  0.961). The negative control topped out at 0.449, which sits inside the range
+  of the VALID ASCII pairs, so no threshold separates signal from noise.
+- **IDF-weighted coverage.** Weighting rarer query terms higher cost 4 points
+  of hit@1 and 4 of hit@5 when ranked before canonicity, and was bit-identical
+  to plain coverage when ranked after: the pool OR-derived document frequencies
+  are too skewed to carry information.
+- **Title-focus ratio** (covered terms divided by title length). Cost 15
+  points.
+- **Relevance thresholds** (carried over from 4.0): BM25 score distributions
+  for correct and incorrect results overlap 92%, and every cutoff discarded
+  correct results faster than incorrect ones.
+
+### Known limits
+
+The bridge is a hand-written table, so a pair that is absent does not bridge.
+`stale`/`bayat` and `participation`/`katilim` are measured misses, and a brand
+name standing in for a category (`coinbase` for "crypto exchange") is outside
+what any term table can reach. That accounts for most of the 20-query
+adversarial set failures, and is the honest ceiling of the current approach.
+
+
+### 4.0 — retrieval, language, and self-report
+
+Schema bumps to **4**. The index is a rebuildable cache over markdown, so the
+migration is a version bump plus a full reindex, not an in-place ALTER. On a
+real 12,317-document vault the rebuild took 67 seconds.
+
+Measured on a 24-query golden set over that vault (12 Turkish, 12 English,
+expected document hand-labelled), comparing the shipped 3.x path against 4.0:
+
+| | hit@1 | hit@5 | TR hit@5 | EN hit@5 |
+|---|---|---|---|---|
+| 3.x | 29% | 50% | 6/12 | 6/12 |
+| 4.0 | **50%** | **79%** | **10/12** | **9/12** |
+
+### Added
+
+- `mneme_health`, a tenth tool reporting schema version, locale profile,
+  document count, index staleness, per-language breakdown and staging
+  backlog. Every warning names its remedy. Against a pre-4.0 index it
+  reports three real conditions in one call; against a 4.0 index two of them
+  clear.
+- `en-unicode` locale profile alongside `tr-cldr`, plus a profile registry.
+  The index now declares which normalizer built it and the query path adopts
+  that profile, instead of the query path pinning one and rejecting the rest.
+- `documents_fts.path_tokens`: the file path is searchable. A note titled
+  `02-01-PLAN` was previously unreachable even though its directory
+  (`03-supertonic-3-engine-installer-mirror-reliability`) says exactly what it
+  is about. This is what moved English hit@5 from 6/12 to 9/12; title
+  weighting alone had moved it not at all.
+- `documents.valid_from` / `valid_until`, read from frontmatter and never
+  inferred. A file's mtime records when bytes changed, not when a fact became
+  true.
+
+### Changed
+
+- **BREAKING**: `mneme_search` no longer returns `hits`. It duplicated every
+  field of `cards` on the wire, doubling response size for no added
+  information. `EvidenceCard` is a superset of the old `SearchHit`.
+- BM25 now weights columns (`title` 10, `path_tokens` 5, `content` 1,
+  `tags` 1, `linked_notes` 0.1) instead of ranking every column equally. A
+  note whose title IS the query previously lost to a shorter, term-dense file.
+- `documents.language` is populated per document — declaration, then
+  detection, then the index profile's language. It shipped in schema 3 with a
+  `DEFAULT 'en'` that nothing ever wrote: on a Turkish-majority vault, 11,910
+  of 11,910 rows carried the default.
+- The schema gate lives in `fts5Search`, so `summarize` and `timeline`
+  inherit it. The pre-existing locale gate covered only `search`.
+
+### Fixed
+
+- `normalizeEn` folds U+0130 explicitly before lowercasing. Bare
+  `toLowerCase()` is not length-preserving (`"İ"` becomes two code units),
+  and the snippet builder locates a match in the normalized body then slices
+  the original at that offset — an English note mentioning "İstanbul" would
+  have shifted every following snippet.
+- `pytest` now resolves `mneme_core` from `src/`. It previously imported the
+  installed package, so a full green run said nothing about the working tree.
+
+### Not shipped, and why
+
+A relevance threshold was designed and then dropped on measurement. Absolute
+BM25 scores do not separate correct from incorrect results (94% overlap on the
+golden set), and a query-normalized relative threshold discards correct
+results faster than wrong ones at every cut-off tested (at 0.8: 28% of correct
+vs 23% of incorrect). The complaint it was meant to address — irrelevant
+results ranking high — is answered by the ranking fix instead.
 
 ## [3.6.3] - 2026-07-27
 

@@ -15,7 +15,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { neutralize } from "../injection.js";
-import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
+import { resolveIndexProfile } from "../locale/resolve.js";
 import { buildFts5Query, fts5Search } from "../retrieval/fts5.js";
 import {
 	closeDriver,
@@ -85,21 +85,31 @@ export async function summarizeTool(
 
 	const scope = args.scope ?? vault.defaultScope();
 
+	// The index declares its normalizer; the query side adopts it. Hardcoding
+	// the Turkish one always produced an ASCII arm, which fts5Search refuses
+	// unless the index carries the Turkish ASCII key — so every call against
+	// an English index failed, whatever the topic.
+	const resolved = resolveIndexProfile(vault.fts5Db);
+	if (!resolved.ok) return { ok: false, error: resolved.error };
+	const { profile } = resolved;
+
 	const ftsQuery = buildFts5Query(args.topic, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTr,
+		normalize: profile.normalize,
 	});
-	const ftsQueryAscii = buildFts5Query(args.topic, {
-		minTokenLength: 2,
-		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTrAsciiFold,
-	});
+	const ftsQueryAscii = profile.asciiFold
+		? buildFts5Query(args.topic, {
+				minTokenLength: 2,
+				stopwords: DEFAULT_STOPWORDS,
+				normalize: profile.asciiFold,
+			})
+		: undefined;
 
 	const [from, to] = args.date_range ?? [undefined, undefined];
 
 	let hits: ReturnType<typeof fts5Search> = [];
-	if (ftsQuery.length > 0 || ftsQueryAscii.length > 0) {
+	if (ftsQuery.length > 0 || ftsQueryAscii) {
 		try {
 			hits = fts5Search({
 				dbPath: vault.fts5Db,

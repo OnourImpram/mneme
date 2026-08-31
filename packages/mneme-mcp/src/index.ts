@@ -31,7 +31,7 @@ import { publicToolDefinitions, TOOL_DEFINITIONS } from "./tool_registry.js";
 import { VaultConfig } from "./vault/config.js";
 
 const SERVER_NAME = "mneme-mcp";
-const SERVER_VERSION = "3.6.3";
+const SERVER_VERSION = "4.1.0";
 
 const HELP = `${SERVER_NAME} - MCP server for mneme vault memory
 

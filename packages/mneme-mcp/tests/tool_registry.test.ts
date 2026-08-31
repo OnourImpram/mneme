@@ -42,9 +42,9 @@ function property(schema: JsonSchemaObject, name: string): JsonSchemaObject {
 }
 
 describe("MCP tool schema registry", () => {
-	it("uses one runtime schema authority for all nine public tools", () => {
+	it("uses one runtime schema authority for all ten public tools", () => {
 		const publicTools = publicToolDefinitions();
-		expect(publicTools).toHaveLength(9);
+		expect(publicTools).toHaveLength(10);
 		expect(publicTools.map((tool) => tool.name)).toEqual(
 			TOOL_DEFINITIONS.map((tool) => tool.name),
 		);

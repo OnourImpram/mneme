@@ -5,6 +5,88 @@ Markdown is ground truth: no upgrade in mneme's history has ever
 required touching your vault files, and every derived store (FTS5
 index, claims table, graph) is rebuildable from them.
 
+## 3.6.x to 4.1
+
+Two breaking changes. Your markdown is untouched, as always — everything that
+changes here is derived state or a response field.
+
+### 1. The index must be rebuilt (schema 4)
+
+Schema 4 makes the file path searchable, records a language per document, and
+reads validity dates from frontmatter. None of that can be added to an existing
+index in place, so 4.x refuses to read a schema-3 one rather than answering
+from a half-understood index:
+
+```
+INDEX_STALE_OR_LOCALE_MISMATCH: FTS5 index schema 'unversioned' does not
+match the schema this client speaks ('4').
+```
+
+(A 3.6.3 index records no schema version at all, hence `'unversioned'`.)
+
+Rebuild it:
+
+```bash
+mneme-core index rebuild --locale <tr|en>
+```
+
+**Pass `--locale` explicitly.** It defaults to `en`, and this is the one
+mistake in the upgrade that does not announce itself. The query path adopts
+whatever profile the index declares, so a Turkish vault rebuilt under `en`
+normalizes consistently at both ends and keeps answering `ok` — it simply
+stops finding things. Measured on a one-document fixture whose body reads
+`KIYASLAMA sonuçları`:
+
+| rebuilt with | query `kıyaslama` | query `ölçümleri` |
+| --- | --- | --- |
+| `--locale tr` | 1 result | 1 result |
+| `--locale en` | **0 results** | 1 result |
+
+Nothing errors in the failing cell. Only the Turkish dotted/dotless `i` axis
+breaks, which is precisely the axis the `tr` profile exists to serve, so most
+queries keep working and hide the ones that do not.
+
+`mneme_health` reports the profile an index actually carries under
+`locale.profile`. Check it after you rebuild — `tr-cldr` for a Turkish vault,
+`en-unicode` for an English one. A profile of `identity` means no normalizer
+ran at all; that index is refused outright rather than served.
+
+Measured on a 12,317-document vault: 67 seconds, and the result was 33%
+smaller than the schema-3 index it replaced.
+
+### 2. `mneme_search` no longer returns `hits`
+
+`hits` was deprecated in favour of `cards` and duplicated every result in the
+response — the same data went over the wire twice on every query. It is gone
+in 4.0.
+
+If you consume the MCP response directly, read `cards`. Each entry carries the
+same `path`, `title` and `snippet`, plus the evidence fields `hits` never had.
+No migration is needed for normal Claude Code or MCP-client use; this only
+affects code that parsed the raw tool response.
+
+### Version constraints
+
+The satellite packages now require the matching core: `mneme-graph`,
+`mneme-code` and `mneme-cc-plugin` at 4.1.0 depend on `mneme-core>=4.1.0,<5`.
+Upgrade them together — a mixed installation of 4.x satellites with a 3.x core
+resolves to a schema-3 index under a schema-4 reader.
+
+```bash
+pipx upgrade mneme-cc-plugin
+npm update -g mneme-mcp-server
+mneme-core index rebuild --locale <tr|en>
+```
+
+### Not breaking, but worth knowing
+
+4.1 changes how results are ranked: candidates are grouped by how many
+distinct query terms appear in a document's title or path, ties break on how
+canonical the path looks, and a Turkish/English term bridge lets an English
+query reach a Turkish filename. Nothing about the API changes — the same query
+returns better-ordered results. `CHANGELOG.md` records what was measured, and
+what was measured and rejected.
+
 ## 3.5.x to 3.6.0
 
 Upgrade the installed clients, then rebuild derived state once:

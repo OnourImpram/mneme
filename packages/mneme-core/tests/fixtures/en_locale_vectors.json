@@ -1,0 +1,86 @@
+[
+  {
+    "id": "acronym_api",
+    "input": "API",
+    "normalize_en": "api",
+    "normalize_en_for_fts": "api",
+    "note": "The case that motivated the profile: the Turkish fold gives 'apı', silently mangling English acronyms."
+  },
+  {
+    "id": "io_slash",
+    "input": "I/O",
+    "normalize_en": "i/o",
+    "normalize_en_for_fts": "i/o",
+    "note": "Turkish fold gives 'ı/o'. Slash is left to the FTS5 tokenizer, not the normalizer."
+  },
+  {
+    "id": "dotless_capital_I_istanbul",
+    "input": "Istanbul",
+    "normalize_en": "istanbul",
+    "normalize_en_for_fts": "istanbul",
+    "note": "English lowercases I to i. Turkish would give 'ıstanbul' — the two profiles must disagree here."
+  },
+  {
+    "id": "dotted_capital_I_istanbul",
+    "input": "İstanbul",
+    "normalize_en": "istanbul",
+    "normalize_en_for_fts": "istanbul",
+    "note": "LENGTH INVARIANT: bare lowercase yields 'i̇stanbul' (9 units for 8 in). U+0130 is folded explicitly first."
+  },
+  {
+    "id": "dotted_capital_I_single",
+    "input": "İ",
+    "normalize_en": "i",
+    "normalize_en_for_fts": "i",
+    "note": "Minimal case for the length invariant: 1 char in, 1 char out."
+  },
+  {
+    "id": "mixed_case_sentence",
+    "input": "The Retrieval Path Is Normalized",
+    "normalize_en": "the retrieval path is normalized",
+    "normalize_en_for_fts": "the retrieval path is normalized",
+    "note": "Ordinary prose; no special folding."
+  },
+  {
+    "id": "whitespace_runs",
+    "input": "  multiple   spaces\tand\ttabs  ",
+    "normalize_en": "  multiple   spaces\tand\ttabs  ",
+    "normalize_en_for_fts": "multiple spaces and tabs",
+    "note": "Only the _for_fts variant collapses whitespace; the plain form is length-preserving."
+  },
+  {
+    "id": "german_sharp_s",
+    "input": "Straße",
+    "normalize_en": "straße",
+    "normalize_en_for_fts": "straße",
+    "note": "Not uppercased to SS: lowercase of ß is ß, so length is preserved."
+  },
+  {
+    "id": "greek_sigma",
+    "input": "ΣΊΣΥΦΟΣ",
+    "normalize_en": "σίσυφος",
+    "normalize_en_for_fts": "σίσυφος",
+    "note": "Final sigma handling differs between engines; both Python and JS give σ here, and length is stable."
+  },
+  {
+    "id": "turkish_dotless_lowercase_untouched",
+    "input": "kıyaslama",
+    "normalize_en": "kıyaslama",
+    "normalize_en_for_fts": "kıyaslama",
+    "note": "Already-lowercase dotless ı is left alone: the English profile never maps I to ı, and never maps ı back."
+  },
+  {
+    "id": "empty_string",
+    "input": "",
+    "normalize_en": "",
+    "normalize_en_for_fts": "",
+    "note": "Boundary case."
+  },
+  {
+    "id": "digits_and_punctuation",
+    "input": "Phase 0: Gates — Pattern Map",
+    "normalize_en": "phase 0: gates — pattern map",
+    "normalize_en_for_fts": "phase 0: gates — pattern map",
+    "note": "A real vault title. Punctuation and em dash pass through untouched."
+  }
+]

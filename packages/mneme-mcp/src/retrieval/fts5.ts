@@ -35,6 +35,70 @@ export interface Fts5Hit {
 	trust: string;
 }
 
+/**
+ * BM25 per-column weights for the FTS5 ranking function.
+ *
+ * Column order matches the `documents_fts` / `documents_ascii_fts` DDL:
+ * `(title, content, tags, linked_notes)`.
+ */
+export interface Bm25Weights {
+	readonly title: number;
+	readonly content: number;
+	readonly tags: number;
+	readonly linkedNotes: number;
+	/** Tokenised file path. Added with schema 4. */
+	readonly pathTokens: number;
+}
+
+/**
+ * Default column weights.
+ *
+ * Before 4.0 the query used bare `fts.rank`, which weights every column
+ * equally. That let a long note whose body happens to repeat a query term
+ * outrank a note whose TITLE is the query. Measured on a 24-query golden set
+ * over a real vault (12 tr + 12 en, expected document hand-labelled):
+ *
+ *   fts.rank (equal weights)      hit@1 29%   hit@5 50%
+ *   title=10, linked_notes=0.1    hit@1 46%   hit@5 67%
+ *
+ * Turkish gained the most (hit@5 6/12 -> 10/12) because vault titles are
+ * descriptive noun phrases that mirror how the operator queries. Raising
+ * title beyond 10 produced no further gain, so 10 is the saturation point
+ * rather than an arbitrary large number.
+ *
+ * `linked_notes` is demoted because it is a bag of wikilink slugs: it inflates
+ * term frequency for hub notes without indicating aboutness.
+ */
+export const DEFAULT_BM25_WEIGHTS: Bm25Weights = {
+	title: 10.0,
+	content: 1.0,
+	tags: 1.0,
+	linkedNotes: 0.1,
+	// Weighted between title and content. A path is strong evidence of what a
+	// note is about — often the ONLY evidence when the frontmatter title is
+	// generic ("02-01-PLAN") — but it is machine-assigned rather than authored,
+	// so it does not outrank a title the author chose. On the golden set the
+	// path signal moved English hit@5 from 6/12 to 8/12 while Turkish, whose
+	// titles are already descriptive, was unaffected.
+	pathTokens: 5.0,
+};
+
+/**
+ * Render the BM25 call for a table. Weights are numbers constrained by
+ * Bm25Weights, never caller-supplied strings, so this cannot widen the SQL
+ * surface.
+ */
+function bm25Expr(table: FtsTable, w: Bm25Weights): string {
+	// Argument order and COUNT must match the FTS5 DDL exactly; SQLite rejects
+	// a bm25() call whose weight count differs from the table's column count.
+	// The schema-version gate in search.ts is what keeps a schema-3 index (four
+	// columns) from ever reaching this five-weight call.
+	return (
+		`bm25(${table}, ${w.title}, ${w.content}, ${w.tags}, ` +
+		`${w.linkedNotes}, ${w.pathTokens})`
+	);
+}
+
 export interface Fts5SearchOptions {
 	dbPath: string;
 	ftsQuery: string;
@@ -52,6 +116,20 @@ export interface Fts5SearchOptions {
 	 * fails closed and requires a rebuild.
 	 */
 	scope: string;
+	/**
+	 * Optional BM25 column weights. Defaults to DEFAULT_BM25_WEIGHTS.
+	 * Exposed so a deployment can retune ranking without a code change.
+	 */
+	weights?: Bm25Weights;
+	/**
+	 * Number of candidates to retrieve before the caller reranks.
+	 *
+	 * Defaults to `limit`. Reranking by term coverage can only promote a
+	 * document that is IN the pool, so a caller that reranks must ask for a
+	 * pool wider than the page it will show: measured on the golden set, the
+	 * correct answer sat at BM25 position 25 for one query and 75 for another.
+	 */
+	poolSize?: number;
 }
 
 /**
@@ -75,19 +153,48 @@ export function buildFts5Query(
 		minTokenLength?: number;
 		stopwords?: ReadonlySet<string>;
 		normalize?: (s: string) => string;
+		/**
+		 * Cross-language equivalents for a token, OR-ed into the query.
+		 *
+		 * Injected rather than imported so this function stays a pure string
+		 * transform: the bridge table is a retrieval policy, not a property of
+		 * FTS5 syntax. Without it a term like "audit" cannot reach a document
+		 * named "denetim" — the candidate never enters the pool at all, and no
+		 * amount of reranking can recover a document that was never fetched.
+		 */
+		expandTerm?: (token: string) => Iterable<string>;
 	} = {},
 ): string {
 	const minLen = opts.minTokenLength ?? 2;
 	const stopwords = opts.stopwords ?? EMPTY_STOPWORDS;
 	const norm = opts.normalize ?? identity;
+	const expand = opts.expandTerm;
 	if (typeof rawQuery !== "string" || rawQuery.length === 0) return "";
 	const phrases: string[] = [];
+	const seen = new Set<string>();
+	const push = (phrase: string): void => {
+		if (seen.has(phrase)) return;
+		seen.add(phrase);
+		phrases.push(phrase);
+	};
 	for (const word of rawQuery.split(/\s+/)) {
 		const parts = word
 			.split(/[-":^*()]+/)
 			.map((p) => norm(p))
 			.filter((p) => p.length >= minLen && !stopwords.has(p));
-		if (parts.length > 0) phrases.push(`"${parts.join(" ")}"`);
+		if (parts.length === 0) continue;
+		push(`"${parts.join(" ")}"`);
+		if (expand === undefined) continue;
+		for (const part of parts) {
+			for (const equivalent of expand(part)) {
+				// Guard the FTS5 grammar: an equivalent is a bare term, so it
+				// must not carry quotes or operators of its own.
+				const clean = norm(equivalent)
+					.replace(/[-":^*()]+/g, " ")
+					.trim();
+				if (clean.length >= minLen) push(`"${clean}"`);
+			}
+		}
 	}
 	if (phrases.length === 0) return "";
 	return phrases.join(" OR ");
@@ -109,6 +216,8 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 	const db = new Database(opts.dbPath, { readonly: true, fileMustExist: true });
 	try {
 		db.pragma("query_only = ON");
+		// Schema first: the ranking call below is schema-specific.
+		requireSchemaVersion(db, opts.dbPath);
 		// A concrete-scope read must never widen silently on a legacy index.
 		requireScopeColumn(db, opts.dbPath, opts.scope);
 
@@ -126,12 +235,13 @@ export function fts5Search(opts: Fts5SearchOptions): Fts5Hit[] {
 			const existing = bestByPath.get(hit.path);
 			if (!existing || hit.rank < existing.rank) bestByPath.set(hit.path, hit);
 		}
+		const take = Math.max(opts.poolSize ?? opts.limit, opts.limit);
 		return [...bestByPath.values()]
 			.sort(
 				(left, right) =>
 					left.rank - right.rank || left.path.localeCompare(right.path),
 			)
-			.slice(0, opts.limit);
+			.slice(0, take);
 	} finally {
 		db.close();
 	}
@@ -159,6 +269,7 @@ function queryFtsTable(
 	opts: Fts5SearchOptions,
 ): FtsRow[] {
 	if (query.length === 0) return [];
+	const rankExpr = bm25Expr(table, opts.weights ?? DEFAULT_BM25_WEIGHTS);
 	const filters: string[] = [`${table} MATCH ?`];
 	const bindings: (string | number)[] = [query];
 	if (opts.mtimeFrom !== undefined) {
@@ -173,14 +284,14 @@ function queryFtsTable(
 		filters.push("d.scope = ?");
 		bindings.push(opts.scope);
 	}
-	bindings.push(opts.limit);
+	bindings.push(Math.max(opts.poolSize ?? opts.limit, opts.limit));
 
 	return db
 		.prepare(
 			`SELECT
         d.path AS path,
         COALESCE(d.title, '') AS title,
-        fts.rank AS rank,
+        ${rankExpr} AS rank,
         COALESCE(d.content_raw, '') AS content_raw,
         COALESCE(d.body_text, '') AS body_text,
         COALESCE(d.mtime, 0) AS mtime,
@@ -191,7 +302,7 @@ function queryFtsTable(
       FROM ${table} fts
       JOIN documents d ON d.rowid = fts.rowid
       WHERE ${filters.join(" AND ")}
-      ORDER BY fts.rank, d.path
+      ORDER BY ${rankExpr}, d.path
       LIMIT ?`,
 		)
 		.all(...bindings) as FtsRow[];
@@ -283,6 +394,57 @@ export function hasScopeColumn(db: Database.Database, dbPath: string): boolean {
 		);
 	}
 	return has;
+}
+
+/**
+ * FTS5 schema this client speaks. Must match `mneme_core.fts5.indexer`.
+ *
+ * Schema 4 added `documents_fts.path_tokens`, so the ranking call now passes
+ * five column weights. Running it against a schema-3 index would raise a raw
+ * SQLite "wrong number of arguments to function bm25()" from deep inside the
+ * query layer; the gate below turns that into an actionable error naming the
+ * rebuild command instead.
+ */
+export const EXPECTED_SCHEMA_VERSION = "4";
+
+/** Per-DB cache of the verified schema version, keyed by absolute path. */
+const schemaVersionVerified = new Set<string>();
+
+/**
+ * Refuse to query an index whose schema predates this client.
+ *
+ * Placed here rather than in search.ts so that summarize and timeline, which
+ * reach FTS5 through the same helper, inherit the same protection. The
+ * pre-existing locale gate lives only in search.ts and those two callers were
+ * never covered by it.
+ */
+function requireSchemaVersion(db: Database.Database, dbPath: string): void {
+	if (schemaVersionVerified.has(dbPath)) return;
+	const hasMeta = db
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type='table' AND name='index_meta'",
+		)
+		.get() as { name: string } | undefined;
+	const stored = hasMeta
+		? (
+				db
+					.prepare("SELECT value FROM index_meta WHERE key='schema_version'")
+					.get() as { value: string } | undefined
+			)?.value
+		: undefined;
+	if (stored === EXPECTED_SCHEMA_VERSION) {
+		schemaVersionVerified.add(dbPath);
+		return;
+	}
+	throw new MnemeToolError(
+		ERROR_CODES.INDEX_STALE_OR_LOCALE_MISMATCH,
+		`FTS5 index schema '${stored ?? "unversioned"}' does not match the ` +
+			`schema this client speaks ('${EXPECTED_SCHEMA_VERSION}'). ` +
+			"Run 'mneme-core index rebuild --locale <tr|en>' to regenerate it from " +
+			"your markdown. Pass the locale your vault is written in: the flag " +
+			"defaults to 'en', and rebuilding a Turkish vault under it silently " +
+			"degrades Turkish matching.",
+	);
 }
 
 /** Refuse concrete-scope reads when the derived index has no scope labels. */

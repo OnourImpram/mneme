@@ -30,7 +30,7 @@ import {
 } from "../distill/injection_tracker.js";
 import { ERROR_CODES, toMnemeError } from "../errors.js";
 import { wrapUntrusted } from "../injection.js";
-import { normalizeTr, normalizeTrAsciiFold } from "../locale/tr.js";
+import { resolveIndexProfile } from "../locale/resolve.js";
 import { redact } from "../privacy.js";
 import {
 	buildFts5Query,
@@ -324,17 +324,26 @@ function topicMatches(
 	scope: string,
 ): TopicHit[] {
 	if (limit <= 0) return [];
+	// Adopt the profile the index declares, exactly as mneme_search does.
+	// Hardcoding the Turkish normalizer meant the ASCII arm was always present,
+	// and fts5Search refuses that arm unless the index carries the Turkish
+	// ASCII key — so this tool failed outright on any English index.
+	const resolved = resolveIndexProfile(vault.fts5Db);
+	if (!resolved.ok) return [];
+	const { profile } = resolved;
 	const ftsQuery = buildFts5Query(description, {
 		minTokenLength: 2,
 		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTr,
+		normalize: profile.normalize,
 	});
-	const ftsQueryAscii = buildFts5Query(description, {
-		minTokenLength: 2,
-		stopwords: DEFAULT_STOPWORDS,
-		normalize: normalizeTrAsciiFold,
-	});
-	if (ftsQuery.length === 0 && ftsQueryAscii.length === 0) return [];
+	const ftsQueryAscii = profile.asciiFold
+		? buildFts5Query(description, {
+				minTokenLength: 2,
+				stopwords: DEFAULT_STOPWORDS,
+				normalize: profile.asciiFold,
+			})
+		: undefined;
+	if (ftsQuery.length === 0 && !ftsQueryAscii) return [];
 	const hits = fts5Search({
 		dbPath: vault.fts5Db,
 		ftsQuery,
