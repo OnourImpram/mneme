@@ -24,10 +24,26 @@
 import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HealthInputSchema, healthTool } from "../../src/tools/health.js";
 import { buildTestDb } from "../helpers/fts5_fixture.js";
 import { defaultDocs, makeTempVault } from "../helpers/vault_fixture.js";
+
+/**
+ * Every test here builds a real vault on disk — a temp directory, a SQLite
+ * file, two FTS5 virtual tables — because `mneme_health` reports on the
+ * filesystem, and an in-memory stand-in would not exercise what it reads.
+ * That makes this file I/O-bound where vitest's 10 s default assumes
+ * CPU-bound. Measured on a Windows CI runner under coverage instrumentation:
+ * 111 s for the file, and the remedy-contract test — the one that builds five
+ * vaults where the others build one — timed out at 10 s, while the same test
+ * passes locally in well under a second.
+ *
+ * A gate that fails for reasons unrelated to the thing under test teaches
+ * people to ignore it, so the budget is raised to match the work these tests
+ * actually do. This is a timeout, not a retry: a genuine hang still fails.
+ */
+vi.setConfig({ testTimeout: 60_000 });
 
 const DAY = 86_400;
 
