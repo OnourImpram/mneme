@@ -41,6 +41,7 @@ EXPECTED_TOOL_NAMES = (
     "mneme_timeline",
     "mneme_prime",
     "mneme_propose",
+    "mneme_health",
     "mneme_checkpoint_list",
     "mneme_working_set_load",
 )
@@ -206,8 +207,9 @@ def _check_tool_registry(errors: list[str], repo_root: Path) -> None:
     actual = _tool_names_from_registry(registry)
     if actual != EXPECTED_TOOL_NAMES:
         errors.append(
-            "MCP tool registry must expose the canonical nine tools in order: "
-            f"{actual}"
+            "MCP tool registry must expose the canonical tools in order.\n"
+            f"  expected: {EXPECTED_TOOL_NAMES}\n"
+            f"  actual:   {actual}"
         )
 
 
