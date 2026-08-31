@@ -1,0 +1,42 @@
+# Leak patterns that ship WITH the repository.
+#
+# The maintainer's private list (.github/sanitization-patterns.txt) names the
+# specific terms that must never appear here, so it is gitignored and CI never
+# sees it. That left the publish pipeline with no leak gate at all: `sanitize`
+# had zero occurrences in any workflow, and the only gate was a local pre-push
+# hook that a CI-triggered release never runs.
+#
+# This file closes that hole with patterns that describe SHAPES rather than
+# values -- a credential's format, a home directory's layout, a consumer mail
+# domain. Nothing personal is encoded here, so it can live in a public repo,
+# and it catches the classes of leak that matter without needing to know which
+# machine or which person the repo was authored on.
+#
+# One pattern per line, POSIX extended regex (grep -E), case-insensitive.
+# Lines that are empty or start with `#` are ignored. No PCRE constructs:
+# lookahead is unavailable in `grep -E` and would fail only on some platforms,
+# which is the worst way for a gate to fail.
+#
+# Adding a pattern: run `bash .github/scripts/sanitize.sh` first. A pattern
+# that fires on the existing tree is a false positive to narrow, not a leak to
+# announce -- an instrument's fault is not the subject's fault.
+
+# --- Credential shapes ---------------------------------------------------
+-----BEGIN [A-Z ]*PRIVATE KEY-----
+\bsk-[A-Za-z0-9]{32,}
+\bsk-ant-[A-Za-z0-9_-]{24,}
+\bgh[pousr]_[A-Za-z0-9]{36,}
+\bAKIA[0-9A-Z]{16}\b
+\bxox[baprs]-[0-9]{10,}-[A-Za-z0-9-]{10,}
+\bAIza[0-9A-Za-z_-]{35}\b
+\bnpm_[A-Za-z0-9]{36}\b
+\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{16,}
+\bglpat-[A-Za-z0-9_-]{20,}
+
+# --- A local machine's user directory names a person ---------------------
+[Cc]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+
+
+# --- Consumer mailboxes --------------------------------------------------
+# A project contact belongs on a project domain. A personal inbox in public
+# source is a leak whoever it belongs to.
+[A-Za-z0-9._%+-]+@(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|proton|protonmail|yandex|icloud|aol)\.[a-z]{2,}

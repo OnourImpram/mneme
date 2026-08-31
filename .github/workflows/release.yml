@@ -80,6 +80,12 @@ jobs:
       - name: Public repo integrity verifier
         run: python3 tools/repo_integrity.py
 
+      # A publish is where a leak stops being reversible. The gate existed as a
+      # script and a local pre-push hook, neither of which a tag-triggered
+      # release runs, so this pipeline had no leak check at all.
+      - name: Leak gate (tracked content)
+        run: bash .github/scripts/sanitize.sh
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

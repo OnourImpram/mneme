@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Pre-push leak gate.
+#
+# Delegates to .github/scripts/sanitize.sh so the local gate and the CI gate
+# are one implementation, not two that can drift. The script scans TRACKED
+# content only -- exactly what a push ships -- and merges the maintainer's
+# private pattern list when it is present, falling back to the committed
+# public list otherwise, so a contributor without the private file is still
+# gated and never blocked spuriously.
+set -u
+
+GITROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$GITROOT" || exit 0
+
+SCRIPT=".github/scripts/sanitize.sh"
+[ -f "$SCRIPT" ] || exit 0
+
+if ! bash "$SCRIPT"; then
+  echo "pre-push BLOCKED: remove the flagged content from tracked files." >&2
+  exit 1
+fi
+exit 0

@@ -110,6 +110,12 @@ jobs:
           python-version: '3.12'
       - name: Tool validator unit tests
         run: python -m unittest discover -s tools/tests -p 'test_*.py' -v
+
+      # Catches a leak on the pull request rather than at the tag, where
+      # it would already be published. Runs without the maintainer's
+      # private pattern list, which CI never has.
+      - name: Leak gate (tracked content)
+        run: bash .github/scripts/sanitize.sh
       - name: Install pinned actionlint
         env:
           ACTIONLINT_VERSION: 1.7.7

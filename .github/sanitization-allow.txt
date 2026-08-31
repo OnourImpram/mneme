@@ -1,0 +1,21 @@
+# Known-fake values that are allowed to appear in tracked content.
+#
+# The leak gate matches credential SHAPES, and a security test's whole job is
+# to carry things shaped like credentials -- otherwise it cannot prove the
+# redactor catches them. Excluding test files wholesale would blind the gate
+# exactly where a real key is most likely to be pasted by accident, so the
+# exemption is per-VALUE instead: each entry below is a published placeholder
+# or an obviously sequential dummy, reviewed once and named here.
+#
+# Fixed strings, one per line (matched with `grep -F`). A comment above each
+# entry says why it is not a secret.
+#
+# Adding an entry is a decision, not a formality: if you cannot write the
+# "why" line, the value probably should not be in tracked content at all.
+
+# AWS's own documented example access key, used in their public docs.
+AKIAIOSFODNN7EXAMPLE
+
+# Sequential dummy token in mneme's redaction fixtures -- the alphabet in
+# order is not a credential anyone could have issued.
+ghp_1234567890abcdefghijklmnopqrstuvwxyz
