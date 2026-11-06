@@ -44,22 +44,22 @@
 	},
 	"homepage": "https://github.com/OnourImpram/mneme#readme",
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "^1.30.0",
+		"@modelcontextprotocol/sdk": "^1.32.2",
 		"better-sqlite3": "^12.11.1",
-		"zod": "^4.4.3"
+		"zod": "^4.6.7"
 	},
 	"optionalDependencies": {
-		"neo4j-driver": "^6.2.0"
+		"neo4j-driver": "^6.3.0"
 	},
 	"devDependencies": {
 		"@types/better-sqlite3": "^7.6.10",
-		"@types/node": "^26.1.1",
+		"@types/node": "^26.6.6",
 		"rimraf": "^6.1.3",
-		"tsx": "^4.23.5",
+		"tsx": "^4.23.15",
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.10",
 		"@vitest/coverage-v8": "^4.1.10",
-		"vite": "^8.2.0"
+		"vite": "^8.3.5"
 	},
 	"engines": {
 		"node": ">=22"
