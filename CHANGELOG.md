@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Compression provider follows the current Claude generation.** The default
+  model is `claude-sonnet-5-5` (was `claude-sonnet-4-5`, which the vendor now
+  lists as deprecated). The pricing table gains `claude-sonnet-5-5`,
+  `claude-opus-5-5` and `claude-haiku-5-5`; the previous rows stay for vaults
+  configured with them.
+- The default output budget of one compression call (`max_tokens` in
+  `.mneme/compression.json`) is 16,000 tokens (was 4,096): on current models
+  thinking is on by default and counts toward `max_tokens`. The cost-cap
+  reservation of an in-flight call is sized from this budget, so it grows with
+  it; the ledger still records the actual cost when the call returns.
+- Both defaults apply to a config created from now on. `mneme install` writes
+  the defaults into `.mneme/compression.json`, so an existing vault keeps the
+  model and budget it was installed with until that file is edited. When moving
+  an existing vault to a current model, raise `max_tokens` in the same edit.
+
+### Fixed
+
+- **A response is read by block type, not by position.** The provider took the
+  first content block as the summary. On current models a response can begin
+  with a `thinking` block, so the summary came back empty and was stored as a
+  successful compression. Text blocks are now collected in order.
+- **A declined or truncated call is an error.** `stop_reason: "refusal"`, and
+  `max_tokens` reached before any text, raise `LlmProviderError` instead of
+  returning an empty summary.
+- **Two pricing rows under-stated or over-stated the published rates.**
+  `claude-haiku-4-5-20251001` was listed at 0.8 / 4.0 (published: 1 / 5), so the
+  cost-cap ledger under-counted spend by a fifth; `claude-opus-4-7` was listed
+  at 15 / 75 (published: 5 / 25). Rates read from the vendor pricing page on
+  2026-11-15.
+
 ## [4.1.0] - 2026-08-31
 
 ### 4.1 — ranking that reads names, and crosses languages

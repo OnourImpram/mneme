@@ -19,7 +19,6 @@ Stop hook never blocks on compression.
 from .config import (
     DEFAULT_COST_CAP_USD_MONTHLY,
     DEFAULT_MAX_PAYLOAD_BYTES,
-    DEFAULT_MAX_TOKENS,
     SCHEMA_VERSION,
     CompressionConfig,
     ensure_default_config,
@@ -35,6 +34,7 @@ from .ledger import (
     rolling_30d_spend,
 )
 from .llm import (
+    DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     DEFAULT_PRICING_PER_MTOK,
     AnthropicProvider,

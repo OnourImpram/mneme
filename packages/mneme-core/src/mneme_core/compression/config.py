@@ -26,10 +26,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .llm import DEFAULT_MODEL
+from .llm import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 
 DEFAULT_COST_CAP_USD_MONTHLY = 25.0
-DEFAULT_MAX_TOKENS = 4096
 DEFAULT_MAX_PAYLOAD_BYTES = 100_000
 
 SCHEMA_VERSION = 1

@@ -22,15 +22,30 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..privacy import redact
 
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # Pricing per million tokens (USD). Operators override via
 # ``LlmCallSpec.pricing_per_mtok`` when their model is not listed.
+# Rates are the base input and output rates on the vendor pricing page,
+# read on 2026-11-15; cache and batch rates are not modelled here.
 DEFAULT_PRICING_PER_MTOK: dict[str, dict[str, float]] = {
+    # Current generation.
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0},
+    # Rate for prompts up to 100,000 tokens (0.5 / 2.5 above that). One
+    # compression call sends at most ``DEFAULT_MAX_PAYLOAD_BYTES``.
+    "claude-haiku-5-5": {"input": 0.1, "output": 0.5},
+    # Previous generation, kept for vaults configured with these ids.
     "claude-sonnet-4-5": {"input": 3.0, "output": 15.0},
-    "claude-opus-4-7": {"input": 15.0, "output": 75.0},
-    "claude-haiku-4-5-20251001": {"input": 0.8, "output": 4.0},
+    "claude-opus-4-7": {"input": 5.0, "output": 25.0},
+    "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
 }
+
+# Output budget of one call. On current models thinking is on by default
+# and counts toward ``max_tokens``, so the budget has to cover thinking
+# plus the summary; a budget sized for the summary alone can be spent
+# before any text is written.
+DEFAULT_MAX_TOKENS = 16_000
 
 # Maximum size of the JSON payload we send to the provider in one call.
 # Prevents accidental whole-vault sends; callers chunk above this.
@@ -54,7 +69,7 @@ class LlmCallSpec:
     system: str
     payload: str
     model: str = DEFAULT_MODEL
-    max_tokens: int = 4096
+    max_tokens: int = DEFAULT_MAX_TOKENS
     pricing_per_mtok: dict[str, dict[str, float]] | None = None
 
 
@@ -102,6 +117,26 @@ def cost_for_usage(
     )
 
 
+def response_text(response: Any) -> str:
+    """Concatenate the text blocks of a Messages API response, in order.
+
+    Blocks are read by ``type``, not by position: a response can begin
+    with a ``thinking`` block, whose text is empty by default. A block
+    that carries no ``type`` is treated as text when it has ``text``.
+    """
+    parts: list[str] = []
+    try:
+        for block in response.content or []:
+            if getattr(block, "type", "text") != "text":
+                continue
+            text = getattr(block, "text", "")
+            if isinstance(text, str):
+                parts.append(text)
+    except (AttributeError, TypeError):
+        return ""
+    return "".join(parts)
+
+
 class AnthropicProvider:
     """Anthropic Claude provider. Lazy-imports the SDK.
 
@@ -138,14 +173,19 @@ class AnthropicProvider:
         except Exception as exc:  # noqa: BLE001 - third-party surface
             raise LlmProviderError(f"Anthropic call failed: {exc}") from exc
 
-        text = ""
-        try:
-            content = response.content
-            if content and len(content) > 0:
-                first = content[0]
-                text = getattr(first, "text", "") or ""
-        except (AttributeError, IndexError, TypeError):
-            text = ""
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
+            # A declined request carries no summary; an empty string here
+            # would be stored as if the compression had succeeded.
+            raise LlmProviderError(
+                "Anthropic declined the request (stop_reason: refusal)."
+            )
+        text = response_text(response)
+        if stop_reason == "max_tokens" and not text:
+            raise LlmProviderError(
+                "Anthropic stopped at max_tokens before writing any text "
+                f"(max_tokens={spec.max_tokens}); raise max_tokens."
+            )
         try:
             tokens_in = int(response.usage.input_tokens)
             tokens_out = int(response.usage.output_tokens)
